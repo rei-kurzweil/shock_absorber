@@ -17,9 +17,10 @@ use std::time::{Duration as StdDuration, Instant};
 
 mod net_backend;
 mod post;
+mod clearsky_v1;
 
 use crate::net_backend::{
-    ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached, ensure_created_lists_cached,
+    ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached, ensure_clearsky_lists_cached,
     ensure_pinned_posts_cached, extract_post_text, extract_reply_node, poll_notifications,
 };
 use crate::post::{PostNode, render_post_nodes};
@@ -228,28 +229,33 @@ impl App {
         );
 
         if let Some(notif) = self.opened_notification() {
-            let created_lists = if let Some(lists) = self.store.get_created_lists(&notif.author.data.did)
+            let created_lists = if let Some(lists) = self.store.get_clearsky_lists(&notif.author.data.did)
             {
                 if lists.is_empty() {
-                    "This actor has no returned created lists.".to_string()
+                    "This actor has no returned Clearsky moderation lists.".to_string()
                 } else {
                     lists.iter()
                         .map(|list| {
-                            let count = list
-                                .data
-                                .list_item_count
-                                .map(|count| count.to_string())
-                                .unwrap_or_else(|| "?".to_string());
-                            format!("{} [{} members]", list.data.name, count)
+                            let mut parts = vec![
+                                format!("name: {}", list.name),
+                                format!("url: {}", list.url),
+                                format!("did: {}", list.did),
+                                format!("date_added: {}", list.date_added),
+                                format!("created_date: {}", list.created_date),
+                            ];
+                            if !list.description.is_empty() {
+                                parts.push(format!("description: {}", list.description));
+                            }
+                            parts.join("\n")
                         })
                         .collect::<Vec<_>>()
-                        .join("\n")
+                        .join("\n\n")
                 }
             } else {
-                "Created lists not loaded yet.".to_string()
+                "Clearsky moderation lists not loaded yet.".to_string()
             };
             lines.push(String::new());
-            lines.push("Created Lists:".to_string());
+            lines.push("Clearsky Moderation Lists:".to_string());
             lines.push(String::new());
             lines.extend(created_lists.lines().map(str::to_owned));
         }
@@ -308,7 +314,7 @@ impl App {
                     ensure_actor_profile_cached(agent, &mut self.store, normalize_actor_ref(actor))
                         .await?;
                 ensure_pinned_posts_cached(agent, &mut self.store, &profile.did).await?;
-                ensure_created_lists_cached(agent, &mut self.store, &profile.did).await?;
+                ensure_clearsky_lists_cached(&mut self.store, &profile.did).await?;
                 let lines = format_pins_output(&self.store, &profile);
                 self.set_command_output(format!("pins {}", profile.handle), lines);
                 self.status = format!("pins loaded for {}", profile.handle);

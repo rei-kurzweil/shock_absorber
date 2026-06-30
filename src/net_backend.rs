@@ -1,8 +1,10 @@
+use crate::clearsky_v1;
 use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
-use bsky_sdk::api::app::bsky::{actor, feed, graph};
+use bsky_sdk::api::app::bsky::{actor, feed};
 use bsky_sdk::api::types::string::{AtIdentifier, Did};
 use bsky_sdk::api::types::{Union, Unknown};
 use bsky_sdk::BskyAgent;
+use reqwest::Client;
 use std::collections::{HashMap, HashSet};
 
 pub struct NotificationStore {
@@ -12,9 +14,10 @@ pub struct NotificationStore {
     bios: HashMap<String, Option<String>>,
     pinned_posts: HashMap<String, Vec<feed::defs::PostView>>,
     pinned_post_replies: HashMap<String, Vec<CachedThreadReply>>,
-    created_lists: HashMap<String, Vec<graph::defs::ListView>>,
+    clearsky_lists: HashMap<String, Vec<clearsky_v1::ModerationListEntry>>,
     did_to_handle: HashMap<String, String>,
     handle_to_did: HashMap<String, String>,
+    clearsky_client: Client,
 }
 
 impl NotificationStore {
@@ -26,9 +29,10 @@ impl NotificationStore {
             bios: HashMap::new(),
             pinned_posts: HashMap::new(),
             pinned_post_replies: HashMap::new(),
-            created_lists: HashMap::new(),
+            clearsky_lists: HashMap::new(),
             did_to_handle: HashMap::new(),
             handle_to_did: HashMap::new(),
+            clearsky_client: Client::new(),
         }
     }
 
@@ -83,12 +87,16 @@ impl NotificationStore {
         self.pinned_post_replies.get(post_uri).map(Vec::as_slice)
     }
 
-    pub fn cache_created_lists(&mut self, did: &Did, lists: Vec<graph::defs::ListView>) {
-        self.created_lists.insert(did.as_str().to_owned(), lists);
+    pub fn cache_clearsky_lists(
+        &mut self,
+        did: &Did,
+        lists: Vec<clearsky_v1::ModerationListEntry>,
+    ) {
+        self.clearsky_lists.insert(did.as_str().to_owned(), lists);
     }
 
-    pub fn get_created_lists(&self, did: &Did) -> Option<&[graph::defs::ListView]> {
-        self.created_lists.get(did.as_str()).map(Vec::as_slice)
+    pub fn get_clearsky_lists(&self, did: &Did) -> Option<&[clearsky_v1::ModerationListEntry]> {
+        self.clearsky_lists.get(did.as_str()).map(Vec::as_slice)
     }
 
     pub fn find_did(&self, actor: &str) -> Option<Did> {
@@ -178,7 +186,7 @@ pub async fn poll_notifications(
 
     for did in seen_dids {
         ensure_pinned_posts_cached(agent, store, &did).await?;
-        ensure_created_lists_cached(agent, store, &did).await?;
+        ensure_clearsky_lists_cached(store, &did).await?;
     }
 
     if any_unread {
@@ -319,30 +327,16 @@ pub async fn ensure_pinned_post_replies_cached(
     Ok(())
 }
 
-pub async fn ensure_created_lists_cached(
-    agent: &BskyAgent,
+pub async fn ensure_clearsky_lists_cached(
     store: &mut NotificationStore,
     did: &Did,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if store.get_created_lists(did).is_some() {
+    if store.get_clearsky_lists(did).is_some() {
         return Ok(());
     }
 
-    let response = agent
-        .api
-        .app
-        .bsky
-        .graph
-        .get_lists(graph::get_lists::ParametersData {
-            actor: AtIdentifier::Did(did.clone()),
-            cursor: None,
-            limit: None,
-            purposes: None,
-        }
-        .into())
-        .await?;
-
-    store.cache_created_lists(did, response.data.lists);
+    let lists = clearsky_v1::get_moderation_lists(&store.clearsky_client, did.as_str()).await?;
+    store.cache_clearsky_lists(did, lists);
     Ok(())
 }
 
@@ -377,11 +371,8 @@ pub fn extract_reply_node(record: &Unknown) -> ReplyNode {
 
 pub fn extract_post_text(record: &Unknown) -> Option<String> {
     let value = serde_json::to_value(record).ok()?;
-    let mut lines = Vec::new();
-
-    if let Some(text) = value.get("text").and_then(|value| value.as_str()) {
-        lines.push(text.to_owned());
-    }
+    let text = value.get("text")?.as_str()?.to_owned();
+    let mut lines = vec![text];
 
     if let Some(facets) = value.get("facets").and_then(|value| value.as_array()) {
         for facet in facets {
@@ -406,11 +397,7 @@ pub fn extract_post_text(record: &Unknown) -> Option<String> {
         lines.extend(embed_text.lines().map(str::to_owned));
     }
 
-    if lines.is_empty() {
-        None
-    } else {
-        Some(lines.join("\n"))
-    }
+    Some(lines.join("\n"))
 }
 
 fn collect_thread_replies(thread: &feed::defs::ThreadViewPost) -> Vec<CachedThreadReply> {
