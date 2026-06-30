@@ -11,7 +11,7 @@ pub struct NotificationStore {
     reply_texts: HashMap<String, String>,
     bios: HashMap<String, Option<String>>,
     pinned_posts: HashMap<String, Vec<feed::defs::PostView>>,
-    pinned_post_replies: HashMap<String, Vec<CachedReplyPost>>,
+    pinned_post_replies: HashMap<String, Vec<CachedThreadReply>>,
     created_lists: HashMap<String, Vec<graph::defs::ListView>>,
     did_to_handle: HashMap<String, String>,
     handle_to_did: HashMap<String, String>,
@@ -75,11 +75,11 @@ impl NotificationStore {
         self.pinned_posts.get(did.as_str()).map(Vec::as_slice)
     }
 
-    pub fn cache_pinned_post_replies(&mut self, post_uri: &str, replies: Vec<CachedReplyPost>) {
+    pub fn cache_pinned_post_replies(&mut self, post_uri: &str, replies: Vec<CachedThreadReply>) {
         self.pinned_post_replies.insert(post_uri.to_owned(), replies);
     }
 
-    pub fn get_pinned_post_replies(&self, post_uri: &str) -> Option<&[CachedReplyPost]> {
+    pub fn get_pinned_post_replies(&self, post_uri: &str) -> Option<&[CachedThreadReply]> {
         self.pinned_post_replies.get(post_uri).map(Vec::as_slice)
     }
 
@@ -110,29 +110,6 @@ impl NotificationStore {
             .collect()
     }
 
-    pub fn reply_posts_for_post(&self, post_uri: &str) -> Vec<CachedReplyPost> {
-        self.notifications
-            .iter()
-            .filter(|notif| notif.data.reason == "reply")
-            .filter_map(|notif| {
-                let reply = extract_reply_node(&notif.data.record);
-                let matches_target = notif.data.reason_subject.as_deref() == Some(post_uri)
-                    || reply.parent_uri.as_deref() == Some(post_uri)
-                    || reply.root_uri.as_deref() == Some(post_uri);
-                if !matches_target {
-                    return None;
-                }
-
-                Some(CachedReplyPost {
-                    author_handle: notif.author.data.handle.to_string(),
-                    indexed_at: notif.indexed_at.as_ref().to_string(),
-                    uri: notif.data.uri.clone(),
-                    text: reply.text.unwrap_or_default(),
-                    parent_uri: reply.parent_uri,
-                })
-            })
-            .collect()
-    }
 }
 
 #[derive(Clone)]
@@ -149,12 +126,11 @@ pub struct ReplyNode {
 }
 
 #[derive(Clone)]
-pub struct CachedReplyPost {
+pub struct CachedThreadReply {
     pub author_handle: String,
-    pub indexed_at: String,
     pub uri: String,
     pub text: String,
-    pub parent_uri: Option<String>,
+    pub children: Vec<CachedThreadReply>,
 }
 
 pub async fn poll_notifications(
@@ -334,9 +310,7 @@ pub async fn ensure_pinned_post_replies_cached(
 
     let replies = match thread.data.thread {
         Union::Refs(feed::get_post_thread::OutputThreadRefs::AppBskyFeedDefsThreadViewPost(thread)) => {
-            let mut replies = Vec::new();
-            collect_thread_replies(&thread, post_uri, &mut replies);
-            replies
+            collect_thread_replies(&thread)
         }
         _ => Vec::new(),
     };
@@ -403,33 +377,59 @@ pub fn extract_reply_node(record: &Unknown) -> ReplyNode {
 
 pub fn extract_post_text(record: &Unknown) -> Option<String> {
     let value = serde_json::to_value(record).ok()?;
-    value.get("text")?.as_str().map(String::from)
-}
+    let mut lines = Vec::new();
 
-fn collect_thread_replies(
-    thread: &feed::defs::ThreadViewPost,
-    root_uri: &str,
-    replies: &mut Vec<CachedReplyPost>,
-) {
-    let Some(children) = thread.data.replies.as_ref() else {
-        return;
-    };
+    if let Some(text) = value.get("text").and_then(|value| value.as_str()) {
+        lines.push(text.to_owned());
+    }
 
-    for child in children {
-        if let Union::Refs(feed::defs::ThreadViewPostRepliesItem::ThreadViewPost(post)) = child {
-            replies.push(CachedReplyPost {
-                author_handle: post.data.post.author.data.handle.to_string(),
-                indexed_at: post.data.post.indexed_at.as_ref().to_string(),
-                uri: post.data.post.uri.clone(),
-                text: extract_post_text(&post.data.post.record).unwrap_or_default(),
-                parent_uri: Some(thread.data.post.uri.clone()),
-            });
-
-            if post.data.post.uri != root_uri {
-                collect_thread_replies(post, root_uri, replies);
+    if let Some(facets) = value.get("facets").and_then(|value| value.as_array()) {
+        for facet in facets {
+            if let Some(features) = facet.get("features").and_then(|value| value.as_array()) {
+                for feature in features {
+                    if let Some(uri) = feature.get("uri").and_then(|value| value.as_str()) {
+                        lines.push(format!("link: {uri}"));
+                    }
+                }
             }
         }
     }
+
+    if let Some(embed_text) = value
+        .get("embed")
+        .and_then(|embed| embed.get("record"))
+        .and_then(|record| record.get("value"))
+        .and_then(|value| value.get("text"))
+        .and_then(|value| value.as_str())
+    {
+        lines.push("quoted:".to_string());
+        lines.extend(embed_text.lines().map(str::to_owned));
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+fn collect_thread_replies(thread: &feed::defs::ThreadViewPost) -> Vec<CachedThreadReply> {
+    let Some(children) = thread.data.replies.as_ref() else {
+        return Vec::new();
+    };
+
+    let mut replies = Vec::new();
+    for child in children {
+        if let Union::Refs(feed::defs::ThreadViewPostRepliesItem::ThreadViewPost(post)) = child {
+            replies.push(CachedThreadReply {
+                author_handle: post.data.post.author.data.handle.to_string(),
+                uri: post.data.post.uri.clone(),
+                text: extract_post_text(&post.data.post.record).unwrap_or_default(),
+                children: collect_thread_replies(post),
+            });
+        }
+    }
+    replies
 }
 
 fn notification_key(notif: &Notification) -> String {

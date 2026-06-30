@@ -14,13 +14,12 @@ use ratatui::{Frame, Terminal};
 use std::env;
 use std::io::{self, Stdout};
 use std::time::{Duration as StdDuration, Instant};
-use std::collections::HashMap;
 
 mod net_backend;
 mod post;
 
 use crate::net_backend::{
-    ActorProfile, CachedReplyPost, NotificationStore, ensure_actor_profile_cached, ensure_created_lists_cached,
+    ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached, ensure_created_lists_cached,
     ensure_pinned_posts_cached, extract_post_text, extract_reply_node, poll_notifications,
 };
 use crate::post::{PostNode, render_post_nodes};
@@ -172,12 +171,11 @@ impl App {
                 header: format!("@{} pinned post", post.author.data.handle.as_str()),
                 uri: post.uri.clone(),
                 text: extract_post_text(&post.record).unwrap_or_default(),
-                children: build_reply_tree(
+                children: build_post_nodes(
                     self.store
                         .get_pinned_post_replies(&post.uri)
                         .map(|replies| replies.to_vec())
-                        .unwrap_or_else(|| self.store.reply_posts_for_post(&post.uri)),
-                    &post.uri,
+                        .unwrap_or_default(),
                 ),
             })
             .collect::<Vec<_>>();
@@ -543,12 +541,11 @@ fn format_pins_output(store: &NotificationStore, profile: &ActorProfile) -> Vec<
             header: format!("@{} pinned post", post.author.data.handle.as_str()),
             uri: post.uri.clone(),
             text: extract_post_text(&post.record).unwrap_or_default(),
-            children: build_reply_tree(
+            children: build_post_nodes(
                 store
                     .get_pinned_post_replies(&post.uri)
-                    .map(|replies| replies.to_vec())
-                    .unwrap_or_else(|| store.reply_posts_for_post(&post.uri)),
-                &post.uri,
+                        .map(|replies| replies.to_vec())
+                    .unwrap_or_default(),
             ),
         })
         .collect::<Vec<_>>();
@@ -558,46 +555,16 @@ fn format_pins_output(store: &NotificationStore, profile: &ActorProfile) -> Vec<
     lines
 }
 
-fn build_reply_tree(replies: Vec<CachedReplyPost>, root_uri: &str) -> Vec<PostNode> {
-    let mut by_parent: HashMap<String, Vec<CachedReplyPost>> = HashMap::new();
-    let mut root_children = Vec::new();
-
-    for reply in replies {
-        match reply.parent_uri.clone() {
-            Some(parent_uri) if parent_uri == root_uri => root_children.push(reply),
-            Some(parent_uri) => by_parent.entry(parent_uri).or_default().push(reply),
-            None => root_children.push(reply),
-        }
-    }
-
-    root_children.sort_by(|a, b| a.indexed_at.cmp(&b.indexed_at));
-    for replies in by_parent.values_mut() {
-        replies.sort_by(|a, b| a.indexed_at.cmp(&b.indexed_at));
-    }
-
-    root_children
+fn build_post_nodes(replies: Vec<CachedThreadReply>) -> Vec<PostNode> {
+    replies
         .into_iter()
-        .map(|reply| build_reply_node(reply, &mut by_parent))
+        .map(|reply| PostNode {
+            header: format!("@{} replied", reply.author_handle),
+            uri: reply.uri,
+            text: reply.text,
+            children: build_post_nodes(reply.children),
+        })
         .collect()
-}
-
-fn build_reply_node(
-    reply: CachedReplyPost,
-    by_parent: &mut HashMap<String, Vec<CachedReplyPost>>,
-) -> PostNode {
-    let children = by_parent
-        .remove(&reply.uri)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|child| build_reply_node(child, by_parent))
-        .collect();
-
-    PostNode {
-        header: format!("@{} replied", reply.author_handle),
-        uri: reply.uri,
-        text: reply.text,
-        children,
-    }
 }
 
 fn help_lines() -> Vec<String> {
