@@ -11,6 +11,7 @@ pub struct NotificationStore {
     reply_texts: HashMap<String, String>,
     bios: HashMap<String, Option<String>>,
     pinned_posts: HashMap<String, Vec<feed::defs::PostView>>,
+    pinned_post_replies: HashMap<String, Vec<CachedReplyPost>>,
     created_lists: HashMap<String, Vec<graph::defs::ListView>>,
     did_to_handle: HashMap<String, String>,
     handle_to_did: HashMap<String, String>,
@@ -24,6 +25,7 @@ impl NotificationStore {
             reply_texts: HashMap::new(),
             bios: HashMap::new(),
             pinned_posts: HashMap::new(),
+            pinned_post_replies: HashMap::new(),
             created_lists: HashMap::new(),
             did_to_handle: HashMap::new(),
             handle_to_did: HashMap::new(),
@@ -71,6 +73,14 @@ impl NotificationStore {
 
     pub fn get_pinned_posts(&self, did: &Did) -> Option<&[feed::defs::PostView]> {
         self.pinned_posts.get(did.as_str()).map(Vec::as_slice)
+    }
+
+    pub fn cache_pinned_post_replies(&mut self, post_uri: &str, replies: Vec<CachedReplyPost>) {
+        self.pinned_post_replies.insert(post_uri.to_owned(), replies);
+    }
+
+    pub fn get_pinned_post_replies(&self, post_uri: &str) -> Option<&[CachedReplyPost]> {
+        self.pinned_post_replies.get(post_uri).map(Vec::as_slice)
     }
 
     pub fn cache_created_lists(&mut self, did: &Did, lists: Vec<graph::defs::ListView>) {
@@ -276,7 +286,7 @@ pub async fn ensure_pinned_posts_cached(
         .into())
         .await?;
 
-    let pinned_posts = feed
+    let pinned_posts: Vec<feed::defs::PostView> = feed
         .data
         .feed
         .into_iter()
@@ -292,7 +302,46 @@ pub async fn ensure_pinned_posts_cached(
         })
         .collect();
 
+    for post in &pinned_posts {
+        ensure_pinned_post_replies_cached(agent, store, &post.data.uri).await?;
+    }
+
     store.cache_pinned_posts(did, pinned_posts);
+    Ok(())
+}
+
+pub async fn ensure_pinned_post_replies_cached(
+    agent: &BskyAgent,
+    store: &mut NotificationStore,
+    post_uri: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if store.get_pinned_post_replies(post_uri).is_some() {
+        return Ok(());
+    }
+
+    let thread = agent
+        .api
+        .app
+        .bsky
+        .feed
+        .get_post_thread(feed::get_post_thread::ParametersData {
+            depth: Some(6u16.try_into()?),
+            parent_height: Some(0u16.try_into()?),
+            uri: post_uri.to_owned(),
+        }
+        .into())
+        .await?;
+
+    let replies = match thread.data.thread {
+        Union::Refs(feed::get_post_thread::OutputThreadRefs::AppBskyFeedDefsThreadViewPost(thread)) => {
+            let mut replies = Vec::new();
+            collect_thread_replies(&thread, post_uri, &mut replies);
+            replies
+        }
+        _ => Vec::new(),
+    };
+
+    store.cache_pinned_post_replies(post_uri, replies);
     Ok(())
 }
 
@@ -355,6 +404,32 @@ pub fn extract_reply_node(record: &Unknown) -> ReplyNode {
 pub fn extract_post_text(record: &Unknown) -> Option<String> {
     let value = serde_json::to_value(record).ok()?;
     value.get("text")?.as_str().map(String::from)
+}
+
+fn collect_thread_replies(
+    thread: &feed::defs::ThreadViewPost,
+    root_uri: &str,
+    replies: &mut Vec<CachedReplyPost>,
+) {
+    let Some(children) = thread.data.replies.as_ref() else {
+        return;
+    };
+
+    for child in children {
+        if let Union::Refs(feed::defs::ThreadViewPostRepliesItem::ThreadViewPost(post)) = child {
+            replies.push(CachedReplyPost {
+                author_handle: post.data.post.author.data.handle.to_string(),
+                indexed_at: post.data.post.indexed_at.as_ref().to_string(),
+                uri: post.data.post.uri.clone(),
+                text: extract_post_text(&post.data.post.record).unwrap_or_default(),
+                parent_uri: Some(thread.data.post.uri.clone()),
+            });
+
+            if post.data.post.uri != root_uri {
+                collect_thread_replies(post, root_uri, replies);
+            }
+        }
+    }
 }
 
 fn notification_key(notif: &Notification) -> String {

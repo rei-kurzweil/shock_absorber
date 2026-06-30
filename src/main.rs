@@ -172,7 +172,13 @@ impl App {
                 header: format!("@{} pinned post", post.author.data.handle.as_str()),
                 uri: post.uri.clone(),
                 text: extract_post_text(&post.record).unwrap_or_default(),
-                children: build_reply_tree(self.store.reply_posts_for_post(&post.uri), &post.uri),
+                children: build_reply_tree(
+                    self.store
+                        .get_pinned_post_replies(&post.uri)
+                        .map(|replies| replies.to_vec())
+                        .unwrap_or_else(|| self.store.reply_posts_for_post(&post.uri)),
+                    &post.uri,
+                ),
             })
             .collect::<Vec<_>>();
 
@@ -531,16 +537,24 @@ fn format_pins_output(store: &NotificationStore, profile: &ActorProfile) -> Vec<
         return vec![format!("{} has no pinned posts", profile.handle)];
     }
 
+    let nodes = posts
+        .iter()
+        .map(|post| PostNode {
+            header: format!("@{} pinned post", post.author.data.handle.as_str()),
+            uri: post.uri.clone(),
+            text: extract_post_text(&post.record).unwrap_or_default(),
+            children: build_reply_tree(
+                store
+                    .get_pinned_post_replies(&post.uri)
+                    .map(|replies| replies.to_vec())
+                    .unwrap_or_else(|| store.reply_posts_for_post(&post.uri)),
+                &post.uri,
+            ),
+        })
+        .collect::<Vec<_>>();
+
     let mut lines = vec![format!("pinned posts for {}", profile.handle), String::new()];
-    for post in posts {
-        lines.push(post.uri.clone());
-        if let Some(text) = extract_post_text(&post.record) {
-            lines.extend(text.lines().map(str::to_owned));
-        } else {
-            lines.push("<no text>".to_string());
-        }
-        lines.push(String::new());
-    }
+    lines.extend(render_post_nodes(&nodes).lines.into_iter().map(line_to_string));
     lines
 }
 
