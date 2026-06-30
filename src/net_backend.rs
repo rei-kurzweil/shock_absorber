@@ -1,5 +1,5 @@
 use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
-use bsky_sdk::api::app::bsky::{actor, feed};
+use bsky_sdk::api::app::bsky::{actor, feed, graph};
 use bsky_sdk::api::types::string::{AtIdentifier, Did};
 use bsky_sdk::api::types::{Union, Unknown};
 use bsky_sdk::BskyAgent;
@@ -11,6 +11,7 @@ pub struct NotificationStore {
     reply_texts: HashMap<String, String>,
     bios: HashMap<String, Option<String>>,
     pinned_posts: HashMap<String, Vec<feed::defs::PostView>>,
+    created_lists: HashMap<String, Vec<graph::defs::ListView>>,
     did_to_handle: HashMap<String, String>,
     handle_to_did: HashMap<String, String>,
 }
@@ -23,6 +24,7 @@ impl NotificationStore {
             reply_texts: HashMap::new(),
             bios: HashMap::new(),
             pinned_posts: HashMap::new(),
+            created_lists: HashMap::new(),
             did_to_handle: HashMap::new(),
             handle_to_did: HashMap::new(),
         }
@@ -71,6 +73,14 @@ impl NotificationStore {
         self.pinned_posts.get(did.as_str()).map(Vec::as_slice)
     }
 
+    pub fn cache_created_lists(&mut self, did: &Did, lists: Vec<graph::defs::ListView>) {
+        self.created_lists.insert(did.as_str().to_owned(), lists);
+    }
+
+    pub fn get_created_lists(&self, did: &Did) -> Option<&[graph::defs::ListView]> {
+        self.created_lists.get(did.as_str()).map(Vec::as_slice)
+    }
+
     pub fn find_did(&self, actor: &str) -> Option<Did> {
         if actor.starts_with("did:") {
             actor.parse().ok()
@@ -89,6 +99,30 @@ impl NotificationStore {
             .filter(|notif| notif.data.reason == "reply" && notif.author.data.did == *did)
             .collect()
     }
+
+    pub fn reply_posts_for_post(&self, post_uri: &str) -> Vec<CachedReplyPost> {
+        self.notifications
+            .iter()
+            .filter(|notif| notif.data.reason == "reply")
+            .filter_map(|notif| {
+                let reply = extract_reply_node(&notif.data.record);
+                let matches_target = notif.data.reason_subject.as_deref() == Some(post_uri)
+                    || reply.parent_uri.as_deref() == Some(post_uri)
+                    || reply.root_uri.as_deref() == Some(post_uri);
+                if !matches_target {
+                    return None;
+                }
+
+                Some(CachedReplyPost {
+                    author_handle: notif.author.data.handle.to_string(),
+                    indexed_at: notif.indexed_at.as_ref().to_string(),
+                    uri: notif.data.uri.clone(),
+                    text: reply.text.unwrap_or_default(),
+                    parent_uri: reply.parent_uri,
+                })
+            })
+            .collect()
+    }
 }
 
 #[derive(Clone)]
@@ -102,6 +136,15 @@ pub struct ReplyNode {
     pub text: Option<String>,
     pub parent_uri: Option<String>,
     pub root_uri: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct CachedReplyPost {
+    pub author_handle: String,
+    pub indexed_at: String,
+    pub uri: String,
+    pub text: String,
+    pub parent_uri: Option<String>,
 }
 
 pub async fn poll_notifications(
@@ -149,6 +192,7 @@ pub async fn poll_notifications(
 
     for did in seen_dids {
         ensure_pinned_posts_cached(agent, store, &did).await?;
+        ensure_created_lists_cached(agent, store, &did).await?;
     }
 
     if any_unread {
@@ -249,6 +293,33 @@ pub async fn ensure_pinned_posts_cached(
         .collect();
 
     store.cache_pinned_posts(did, pinned_posts);
+    Ok(())
+}
+
+pub async fn ensure_created_lists_cached(
+    agent: &BskyAgent,
+    store: &mut NotificationStore,
+    did: &Did,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if store.get_created_lists(did).is_some() {
+        return Ok(());
+    }
+
+    let response = agent
+        .api
+        .app
+        .bsky
+        .graph
+        .get_lists(graph::get_lists::ParametersData {
+            actor: AtIdentifier::Did(did.clone()),
+            cursor: None,
+            limit: None,
+            purposes: None,
+        }
+        .into())
+        .await?;
+
+    store.cache_created_lists(did, response.data.lists);
     Ok(())
 }
 

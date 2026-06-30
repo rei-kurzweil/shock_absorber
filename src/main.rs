@@ -14,13 +14,16 @@ use ratatui::{Frame, Terminal};
 use std::env;
 use std::io::{self, Stdout};
 use std::time::{Duration as StdDuration, Instant};
+use std::collections::HashMap;
 
 mod net_backend;
+mod post;
 
 use crate::net_backend::{
-    ActorProfile, NotificationStore, ensure_actor_profile_cached, ensure_pinned_posts_cached,
-    extract_post_text, extract_reply_node, poll_notifications,
+    ActorProfile, CachedReplyPost, NotificationStore, ensure_actor_profile_cached, ensure_created_lists_cached,
+    ensure_pinned_posts_cached, extract_post_text, extract_reply_node, poll_notifications,
 };
+use crate::post::{PostNode, render_post_nodes};
 
 const POLL_INTERVAL: StdDuration = StdDuration::from_secs(30);
 const UI_TICK: StdDuration = StdDuration::from_millis(200);
@@ -35,6 +38,7 @@ struct App {
     input: String,
     selected: usize,
     opened_notification: Option<usize>,
+    detail_scroll: u16,
     detail: DetailView,
     status: String,
     should_quit: bool,
@@ -47,6 +51,7 @@ impl App {
             input: String::new(),
             selected: 0,
             opened_notification: None,
+            detail_scroll: 0,
             detail: DetailView::Command {
                 title: "Welcome".to_string(),
                 lines: help_lines(),
@@ -60,6 +65,7 @@ impl App {
         if self.store.notifications.is_empty() {
             self.selected = 0;
             self.opened_notification = None;
+            self.detail_scroll = 0;
         } else if self.selected >= self.store.notifications.len() {
             self.selected = self.store.notifications.len() - 1;
         }
@@ -105,11 +111,10 @@ impl App {
     }
 
     fn detail_text(&self) -> Text<'static> {
-        let lines = match &self.detail {
-            DetailView::Notification => self.notification_detail_lines(),
-            DetailView::Command { lines, .. } => lines.clone(),
-        };
-        Text::from(lines.join("\n"))
+        match &self.detail {
+            DetailView::Notification => self.notification_detail_text(),
+            DetailView::Command { lines, .. } => Text::from(lines.join("\n")),
+        }
     }
 
     fn notification_detail_lines(&self) -> Vec<String> {
@@ -149,26 +154,103 @@ impl App {
             lines.extend(bio.lines().map(str::to_owned));
         }
 
-        if notif.data.reason == "reply" {
-            let reply = extract_reply_node(&notif.data.record);
-            lines.push(String::new());
-            lines.push("reply:".to_string());
-            lines.push(format!(
-                "parent: {}",
-                reply.parent_uri.as_deref().unwrap_or("<unknown>")
-            ));
-            lines.push(format!(
-                "root: {}",
-                reply.root_uri.as_deref().unwrap_or("<unknown>")
-            ));
-            lines.push("text:".to_string());
-            match reply.text {
-                Some(text) if !text.is_empty() => lines.extend(text.lines().map(str::to_owned)),
-                _ => lines.push("<no text>".to_string()),
+        lines
+    }
+
+    fn notification_posts_text(&self) -> Text<'static> {
+        let Some(notif) = self.opened_notification() else {
+            return Text::from("Open a notification to inspect pinned posts.");
+        };
+
+        let Some(posts) = self.store.get_pinned_posts(&notif.author.data.did) else {
+            return Text::from("Pinned posts not loaded yet.");
+        };
+
+        let nodes = posts
+            .iter()
+            .map(|post| PostNode {
+                header: format!("@{} pinned post", post.author.data.handle.as_str()),
+                uri: post.uri.clone(),
+                text: extract_post_text(&post.record).unwrap_or_default(),
+                children: build_reply_tree(self.store.reply_posts_for_post(&post.uri), &post.uri),
+            })
+            .collect::<Vec<_>>();
+
+        render_post_nodes(&nodes)
+    }
+
+    fn notification_detail_text(&self) -> Text<'static> {
+        let mut lines = vec![
+            "Notification:".to_string(),
+            String::new(),
+        ];
+        lines.extend(self.notification_detail_lines());
+
+        if let Some(notif) = self.opened_notification() {
+            if notif.data.reason == "reply" {
+                let mut reply_lines = vec![
+                    String::new(),
+                    "Reply:".to_string(),
+                    String::new(),
+                ];
+                let reply = extract_reply_node(&notif.data.record);
+                if let Some(parent_uri) = reply.parent_uri.as_deref() {
+                    reply_lines.push(format!("parent: {parent_uri}"));
+                }
+                if let Some(root_uri) = reply.root_uri.as_deref() {
+                    reply_lines.push(format!("root: {root_uri}"));
+                }
+                reply_lines.push("text:".to_string());
+                match reply.text {
+                    Some(text_body) if !text_body.is_empty() => {
+                        for line in text_body.lines() {
+                            reply_lines.push(line.to_owned());
+                        }
+                    }
+                    _ => reply_lines.push("<no text>".to_string()),
+                }
+                lines.extend(reply_lines);
             }
         }
 
-        lines
+        lines.push(String::new());
+        lines.push("Pinned Posts:".to_string());
+        lines.push(String::new());
+        lines.extend(
+            self.notification_posts_text()
+                .lines
+                .into_iter()
+                .map(line_to_string),
+        );
+
+        if let Some(notif) = self.opened_notification() {
+            let created_lists = if let Some(lists) = self.store.get_created_lists(&notif.author.data.did)
+            {
+                if lists.is_empty() {
+                    "This actor has no returned created lists.".to_string()
+                } else {
+                    lists.iter()
+                        .map(|list| {
+                            let count = list
+                                .data
+                                .list_item_count
+                                .map(|count| count.to_string())
+                                .unwrap_or_else(|| "?".to_string());
+                            format!("{} [{} members]", list.data.name, count)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            } else {
+                "Created lists not loaded yet.".to_string()
+            };
+            lines.push(String::new());
+            lines.push("Created Lists:".to_string());
+            lines.push(String::new());
+            lines.extend(created_lists.lines().map(str::to_owned));
+        }
+
+        Text::from(lines.join("\n"))
     }
 
     async fn execute_command(
@@ -222,6 +304,7 @@ impl App {
                     ensure_actor_profile_cached(agent, &mut self.store, normalize_actor_ref(actor))
                         .await?;
                 ensure_pinned_posts_cached(agent, &mut self.store, &profile.did).await?;
+                ensure_created_lists_cached(agent, &mut self.store, &profile.did).await?;
                 let lines = format_pins_output(&self.store, &profile);
                 self.set_command_output(format!("pins {}", profile.handle), lines);
                 self.status = format!("pins loaded for {}", profile.handle);
@@ -258,6 +341,7 @@ impl App {
             return;
         }
         self.opened_notification = Some(self.selected);
+        self.detail_scroll = 0;
         self.detail = DetailView::Notification;
     }
 }
@@ -338,6 +422,12 @@ async fn run_app(
                         if app.selected + 1 < app.store.notifications.len() {
                             app.selected += 1;
                         }
+                    }
+                    KeyCode::PageUp => {
+                        app.detail_scroll = app.detail_scroll.saturating_sub(4);
+                    }
+                    KeyCode::PageDown => {
+                        app.detail_scroll = app.detail_scroll.saturating_add(4);
                     }
                     KeyCode::Esc => {
                         app.input.clear();
@@ -454,6 +544,48 @@ fn format_pins_output(store: &NotificationStore, profile: &ActorProfile) -> Vec<
     lines
 }
 
+fn build_reply_tree(replies: Vec<CachedReplyPost>, root_uri: &str) -> Vec<PostNode> {
+    let mut by_parent: HashMap<String, Vec<CachedReplyPost>> = HashMap::new();
+    let mut root_children = Vec::new();
+
+    for reply in replies {
+        match reply.parent_uri.clone() {
+            Some(parent_uri) if parent_uri == root_uri => root_children.push(reply),
+            Some(parent_uri) => by_parent.entry(parent_uri).or_default().push(reply),
+            None => root_children.push(reply),
+        }
+    }
+
+    root_children.sort_by(|a, b| a.indexed_at.cmp(&b.indexed_at));
+    for replies in by_parent.values_mut() {
+        replies.sort_by(|a, b| a.indexed_at.cmp(&b.indexed_at));
+    }
+
+    root_children
+        .into_iter()
+        .map(|reply| build_reply_node(reply, &mut by_parent))
+        .collect()
+}
+
+fn build_reply_node(
+    reply: CachedReplyPost,
+    by_parent: &mut HashMap<String, Vec<CachedReplyPost>>,
+) -> PostNode {
+    let children = by_parent
+        .remove(&reply.uri)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|child| build_reply_node(child, by_parent))
+        .collect();
+
+    PostNode {
+        header: format!("@{} replied", reply.author_handle),
+        uri: reply.uri,
+        text: reply.text,
+        children,
+    }
+}
+
 fn help_lines() -> Vec<String> {
     vec![
         "Commands:".to_string(),
@@ -463,8 +595,12 @@ fn help_lines() -> Vec<String> {
         "  help".to_string(),
         "  quit".to_string(),
         String::new(),
-        "Navigation: Up/Down selects a notification; Esc returns to notification detail.".to_string(),
+        "Navigation: Up/Down selects a notification; Enter opens it; PageUp/PageDown scroll detail.".to_string(),
     ]
+}
+
+fn line_to_string(line: ratatui::text::Line<'_>) -> String {
+    line.spans.iter().map(|span| span.content.as_ref()).collect()
 }
 
 fn draw_ui(frame: &mut Frame, app: &App) {
@@ -495,11 +631,8 @@ fn draw_ui(frame: &mut Frame, app: &App) {
     frame.render_stateful_widget(notifications, body[0], &mut list_state);
 
     let detail = Paragraph::new(app.detail_text())
-        .block(
-            Block::default()
-                .title(app.detail_title())
-                .borders(Borders::ALL),
-        )
+        .block(Block::default().title(app.detail_title()).borders(Borders::ALL))
+        .scroll((app.detail_scroll, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(detail, body[1]);
 
