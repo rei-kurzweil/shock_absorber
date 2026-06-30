@@ -34,6 +34,7 @@ struct App {
     store: NotificationStore,
     input: String,
     selected: usize,
+    opened_notification: Option<usize>,
     detail: DetailView,
     status: String,
     should_quit: bool,
@@ -45,6 +46,7 @@ impl App {
             store: NotificationStore::new(),
             input: String::new(),
             selected: 0,
+            opened_notification: None,
             detail: DetailView::Command {
                 title: "Welcome".to_string(),
                 lines: help_lines(),
@@ -57,13 +59,21 @@ impl App {
     fn clamp_selection(&mut self) {
         if self.store.notifications.is_empty() {
             self.selected = 0;
+            self.opened_notification = None;
         } else if self.selected >= self.store.notifications.len() {
             self.selected = self.store.notifications.len() - 1;
         }
+
+        if let Some(opened) = self.opened_notification {
+            if opened >= self.store.notifications.len() {
+                self.opened_notification = Some(self.store.notifications.len() - 1);
+            }
+        }
     }
 
-    fn selected_notification(&self) -> Option<&Notification> {
-        self.store.notifications.get(self.selected)
+    fn opened_notification(&self) -> Option<&Notification> {
+        self.opened_notification
+            .and_then(|index| self.store.notifications.get(index))
     }
 
     fn notification_items(&self) -> Vec<ListItem<'_>> {
@@ -87,7 +97,7 @@ impl App {
     fn detail_title(&self) -> String {
         match &self.detail {
             DetailView::Notification => self
-                .selected_notification()
+                .opened_notification()
                 .map(|notif| format!("Notification: @{}", notif.author.data.handle.as_str()))
                 .unwrap_or_else(|| "Notification".to_string()),
             DetailView::Command { title, .. } => title.clone(),
@@ -103,8 +113,11 @@ impl App {
     }
 
     fn notification_detail_lines(&self) -> Vec<String> {
-        let Some(notif) = self.selected_notification() else {
-            return vec!["No notifications loaded yet.".to_string()];
+        let Some(notif) = self.opened_notification() else {
+            return vec![
+                "No notification opened.".to_string(),
+                "Use Up/Down to highlight a notification, then press Enter.".to_string(),
+            ];
         };
 
         let did = &notif.author.data.did;
@@ -239,6 +252,14 @@ impl App {
             lines,
         };
     }
+
+    fn open_selected_notification(&mut self) {
+        if self.store.notifications.is_empty() {
+            return;
+        }
+        self.opened_notification = Some(self.selected);
+        self.detail = DetailView::Notification;
+    }
 }
 
 #[tokio::main]
@@ -311,24 +332,23 @@ async fn run_app(
                     KeyCode::Up => {
                         if app.selected > 0 {
                             app.selected -= 1;
-                            app.detail = DetailView::Notification;
                         }
                     }
                     KeyCode::Down => {
                         if app.selected + 1 < app.store.notifications.len() {
                             app.selected += 1;
-                            app.detail = DetailView::Notification;
                         }
                     }
                     KeyCode::Esc => {
                         app.input.clear();
-                        app.detail = DetailView::Notification;
                     }
                     KeyCode::Backspace => {
                         app.input.pop();
                     }
-            KeyCode::Enter => {
-                        if let Err(err) = app.execute_command(agent).await {
+                    KeyCode::Enter => {
+                        if app.input.trim().is_empty() {
+                            app.open_selected_notification();
+                        } else if let Err(err) = app.execute_command(agent).await {
                             app.status = format!("command failed: {err}");
                             app.set_command_output(
                                 "error",
