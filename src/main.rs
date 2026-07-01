@@ -13,7 +13,9 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 use ratatui::{Frame, Terminal};
 use std::error::Error;
 use std::env;
+use std::fs;
 use std::io::{self, Stdout};
+use std::path::PathBuf;
 use std::time::{Duration as StdDuration, Instant};
 
 mod net_backend;
@@ -23,6 +25,7 @@ mod model;
 #[allow(dead_code)]
 mod harness;
 
+use crate::harness::context_window::{LLMContext, build_context_window};
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
 use crate::net_backend::{
     ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached, ensure_clearsky_lists_cached,
@@ -34,6 +37,7 @@ const POLL_INTERVAL: StdDuration = StdDuration::from_secs(30);
 const UI_TICK: StdDuration = StdDuration::from_millis(200);
 const DEFAULT_EVIL_GEMMA_BASE_URL: &str = "http://127.0.0.1:5000";
 const DEFAULT_EVIL_GEMMA_MODEL: &str = "gemma-4-local";
+const DEFAULT_SYSTEM_PROMPT_PATH: &str = "system_prompt.md";
 
 enum DetailView {
     Notification,
@@ -53,19 +57,25 @@ struct App {
 
 struct EvilGemmaConfig {
     client: LlmApiClient,
+    system_prompt: String,
 }
 
 impl EvilGemmaConfig {
-    fn from_env() -> Self {
+    fn from_env() -> Result<Self, Box<dyn Error>> {
         let base_url =
             env::var("EVIL_GEMMA_BASE_URL").unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_BASE_URL.to_string());
         let model_name =
             env::var("EVIL_GEMMA_MODEL").unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_MODEL.to_string());
+        let system_prompt_path = env::var("SYSTEM_PROMPT_PATH")
+            .unwrap_or_else(|_| DEFAULT_SYSTEM_PROMPT_PATH.to_string());
 
         let config = OpenAiRestConfig::llama_cpp(base_url, model_name);
-        Self {
+        let system_prompt = fs::read_to_string(resolve_system_prompt_path(system_prompt_path))?;
+
+        Ok(Self {
             client: LlmApiClient::new(config),
-        }
+            system_prompt,
+        })
     }
 }
 
@@ -366,13 +376,26 @@ impl App {
         evil_gemma: &EvilGemmaConfig,
         query: String,
     ) -> Result<(), Box<dyn Error>> {
+        let mut context = LLMContext::new(
+            "Answer the user's query directly and concisely using the provided context.",
+        );
+        context.push_section("User Query", query.as_str());
+
+        let rendered_context =
+            build_context_window(&context, &evil_gemma.client.context_limits());
         let response = evil_gemma
             .client
             .complete_chat(
-                vec![ChatMessage {
-                    role: "user".to_string(),
-                    content: query.clone(),
-                }],
+                vec![
+                    ChatMessage {
+                        role: "system".to_string(),
+                        content: evil_gemma.system_prompt.trim().to_string(),
+                    },
+                    ChatMessage {
+                        role: "user".to_string(),
+                        content: rendered_context,
+                    },
+                ],
                 1024,
             )
             .await?;
@@ -417,7 +440,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent = BskyAgent::builder().build().await?;
     agent.login(&handle, &password).await?;
-    let evil_gemma = EvilGemmaConfig::from_env();
+    let evil_gemma = EvilGemmaConfig::from_env()?;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -644,6 +667,15 @@ fn help_lines() -> Vec<String> {
 
 fn is_local_command(verb: &str) -> bool {
     matches!(verb, "bio" | "replies_from" | "pins" | "help" | "q" | "quit" | "exit")
+}
+
+fn resolve_system_prompt_path(path: String) -> PathBuf {
+    let candidate = PathBuf::from(&path);
+    if candidate.is_absolute() {
+        candidate
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(candidate)
+    }
 }
 
 fn line_to_string(line: ratatui::text::Line<'_>) -> String {
