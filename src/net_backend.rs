@@ -1,4 +1,5 @@
 use crate::clearsky_v1;
+use crate::model::{LabeledPostCollection, PostRecord};
 use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use bsky_sdk::api::app::bsky::{actor, feed};
 use bsky_sdk::api::types::string::{AtIdentifier, Did};
@@ -12,7 +13,7 @@ pub struct NotificationStore {
     notification_keys: HashSet<String>,
     reply_texts: HashMap<String, String>,
     bios: HashMap<String, Option<String>>,
-    pinned_posts: HashMap<String, Vec<feed::defs::PostView>>,
+    post_collections: HashMap<String, LabeledPostCollection>,
     pinned_post_replies: HashMap<String, Vec<CachedThreadReply>>,
     clearsky_lists: HashMap<String, Vec<clearsky_v1::ModerationListEntry>>,
     did_to_handle: HashMap<String, String>,
@@ -27,7 +28,7 @@ impl NotificationStore {
             notification_keys: HashSet::new(),
             reply_texts: HashMap::new(),
             bios: HashMap::new(),
-            pinned_posts: HashMap::new(),
+            post_collections: HashMap::new(),
             pinned_post_replies: HashMap::new(),
             clearsky_lists: HashMap::new(),
             did_to_handle: HashMap::new(),
@@ -71,12 +72,34 @@ impl NotificationStore {
         self.bios.get(did.as_str()).map(|bio| bio.as_deref())
     }
 
-    pub fn cache_pinned_posts(&mut self, did: &Did, posts: Vec<feed::defs::PostView>) {
-        self.pinned_posts.insert(did.as_str().to_owned(), posts);
+    pub fn cache_post_collection(&mut self, collection: LabeledPostCollection) {
+        self.post_collections.insert(collection.id.clone(), collection);
     }
 
-    pub fn get_pinned_posts(&self, did: &Did) -> Option<&[feed::defs::PostView]> {
-        self.pinned_posts.get(did.as_str()).map(Vec::as_slice)
+    pub fn get_post_collection(&self, collection_id: &str) -> Option<&LabeledPostCollection> {
+        self.post_collections.get(collection_id)
+    }
+
+    pub fn get_pinned_posts(&self, did: &Did) -> Option<&[PostRecord]> {
+        self.post_collections
+            .get(&pinned_posts_collection_id(did))
+            .map(|collection| collection.posts.as_slice())
+    }
+
+    #[allow(dead_code)]
+    pub fn get_recent_posts(&self, did: &Did) -> Option<&[PostRecord]> {
+        self.post_collections
+            .get(&recent_posts_collection_id(did))
+            .map(|collection| collection.posts.as_slice())
+    }
+
+    pub fn get_pinned_posts_collection(&self, did: &Did) -> Option<&LabeledPostCollection> {
+        self.get_post_collection(&pinned_posts_collection_id(did))
+    }
+
+    #[allow(dead_code)]
+    pub fn get_recent_posts_collection(&self, did: &Did) -> Option<&LabeledPostCollection> {
+        self.get_post_collection(&recent_posts_collection_id(did))
     }
 
     pub fn cache_pinned_post_replies(&mut self, post_uri: &str, replies: Vec<CachedThreadReply>) {
@@ -251,7 +274,7 @@ pub async fn ensure_pinned_posts_cached(
     store: &mut NotificationStore,
     did: &Did,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if store.get_pinned_posts(did).is_some() {
+    if store.get_pinned_posts_collection(did).is_some() {
         return Ok(());
     }
 
@@ -290,7 +313,44 @@ pub async fn ensure_pinned_posts_cached(
         ensure_pinned_post_replies_cached(agent, store, &post.data.uri).await?;
     }
 
-    store.cache_pinned_posts(did, pinned_posts);
+    store.cache_post_collection(build_pinned_posts_collection(did, pinned_posts));
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub async fn ensure_recent_posts_cached(
+    agent: &BskyAgent,
+    store: &mut NotificationStore,
+    did: &Did,
+    limit: u8,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if store.get_recent_posts_collection(did).is_some() {
+        return Ok(());
+    }
+
+    let feed = agent
+        .api
+        .app
+        .bsky
+        .feed
+        .get_author_feed(feed::get_author_feed::ParametersData {
+            actor: AtIdentifier::Did(did.clone()),
+            cursor: None,
+            filter: None,
+            include_pins: Some(false),
+            limit: Some(limit.try_into()?),
+        }
+        .into())
+        .await?;
+
+    let recent_posts = feed
+        .data
+        .feed
+        .into_iter()
+        .map(|item| item.post.clone())
+        .collect();
+
+    store.cache_post_collection(build_recent_posts_collection(did, recent_posts));
     Ok(())
 }
 
@@ -398,6 +458,55 @@ pub fn extract_post_text(record: &Unknown) -> Option<String> {
     }
 
     Some(lines.join("\n"))
+}
+
+fn build_pinned_posts_collection(
+    did: &Did,
+    posts: Vec<feed::defs::PostView>,
+) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("collection_kind".to_string(), "pinned_posts".to_string());
+    metadata.insert("actor_did".to_string(), did.as_str().to_owned());
+
+    LabeledPostCollection::new(
+        pinned_posts_collection_id(did),
+        format!("Pinned posts by {}", did.as_str()),
+        posts.into_iter().map(post_record_from_view).collect(),
+    )
+    .with_metadata(metadata)
+}
+
+fn build_recent_posts_collection(
+    did: &Did,
+    posts: Vec<feed::defs::PostView>,
+) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("collection_kind".to_string(), "recent_posts".to_string());
+    metadata.insert("actor_did".to_string(), did.as_str().to_owned());
+
+    LabeledPostCollection::new(
+        recent_posts_collection_id(did),
+        format!("Recent posts by {}", did.as_str()),
+        posts.into_iter().map(post_record_from_view).collect(),
+    )
+    .with_related_collections(vec![pinned_posts_collection_id(did)])
+    .with_metadata(metadata)
+}
+
+fn post_record_from_view(post: feed::defs::PostView) -> PostRecord {
+    PostRecord {
+        uri: post.uri.clone(),
+        author_handle: post.author.data.handle.to_string(),
+        body: extract_post_text(&post.record).unwrap_or_default(),
+    }
+}
+
+fn pinned_posts_collection_id(did: &Did) -> String {
+    format!("pinned_posts:{}", did.as_str())
+}
+
+fn recent_posts_collection_id(did: &Did) -> String {
+    format!("recent_posts:{}", did.as_str())
 }
 
 fn collect_thread_replies(thread: &feed::defs::ThreadViewPost) -> Vec<CachedThreadReply> {

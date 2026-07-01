@@ -11,6 +11,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Text;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
+use std::error::Error;
 use std::env;
 use std::io::{self, Stdout};
 use std::time::{Duration as StdDuration, Instant};
@@ -18,15 +19,21 @@ use std::time::{Duration as StdDuration, Instant};
 mod net_backend;
 mod post;
 mod clearsky_v1;
+mod model;
+#[allow(dead_code)]
+mod harness;
 
+use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
 use crate::net_backend::{
     ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached, ensure_clearsky_lists_cached,
-    ensure_pinned_posts_cached, extract_post_text, extract_reply_node, poll_notifications,
+    ensure_pinned_posts_cached, extract_reply_node, poll_notifications,
 };
 use crate::post::{PostNode, render_post_nodes};
 
 const POLL_INTERVAL: StdDuration = StdDuration::from_secs(30);
 const UI_TICK: StdDuration = StdDuration::from_millis(200);
+const DEFAULT_EVIL_GEMMA_BASE_URL: &str = "http://127.0.0.1:5000";
+const DEFAULT_EVIL_GEMMA_MODEL: &str = "gemma-4-local";
 
 enum DetailView {
     Notification,
@@ -42,6 +49,24 @@ struct App {
     detail: DetailView,
     status: String,
     should_quit: bool,
+}
+
+struct EvilGemmaConfig {
+    client: LlmApiClient,
+}
+
+impl EvilGemmaConfig {
+    fn from_env() -> Self {
+        let base_url =
+            env::var("EVIL_GEMMA_BASE_URL").unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_BASE_URL.to_string());
+        let model_name =
+            env::var("EVIL_GEMMA_MODEL").unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_MODEL.to_string());
+
+        let config = OpenAiRestConfig::llama_cpp(base_url, model_name);
+        Self {
+            client: LlmApiClient::new(config),
+        }
+    }
 }
 
 impl App {
@@ -169,9 +194,9 @@ impl App {
         let nodes = posts
             .iter()
             .map(|post| PostNode {
-                header: format!("@{} pinned post", post.author.data.handle.as_str()),
+                header: format!("@{} pinned post", post.author_handle),
                 uri: post.uri.clone(),
-                text: extract_post_text(&post.record).unwrap_or_default(),
+                text: post.body.clone(),
                 children: build_post_nodes(
                     self.store
                         .get_pinned_post_replies(&post.uri)
@@ -266,7 +291,8 @@ impl App {
     async fn execute_command(
         &mut self,
         agent: &BskyAgent,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+        evil_gemma: &EvilGemmaConfig,
+    ) -> Result<(), Box<dyn Error>> {
         let command = self.input.trim().to_owned();
         self.input.clear();
 
@@ -276,6 +302,10 @@ impl App {
 
         let mut parts = command.split_whitespace();
         let verb = parts.next().unwrap_or_default();
+
+        if !is_local_command(verb) {
+            return self.run_evil_gemma_query(evil_gemma, command).await;
+        }
 
         match verb {
             "bio" => {
@@ -325,17 +355,36 @@ impl App {
             "q" | "quit" | "exit" => {
                 self.should_quit = true;
             }
-            _ => {
-                self.set_command_output(
-                    "unknown command",
-                    vec![
-                        format!("unknown command: {verb}"),
-                        "try: help".to_string(),
-                    ],
-                );
-            }
+            _ => unreachable!("command list is checked before dispatch"),
         }
 
+        Ok(())
+    }
+
+    async fn run_evil_gemma_query(
+        &mut self,
+        evil_gemma: &EvilGemmaConfig,
+        query: String,
+    ) -> Result<(), Box<dyn Error>> {
+        let response = evil_gemma
+            .client
+            .complete_chat(
+                vec![ChatMessage {
+                    role: "user".to_string(),
+                    content: query.clone(),
+                }],
+                1024,
+            )
+            .await?;
+
+        let lines = if response.trim().is_empty() {
+            vec!["<empty response>".to_string()]
+        } else {
+            response.lines().map(str::to_owned).collect()
+        };
+
+        self.set_command_output(format!("evil_gemma: {query}"), lines);
+        self.status = "evil_gemma response loaded".to_string();
         Ok(())
     }
 
@@ -367,6 +416,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent = BskyAgent::builder().build().await?;
     agent.login(&handle, &password).await?;
+    let evil_gemma = EvilGemmaConfig::from_env();
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -374,7 +424,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &agent, App::new(handle)).await;
+    let result = run_app(&mut terminal, &agent, &evil_gemma, App::new(handle)).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -386,6 +436,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     agent: &BskyAgent,
+    evil_gemma: &EvilGemmaConfig,
     mut app: App,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut last_poll = Instant::now() - POLL_INTERVAL;
@@ -448,7 +499,7 @@ async fn run_app(
                     KeyCode::Enter => {
                         if app.input.trim().is_empty() {
                             app.open_selected_notification();
-                        } else if let Err(err) = app.execute_command(agent).await {
+                        } else if let Err(err) = app.execute_command(agent, evil_gemma).await {
                             app.status = format!("command failed: {err}");
                             app.set_command_output(
                                 "error",
@@ -544,9 +595,9 @@ fn format_pins_output(store: &NotificationStore, profile: &ActorProfile) -> Vec<
     let nodes = posts
         .iter()
         .map(|post| PostNode {
-            header: format!("@{} pinned post", post.author.data.handle.as_str()),
+            header: format!("@{} pinned post", post.author_handle),
             uri: post.uri.clone(),
-            text: extract_post_text(&post.record).unwrap_or_default(),
+            text: post.body.clone(),
             children: build_post_nodes(
                 store
                     .get_pinned_post_replies(&post.uri)
@@ -582,8 +633,16 @@ fn help_lines() -> Vec<String> {
         "  help".to_string(),
         "  quit".to_string(),
         String::new(),
+        "Any other input is sent to evil_gemma over local OpenAI-compatible REST.".to_string(),
+        "Default endpoint: http://127.0.0.1:5000/v1/chat/completions".to_string(),
+        "Override with EVIL_GEMMA_BASE_URL and EVIL_GEMMA_MODEL.".to_string(),
+        String::new(),
         "Navigation: Up/Down selects a notification; Enter opens it; PageUp/PageDown scroll detail.".to_string(),
     ]
+}
+
+fn is_local_command(verb: &str) -> bool {
+    matches!(verb, "bio" | "replies_from" | "pins" | "help" | "q" | "quit" | "exit")
 }
 
 fn line_to_string(line: ratatui::text::Line<'_>) -> String {
