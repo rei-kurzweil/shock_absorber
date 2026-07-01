@@ -389,6 +389,7 @@ impl App {
     }
 
     fn set_command_output<T: Into<String>>(&mut self, title: T, lines: Vec<String>) {
+        self.detail_scroll = 0;
         self.detail = DetailView::Command {
             title: title.into(),
             lines,
