@@ -1,10 +1,10 @@
 use crate::clearsky_v1;
 use crate::model::{LabeledPostCollection, PostRecord};
+use bsky_sdk::BskyAgent;
 use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use bsky_sdk::api::app::bsky::{actor, feed};
 use bsky_sdk::api::types::string::{AtIdentifier, Did};
 use bsky_sdk::api::types::{Union, Unknown};
-use bsky_sdk::BskyAgent;
 use reqwest::Client;
 use std::collections::{HashMap, HashSet};
 
@@ -19,6 +19,17 @@ pub struct NotificationStore {
     did_to_handle: HashMap<String, String>,
     handle_to_did: HashMap<String, String>,
     clearsky_client: Client,
+}
+
+pub struct PersistedActorRow {
+    pub did: String,
+    pub handle: String,
+    pub bio: Option<String>,
+}
+
+pub struct PersistedClearskyListsRow {
+    pub actor_did: String,
+    pub lists: Vec<clearsky_v1::ModerationListEntry>,
 }
 
 impl NotificationStore {
@@ -59,7 +70,8 @@ impl NotificationStore {
     pub fn cache_actor(&mut self, did: &Did, handle: &str, bio: Option<String>) {
         let did_key = did.as_str().to_owned();
         let handle_key = handle.to_owned();
-        self.did_to_handle.insert(did_key.clone(), handle_key.clone());
+        self.did_to_handle
+            .insert(did_key.clone(), handle_key.clone());
         self.handle_to_did.insert(handle_key, did_key.clone());
         self.bios.entry(did_key).or_insert(bio);
     }
@@ -73,7 +85,8 @@ impl NotificationStore {
     }
 
     pub fn cache_post_collection(&mut self, collection: LabeledPostCollection) {
-        self.post_collections.insert(collection.id.clone(), collection);
+        self.post_collections
+            .insert(collection.id.clone(), collection);
     }
 
     pub fn get_post_collection(&self, collection_id: &str) -> Option<&LabeledPostCollection> {
@@ -103,7 +116,8 @@ impl NotificationStore {
     }
 
     pub fn cache_pinned_post_replies(&mut self, post_uri: &str, replies: Vec<CachedThreadReply>) {
-        self.pinned_post_replies.insert(post_uri.to_owned(), replies);
+        self.pinned_post_replies
+            .insert(post_uri.to_owned(), replies);
     }
 
     pub fn get_pinned_post_replies(&self, post_uri: &str) -> Option<&[CachedThreadReply]> {
@@ -126,7 +140,9 @@ impl NotificationStore {
         if actor.starts_with("did:") {
             actor.parse().ok()
         } else {
-            self.handle_to_did.get(actor).and_then(|did| did.parse().ok())
+            self.handle_to_did
+                .get(actor)
+                .and_then(|did| did.parse().ok())
         }
     }
 
@@ -141,6 +157,60 @@ impl NotificationStore {
             .collect()
     }
 
+    pub fn persisted_actors(&self) -> Vec<PersistedActorRow> {
+        let mut rows = self
+            .did_to_handle
+            .iter()
+            .map(|(did, handle)| PersistedActorRow {
+                did: did.clone(),
+                handle: handle.clone(),
+                bio: self.bios.get(did).cloned().flatten(),
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| left.handle.cmp(&right.handle));
+        rows
+    }
+
+    pub fn persisted_post_collections(&self) -> Vec<&LabeledPostCollection> {
+        let mut collections = self.post_collections.values().collect::<Vec<_>>();
+        collections.sort_by(|left, right| left.id.cmp(&right.id));
+        collections
+    }
+
+    pub fn persisted_clearsky_lists(&self) -> Vec<PersistedClearskyListsRow> {
+        let mut rows = self
+            .clearsky_lists
+            .iter()
+            .map(|(actor_did, lists)| PersistedClearskyListsRow {
+                actor_did: actor_did.clone(),
+                lists: lists.clone(),
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| left.actor_did.cmp(&right.actor_did));
+        rows
+    }
+
+    pub fn restore_actor_cache(
+        &mut self,
+        did: &str,
+        handle: &str,
+        bio: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let did: Did = did.parse()?;
+        self.cache_actor(&did, handle, bio.clone());
+        self.cache_bio(&did, bio);
+        Ok(())
+    }
+
+    pub fn restore_clearsky_lists(
+        &mut self,
+        actor_did: &str,
+        lists: Vec<clearsky_v1::ModerationListEntry>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let did: Did = actor_did.parse()?;
+        self.cache_clearsky_lists(&did, lists);
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -154,6 +224,21 @@ pub struct ReplyNode {
     pub text: Option<String>,
     pub parent_uri: Option<String>,
     pub root_uri: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PostFacet {
+    pub feature_type: String,
+    pub uri: Option<String>,
+    pub did: Option<String>,
+    pub tag: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PostDetails {
+    pub text: Option<String>,
+    pub facets: Vec<PostFacet>,
+    pub quoted_text: Option<String>,
 }
 
 #[derive(Clone)]
@@ -208,6 +293,7 @@ pub async fn poll_notifications(
     }
 
     for did in seen_dids {
+        ensure_recent_posts_cached(agent, store, &did, 20).await?;
         ensure_pinned_posts_cached(agent, store, &did).await?;
         ensure_clearsky_lists_cached(store, &did).await?;
     }
@@ -283,14 +369,16 @@ pub async fn ensure_pinned_posts_cached(
         .app
         .bsky
         .feed
-        .get_author_feed(feed::get_author_feed::ParametersData {
-            actor: AtIdentifier::Did(did.clone()),
-            cursor: None,
-            filter: None,
-            include_pins: Some(true),
-            limit: None,
-        }
-        .into())
+        .get_author_feed(
+            feed::get_author_feed::ParametersData {
+                actor: AtIdentifier::Did(did.clone()),
+                cursor: None,
+                filter: None,
+                include_pins: Some(true),
+                limit: None,
+            }
+            .into(),
+        )
         .await?;
 
     let pinned_posts: Vec<feed::defs::PostView> = feed
@@ -300,7 +388,9 @@ pub async fn ensure_pinned_posts_cached(
         .filter_map(|item| {
             if matches!(
                 item.reason,
-                Some(Union::Refs(feed::defs::FeedViewPostReasonRefs::ReasonPin(_)))
+                Some(Union::Refs(feed::defs::FeedViewPostReasonRefs::ReasonPin(
+                    _
+                )))
             ) {
                 Some(item.post.clone())
             } else {
@@ -333,14 +423,16 @@ pub async fn ensure_recent_posts_cached(
         .app
         .bsky
         .feed
-        .get_author_feed(feed::get_author_feed::ParametersData {
-            actor: AtIdentifier::Did(did.clone()),
-            cursor: None,
-            filter: None,
-            include_pins: Some(false),
-            limit: Some(limit.try_into()?),
-        }
-        .into())
+        .get_author_feed(
+            feed::get_author_feed::ParametersData {
+                actor: AtIdentifier::Did(did.clone()),
+                cursor: None,
+                filter: None,
+                include_pins: Some(false),
+                limit: Some(limit.try_into()?),
+            }
+            .into(),
+        )
         .await?;
 
     let recent_posts = feed
@@ -368,18 +460,20 @@ pub async fn ensure_pinned_post_replies_cached(
         .app
         .bsky
         .feed
-        .get_post_thread(feed::get_post_thread::ParametersData {
-            depth: Some(6u16.try_into()?),
-            parent_height: Some(0u16.try_into()?),
-            uri: post_uri.to_owned(),
-        }
-        .into())
+        .get_post_thread(
+            feed::get_post_thread::ParametersData {
+                depth: Some(6u16.try_into()?),
+                parent_height: Some(0u16.try_into()?),
+                uri: post_uri.to_owned(),
+            }
+            .into(),
+        )
         .await?;
 
     let replies = match thread.data.thread {
-        Union::Refs(feed::get_post_thread::OutputThreadRefs::AppBskyFeedDefsThreadViewPost(thread)) => {
-            collect_thread_replies(&thread)
-        }
+        Union::Refs(feed::get_post_thread::OutputThreadRefs::AppBskyFeedDefsThreadViewPost(
+            thread,
+        )) => collect_thread_replies(&thread),
         _ => Vec::new(),
     };
 
@@ -396,7 +490,8 @@ pub async fn ensure_clearsky_lists_cached(
     }
 
     let lists = clearsky_v1::get_moderation_lists(&store.clearsky_client, did.as_str()).await?;
-    store.cache_clearsky_lists(did, lists);
+    store.cache_clearsky_lists(did, lists.clone());
+    store.cache_post_collection(build_clearsky_lists_collection(did, lists));
     Ok(())
 }
 
@@ -430,34 +525,87 @@ pub fn extract_reply_node(record: &Unknown) -> ReplyNode {
 }
 
 pub fn extract_post_text(record: &Unknown) -> Option<String> {
-    let value = serde_json::to_value(record).ok()?;
-    let text = value.get("text")?.as_str()?.to_owned();
-    let mut lines = vec![text];
+    let details = extract_post_details(record)?;
+    let mut lines = Vec::new();
 
-    if let Some(facets) = value.get("facets").and_then(|value| value.as_array()) {
-        for facet in facets {
-            if let Some(features) = facet.get("features").and_then(|value| value.as_array()) {
-                for feature in features {
-                    if let Some(uri) = feature.get("uri").and_then(|value| value.as_str()) {
-                        lines.push(format!("link: {uri}"));
-                    }
-                }
-            }
+    if let Some(text) = details.text {
+        lines.push(text);
+    }
+
+    for facet in details.facets {
+        if let Some(uri) = facet.uri {
+            lines.push(format!("link: {uri}"));
+        } else if let Some(did) = facet.did {
+            lines.push(format!("mention: {did}"));
+        } else if let Some(tag) = facet.tag {
+            lines.push(format!("tag: {tag}"));
         }
     }
 
-    if let Some(embed_text) = value
+    if let Some(quoted_text) = details.quoted_text {
+        lines.push("quoted:".to_string());
+        lines.extend(quoted_text.lines().map(str::to_owned));
+    }
+
+    Some(lines.join("\n"))
+}
+
+pub fn extract_post_details(record: &Unknown) -> Option<PostDetails> {
+    let value = serde_json::to_value(record).ok()?;
+    let text = value
+        .get("text")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned);
+
+    let facets = value
+        .get("facets")
+        .and_then(|value| value.as_array())
+        .map(|facets| {
+            facets
+                .iter()
+                .flat_map(|facet| {
+                    facet
+                        .get("features")
+                        .and_then(|value| value.as_array())
+                        .into_iter()
+                        .flatten()
+                        .map(|feature| PostFacet {
+                            feature_type: feature
+                                .get("$type")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("unknown")
+                                .to_owned(),
+                            uri: feature
+                                .get("uri")
+                                .and_then(|value| value.as_str())
+                                .map(str::to_owned),
+                            did: feature
+                                .get("did")
+                                .and_then(|value| value.as_str())
+                                .map(str::to_owned),
+                            tag: feature
+                                .get("tag")
+                                .and_then(|value| value.as_str())
+                                .map(str::to_owned),
+                        })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let quoted_text = value
         .get("embed")
         .and_then(|embed| embed.get("record"))
         .and_then(|record| record.get("value"))
         .and_then(|value| value.get("text"))
         .and_then(|value| value.as_str())
-    {
-        lines.push("quoted:".to_string());
-        lines.extend(embed_text.lines().map(str::to_owned));
-    }
+        .map(str::to_owned);
 
-    Some(lines.join("\n"))
+    Some(PostDetails {
+        text,
+        facets,
+        quoted_text,
+    })
 }
 
 fn build_pinned_posts_collection(
@@ -493,11 +641,43 @@ fn build_recent_posts_collection(
     .with_metadata(metadata)
 }
 
+fn build_clearsky_lists_collection(
+    did: &Did,
+    lists: Vec<clearsky_v1::ModerationListEntry>,
+) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("collection_kind".to_string(), "clearsky_lists".to_string());
+    metadata.insert("actor_did".to_string(), did.as_str().to_owned());
+
+    LabeledPostCollection::new(
+        clearsky_lists_collection_id(did),
+        format!("Clearsky moderation lists for {}", did.as_str()),
+        lists.into_iter().map(clearsky_list_record).collect(),
+    )
+    .with_metadata(metadata)
+}
+
 fn post_record_from_view(post: feed::defs::PostView) -> PostRecord {
     PostRecord {
         uri: post.uri.clone(),
         author_handle: post.author.data.handle.to_string(),
         body: extract_post_text(&post.record).unwrap_or_default(),
+    }
+}
+
+fn clearsky_list_record(entry: clearsky_v1::ModerationListEntry) -> PostRecord {
+    PostRecord {
+        uri: entry.url.clone(),
+        author_handle: "clearsky".to_string(),
+        body: format!(
+            "list_name: {}\nlist_description: {}\nlist_did: {}\ncreated_date: {}\ndate_added: {}\nurl: {}",
+            entry.name,
+            entry.description,
+            entry.did,
+            entry.created_date,
+            entry.date_added,
+            entry.url
+        ),
     }
 }
 
@@ -507,6 +687,10 @@ fn pinned_posts_collection_id(did: &Did) -> String {
 
 fn recent_posts_collection_id(did: &Did) -> String {
     format!("recent_posts:{}", did.as_str())
+}
+
+fn clearsky_lists_collection_id(did: &Did) -> String {
+    format!("clearsky_lists:{}", did.as_str())
 }
 
 fn collect_thread_replies(thread: &feed::defs::ThreadViewPost) -> Vec<CachedThreadReply> {

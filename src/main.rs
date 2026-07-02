@@ -1,5 +1,5 @@
-use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use bsky_sdk::BskyAgent;
+use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -11,25 +11,31 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Text;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
-use std::error::Error;
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::time::{Duration as StdDuration, Instant};
 
-mod net_backend;
-mod post;
 mod clearsky_v1;
-mod model;
+mod db;
 #[allow(dead_code)]
 mod harness;
+mod model;
+mod net_backend;
+mod post;
 
+use crate::db::AppDb;
 use crate::harness::context_window::{LLMContext, build_context_window};
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
+use crate::harness::tools::{
+    BlueskyTools, parse_prompt_tool_call, prompt_tool_protocol_instructions,
+};
 use crate::net_backend::{
-    ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached, ensure_clearsky_lists_cached,
-    ensure_pinned_posts_cached, extract_reply_node, poll_notifications,
+    ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached,
+    ensure_clearsky_lists_cached, ensure_pinned_posts_cached, ensure_recent_posts_cached,
+    extract_reply_node, poll_notifications,
 };
 use crate::post::{PostNode, render_post_nodes};
 
@@ -38,6 +44,8 @@ const UI_TICK: StdDuration = StdDuration::from_millis(200);
 const DEFAULT_EVIL_GEMMA_BASE_URL: &str = "http://127.0.0.1:5000";
 const DEFAULT_EVIL_GEMMA_MODEL: &str = "gemma-4-local";
 const DEFAULT_SYSTEM_PROMPT_PATH: &str = "system_prompt.md";
+const DEFAULT_DB_PATH: &str = "shock_absorber.sqlite3";
+const MAX_TOOL_CALL_ROUNDS: usize = 3;
 
 enum DetailView {
     Notification,
@@ -62,8 +70,8 @@ struct EvilGemmaConfig {
 
 impl EvilGemmaConfig {
     fn from_env() -> Result<Self, Box<dyn Error>> {
-        let base_url =
-            env::var("EVIL_GEMMA_BASE_URL").unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_BASE_URL.to_string());
+        let base_url = env::var("EVIL_GEMMA_BASE_URL")
+            .unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_BASE_URL.to_string());
         let model_name =
             env::var("EVIL_GEMMA_MODEL").unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_MODEL.to_string());
         let system_prompt_path = env::var("SYSTEM_PROMPT_PATH")
@@ -161,7 +169,11 @@ impl App {
         };
 
         let did = &notif.author.data.did;
-        let bio = self.store.get_bio(did).flatten().unwrap_or("<no bio cached>");
+        let bio = self
+            .store
+            .get_bio(did)
+            .flatten()
+            .unwrap_or("<no bio cached>");
         let pinned_count = self
             .store
             .get_pinned_posts(did)
@@ -220,19 +232,12 @@ impl App {
     }
 
     fn notification_detail_text(&self) -> Text<'static> {
-        let mut lines = vec![
-            "Notification:".to_string(),
-            String::new(),
-        ];
+        let mut lines = vec!["Notification:".to_string(), String::new()];
         lines.extend(self.notification_detail_lines());
 
         if let Some(notif) = self.opened_notification() {
             if notif.data.reason == "reply" {
-                let mut reply_lines = vec![
-                    String::new(),
-                    "Reply:".to_string(),
-                    String::new(),
-                ];
+                let mut reply_lines = vec![String::new(), "Reply:".to_string(), String::new()];
                 let reply = extract_reply_node(&notif.data.record);
                 if let Some(parent_uri) = reply.parent_uri.as_deref() {
                     reply_lines.push(format!("parent: {parent_uri}"));
@@ -264,31 +269,32 @@ impl App {
         );
 
         if let Some(notif) = self.opened_notification() {
-            let created_lists = if let Some(lists) = self.store.get_clearsky_lists(&notif.author.data.did)
-            {
-                if lists.is_empty() {
-                    "This actor has no returned Clearsky moderation lists.".to_string()
+            let created_lists =
+                if let Some(lists) = self.store.get_clearsky_lists(&notif.author.data.did) {
+                    if lists.is_empty() {
+                        "This actor has no returned Clearsky moderation lists.".to_string()
+                    } else {
+                        lists
+                            .iter()
+                            .map(|list| {
+                                let mut parts = vec![
+                                    format!("name: {}", list.name),
+                                    format!("url: {}", list.url),
+                                    format!("did: {}", list.did),
+                                    format!("date_added: {}", list.date_added),
+                                    format!("created_date: {}", list.created_date),
+                                ];
+                                if !list.description.is_empty() {
+                                    parts.push(format!("description: {}", list.description));
+                                }
+                                parts.join("\n")
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n\n")
+                    }
                 } else {
-                    lists.iter()
-                        .map(|list| {
-                            let mut parts = vec![
-                                format!("name: {}", list.name),
-                                format!("url: {}", list.url),
-                                format!("did: {}", list.did),
-                                format!("date_added: {}", list.date_added),
-                                format!("created_date: {}", list.created_date),
-                            ];
-                            if !list.description.is_empty() {
-                                parts.push(format!("description: {}", list.description));
-                            }
-                            parts.join("\n")
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n\n")
-                }
-            } else {
-                "Clearsky moderation lists not loaded yet.".to_string()
-            };
+                    "Clearsky moderation lists not loaded yet.".to_string()
+                };
             lines.push(String::new());
             lines.push("Clearsky Moderation Lists:".to_string());
             lines.push(String::new());
@@ -320,7 +326,10 @@ impl App {
         match verb {
             "bio" => {
                 let Some(actor) = parts.next() else {
-                    self.set_command_output("bio", vec!["usage: bio handle.bsky.social".to_string()]);
+                    self.set_command_output(
+                        "bio",
+                        vec!["usage: bio handle.bsky.social".to_string()],
+                    );
                     return Ok(());
                 };
                 let profile =
@@ -347,12 +356,16 @@ impl App {
             }
             "pins" => {
                 let Some(actor) = parts.next() else {
-                    self.set_command_output("pins", vec!["usage: pins handle.bsky.social".to_string()]);
+                    self.set_command_output(
+                        "pins",
+                        vec!["usage: pins handle.bsky.social".to_string()],
+                    );
                     return Ok(());
                 };
                 let profile =
                     ensure_actor_profile_cached(agent, &mut self.store, normalize_actor_ref(actor))
                         .await?;
+                ensure_recent_posts_cached(agent, &mut self.store, &profile.did, 20).await?;
                 ensure_pinned_posts_cached(agent, &mut self.store, &profile.did).await?;
                 ensure_clearsky_lists_cached(&mut self.store, &profile.did).await?;
                 let lines = format_pins_output(&self.store, &profile);
@@ -376,35 +389,92 @@ impl App {
         evil_gemma: &EvilGemmaConfig,
         query: String,
     ) -> Result<(), Box<dyn Error>> {
-        let mut context = LLMContext::new(
-            "Answer the user's query directly and concisely using the provided context.",
+        let tools = BlueskyTools::new(&self.store);
+        let initial_context = build_tool_aware_query_context(
+            self.opened_notification(),
+            &tools,
+            &query,
+            &evil_gemma.client,
         );
-        context.push_section("User Query", query.as_str());
+        let mut messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: format!(
+                    "{}\n\n{}",
+                    evil_gemma.system_prompt.trim(),
+                    prompt_tool_protocol_instructions()
+                ),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: initial_context,
+            },
+        ];
+        let mut tool_transcript = Vec::new();
+        let mut response = String::new();
+        let mut hit_tool_round_limit = false;
 
-        let rendered_context =
-            build_context_window(&context, &evil_gemma.client.context_limits());
-        let response = evil_gemma
-            .client
-            .complete_chat(
-                vec![
-                    ChatMessage {
-                        role: "system".to_string(),
-                        content: evil_gemma.system_prompt.trim().to_string(),
-                    },
-                    ChatMessage {
-                        role: "user".to_string(),
-                        content: rendered_context,
-                    },
-                ],
-                1024,
-            )
-            .await?;
+        for _ in 0..MAX_TOOL_CALL_ROUNDS {
+            response = evil_gemma
+                .client
+                .complete_chat(messages.clone(), 1024)
+                .await?;
 
-        let lines = if response.trim().is_empty() {
-            vec!["<empty response>".to_string()]
+            let Some(tool_call) = parse_prompt_tool_call(&response) else {
+                break;
+            };
+
+            let tool_name = tool_call.name.clone();
+            let tool_args = serde_json::to_string(&tool_call.args)?;
+            let tool_output = match tools
+                .execute_prompt_tool_call(
+                    &tool_call,
+                    self.opened_notification(),
+                    &evil_gemma.client,
+                )
+                .await
+            {
+                Ok(output) => output,
+                Err(err) => format!("Tool execution failed: {err}"),
+            };
+
+            tool_transcript.push(format!(
+                "Tool Call\nname: {tool_name}\nargs: {tool_args}\n\nTool Result\n{tool_output}"
+            ));
+            messages.push(ChatMessage {
+                role: "assistant".to_string(),
+                content: response.clone(),
+            });
+            messages.push(ChatMessage {
+                role: "user".to_string(),
+                content: format!(
+                    "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_output}\n\nUse this result to answer the original query, or request exactly one more tool if needed."
+                ),
+            });
+            hit_tool_round_limit = true;
+        }
+
+        if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
+            response = "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string();
+        }
+
+        let mut lines = Vec::new();
+        if !tool_transcript.is_empty() {
+            lines.push("Tool Transcript:".to_string());
+            lines.push(String::new());
+            for entry in &tool_transcript {
+                lines.extend(entry.lines().map(str::to_owned));
+                lines.push(String::new());
+            }
+            lines.push("Final Answer:".to_string());
+            lines.push(String::new());
+        }
+
+        if response.trim().is_empty() {
+            lines.push("<empty response>".to_string());
         } else {
-            response.lines().map(str::to_owned).collect()
-        };
+            lines.extend(response.lines().map(str::to_owned));
+        }
 
         self.set_command_output(format!("evil_gemma: {query}"), lines);
         self.status = "evil_gemma response loaded".to_string();
@@ -441,6 +511,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent = BskyAgent::builder().build().await?;
     agent.login(&handle, &password).await?;
     let evil_gemma = EvilGemmaConfig::from_env()?;
+    let db_path =
+        env::var("SHOCK_ABSORBER_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
+    let db = AppDb::new(resolve_db_path(db_path))?;
+    let mut app = App::new(handle);
+    restore_store_from_db(&mut app.store, &db)?;
+    app.status = format!("{} | db {}", app.status, db.path().display());
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -448,7 +524,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &agent, &evil_gemma, App::new(handle)).await;
+    let result = run_app(&mut terminal, &agent, &evil_gemma, app, &db).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -462,6 +538,7 @@ async fn run_app(
     agent: &BskyAgent,
     evil_gemma: &EvilGemmaConfig,
     mut app: App,
+    db: &AppDb,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut last_poll = Instant::now() - POLL_INTERVAL;
 
@@ -469,6 +546,9 @@ async fn run_app(
         if last_poll.elapsed() >= POLL_INTERVAL {
             match poll_notifications(agent, &mut app.store).await {
                 Ok(count) => {
+                    if count > 0 {
+                        db.save_store(&app.store)?;
+                    }
                     app.clamp_selection();
                     if count > 0 {
                         app.status = format!("loaded {count} new notifications");
@@ -532,6 +612,8 @@ async fn run_app(
                                     "try `help` for supported commands".to_string(),
                                 ],
                             );
+                        } else {
+                            db.save_store(&app.store)?;
                         }
                     }
                     KeyCode::Char(ch) => {
@@ -552,6 +634,77 @@ async fn run_app(
 
 fn normalize_actor_ref(actor: &str) -> &str {
     actor.strip_prefix('@').unwrap_or(actor)
+}
+
+fn build_tool_aware_query_context(
+    opened_notification: Option<&Notification>,
+    tools: &BlueskyTools<'_>,
+    query: &str,
+    llm_client: &LlmApiClient,
+) -> String {
+    let mut context =
+        LLMContext::new("Use the available tools only when they materially improve the answer.");
+    context.push_section("Tools", tools.render_tool_inventory());
+    context.push_section("Current Task", query);
+    context.push_section(
+        "Search Hints",
+        opened_notification
+            .map(search_hints_for_notification)
+            .unwrap_or_else(|| {
+                "If you need cached search, use `llm_search` with a `prompt`, optional `source_kinds`, and optionally `actor_did` if you want to inspect another actor. Without `actor_did`, the search tool uses the actor from the selected notification.".to_string()
+            }),
+    );
+
+    context.push_section(
+        "Current UI Context",
+        opened_notification
+            .map(serialize_notification_summary_for_llm)
+            .unwrap_or_else(|| {
+                "No notification is currently selected in the detail view.".to_string()
+            }),
+    );
+
+    build_context_window(&context, &llm_client.context_limits())
+}
+
+fn search_hints_for_notification(notification: &Notification) -> String {
+    let did = notification.author.data.did.as_str();
+    format!(
+        "The selected actor is {did}. `llm_search` can inspect `recent_posts`, `replies_to_actor`, and `clearsky_lists`. Omit `actor_did` to search this actor, or provide another actor DID if a mentioned actor becomes relevant and you want both actors discussed in the same conversation."
+    )
+}
+
+fn serialize_notification_summary_for_llm(notification: &Notification) -> String {
+    let mut lines = vec![
+        format!("reason: {}", notification.data.reason),
+        format!(
+            "author_handle: {}",
+            notification.author.data.handle.as_str()
+        ),
+        format!("author_did: {}", notification.author.data.did.as_str()),
+        format!("uri: {}", notification.data.uri),
+        format!("indexed_at: {}", notification.indexed_at.as_ref()),
+    ];
+
+    if let Some(reason_subject) = notification.data.reason_subject.as_deref() {
+        lines.push(format!("reason_subject: {reason_subject}"));
+    }
+
+    let reply = extract_reply_node(&notification.data.record);
+    if let Some(parent_uri) = reply.parent_uri.as_deref() {
+        lines.push(format!("reply_parent_uri: {parent_uri}"));
+    }
+    if let Some(root_uri) = reply.root_uri.as_deref() {
+        lines.push(format!("reply_root_uri: {root_uri}"));
+    }
+    if let Some(text) = reply.text.as_deref() {
+        let preview = text.lines().next().unwrap_or_default();
+        if !preview.is_empty() {
+            lines.push(format!("reply_text_preview: {preview}"));
+        }
+    }
+
+    lines.join("\n")
 }
 
 fn format_bio_output(profile: &ActorProfile) -> Vec<String> {
@@ -580,7 +733,10 @@ fn format_replies_output(store: &NotificationStore, profile: &ActorProfile) -> V
         ];
     }
 
-    let mut lines = vec![format!("reply notifications for {}", profile.handle), String::new()];
+    let mut lines = vec![
+        format!("reply notifications for {}", profile.handle),
+        String::new(),
+    ];
     for notif in replies {
         let reply = extract_reply_node(&notif.data.record);
         lines.push(format!(
@@ -625,14 +781,22 @@ fn format_pins_output(store: &NotificationStore, profile: &ActorProfile) -> Vec<
             children: build_post_nodes(
                 store
                     .get_pinned_post_replies(&post.uri)
-                        .map(|replies| replies.to_vec())
+                    .map(|replies| replies.to_vec())
                     .unwrap_or_default(),
             ),
         })
         .collect::<Vec<_>>();
 
-    let mut lines = vec![format!("pinned posts for {}", profile.handle), String::new()];
-    lines.extend(render_post_nodes(&nodes).lines.into_iter().map(line_to_string));
+    let mut lines = vec![
+        format!("pinned posts for {}", profile.handle),
+        String::new(),
+    ];
+    lines.extend(
+        render_post_nodes(&nodes)
+            .lines
+            .into_iter()
+            .map(line_to_string),
+    );
     lines
 }
 
@@ -666,7 +830,10 @@ fn help_lines() -> Vec<String> {
 }
 
 fn is_local_command(verb: &str) -> bool {
-    matches!(verb, "bio" | "replies_from" | "pins" | "help" | "q" | "quit" | "exit")
+    matches!(
+        verb,
+        "bio" | "replies_from" | "pins" | "help" | "q" | "quit" | "exit"
+    )
 }
 
 fn resolve_system_prompt_path(path: String) -> PathBuf {
@@ -678,8 +845,41 @@ fn resolve_system_prompt_path(path: String) -> PathBuf {
     }
 }
 
+fn resolve_db_path(path: String) -> PathBuf {
+    let candidate = PathBuf::from(&path);
+    if candidate.is_absolute() {
+        candidate
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(candidate)
+    }
+}
+
+fn restore_store_from_db(
+    store: &mut NotificationStore,
+    db: &AppDb,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let persisted = db.load_state()?;
+
+    for actor in persisted.actors {
+        store.restore_actor_cache(&actor.did, &actor.handle, actor.bio)?;
+    }
+
+    for collection in persisted.post_collections {
+        store.cache_post_collection(collection);
+    }
+
+    for entry in persisted.clearsky_lists {
+        store.restore_clearsky_lists(&entry.actor_did, entry.lists)?;
+    }
+
+    Ok(())
+}
+
 fn line_to_string(line: ratatui::text::Line<'_>) -> String {
-    line.spans.iter().map(|span| span.content.as_ref()).collect()
+    line.spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect()
 }
 
 fn draw_ui(frame: &mut Frame, app: &App) {
@@ -694,7 +894,11 @@ fn draw_ui(frame: &mut Frame, app: &App) {
         .split(chunks[0]);
 
     let notifications = List::new(app.notification_items())
-        .block(Block::default().title("Notifications").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("Notifications")
+                .borders(Borders::ALL),
+        )
         .highlight_style(
             Style::default()
                 .fg(Color::Black)
@@ -710,7 +914,11 @@ fn draw_ui(frame: &mut Frame, app: &App) {
     frame.render_stateful_widget(notifications, body[0], &mut list_state);
 
     let detail = Paragraph::new(app.detail_text())
-        .block(Block::default().title(app.detail_title()).borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title(app.detail_title())
+                .borders(Borders::ALL),
+        )
         .scroll((app.detail_scroll, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(detail, body[1]);

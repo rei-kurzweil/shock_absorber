@@ -85,7 +85,7 @@ pub fn build_context_window(context: &LLMContext, limits: &ProviderContextLimits
 }
 
 fn render_header(header: &str) -> String {
-    format!("System:\n{header}\n")
+    format!("Instructions:\n{header}\n")
 }
 
 fn render_section(section: &ContextSection) -> String {

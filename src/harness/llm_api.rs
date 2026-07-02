@@ -1,6 +1,7 @@
 use crate::harness::context_window::ProviderContextLimits;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct OpenAiRestConfig {
@@ -40,7 +41,10 @@ pub struct LlmApiClient {
 impl LlmApiClient {
     pub fn new(config: OpenAiRestConfig) -> Self {
         Self {
-            http: Client::new(),
+            http: Client::builder()
+                .timeout(Duration::from_secs(90))
+                .build()
+                .expect("reqwest client should build"),
             config,
         }
     }

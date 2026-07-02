@@ -25,8 +25,7 @@ Current harness pieces:
   - does not support `tools`, `tool_choice`, or parsing tool-call responses
 - `src/harness/tools.rs`
   - contains harness search logic
-  - now has two different search comparators:
-    - `keyword_search`
+  - now exposes an LLM-mediated collection search path:
     - `llm_search`
   - does not yet expose a formal tool registry
 - `src/model/mod.rs`
@@ -58,7 +57,7 @@ The model needs explicit guidance about:
 - what tools exist
 - what each tool is for
 - what inputs each tool expects
-- when to use a cheap deterministic tool vs an expensive LLM-mediated tool
+- when to use direct post inspection vs an LLM-mediated collection search
 
 The immediate prompt shape should be:
 1. system prompt
@@ -82,24 +81,7 @@ Suggested types:
 - `when_to_use`
 - `notes`
 
-Example tools to register first:
-
-### `keyword_search`
-
-Purpose:
-- search a named `LabeledPostCollection` using a keyword array
-
-Behavior:
-- count keyword matches per post
-- return the top 2 posts with the most matches
-
-Expected inputs:
-- `collection_id`
-- `keywords`
-
-When to use:
-- when the model already knows the lexical terms it wants
-- when a cheap and deterministic first pass is good enough
+Example search tool to register first:
 
 ### `llm_search`
 
@@ -117,8 +99,8 @@ Expected inputs:
 - `prompt`
 
 When to use:
-- when keyword overlap is too weak
 - when relevance depends on semantics rather than literal token overlap
+- when the compact UI preview is insufficient
 
 ## How OpenAI-Style Tool Calling Works
 
@@ -176,14 +158,14 @@ Add a tool inventory section to context and instruct the model to emit a strict 
 
 ```text
 TOOL_CALL
-name: keyword_search
-args: {"collection_id":"recent_posts:did:plc:...","keywords":["spam","harassment"]}
+name: llm_search
+args: {"collection_id":"recent_posts:did:plc:...","prompt":"find posts about harassment accusations or public disputes"}
 ```
 
 Then `shock_absorber`:
 1. parses the tool request
 2. runs the Rust tool locally
-3. adds the tool output to context
+3. appends the tool output as a follow-up chat turn
 4. makes another LLM call
 
 Why this is the best first step:
@@ -275,6 +257,6 @@ Then:
 This task is complete when:
 - available tools can be enumerated from code, not manually described
 - a `Tools` section is inserted into the LLM context after the system prompt
-- the model can request `keyword_search` and `llm_search` through a defined protocol
+- the model can request `llm_search` through a defined protocol
 - `shock_absorber` can execute that request and feed the result back into the conversation
 - the design leaves room for later migration to true OpenAI-style `tools` / `tool_calls`

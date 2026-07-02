@@ -29,14 +29,12 @@ pub fn render_post_nodes(posts: &[PostNode]) -> Text<'static> {
 
 fn push_post(lines: &mut Vec<Line<'static>>, post: &PostNode, depth: usize) {
     let indent = "  ".repeat(depth);
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{indent}{}", post.header),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        format!("{indent}{}", post.header),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )]));
     lines.push(Line::from(vec![Span::styled(
         format!("{indent}{}", post.uri),
         Style::default().fg(Color::DarkGray),
