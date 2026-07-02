@@ -9,7 +9,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Text;
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use std::env;
 use std::error::Error;
@@ -151,6 +151,10 @@ impl App {
                 .unwrap_or_else(|| "Notification".to_string()),
             DetailView::Command { title, .. } => title.clone(),
         }
+    }
+
+    fn is_command_fullscreen(&self) -> bool {
+        matches!(self.detail, DetailView::Command { .. })
     }
 
     fn detail_text(&self) -> Text<'static> {
@@ -414,7 +418,7 @@ impl App {
         let mut response = String::new();
         let mut hit_tool_round_limit = false;
 
-        for _ in 0..MAX_TOOL_CALL_ROUNDS {
+        for round in 0..MAX_TOOL_CALL_ROUNDS {
             response = evil_gemma
                 .client
                 .complete_chat(messages.clone(), 1024)
@@ -448,14 +452,33 @@ impl App {
             messages.push(ChatMessage {
                 role: "user".to_string(),
                 content: format!(
-                    "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_output}\n\nUse this result to answer the original query, or request exactly one more tool if needed."
+                    "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_output}\n\n{}",
+                    if round + 1 == MAX_TOOL_CALL_ROUNDS {
+                        "This was the final allowed tool round. Answer the original query directly now. Do not request another tool or emit a TOOL_CALL block."
+                    } else {
+                        "Use this result to answer the original query, or request exactly one more tool if needed."
+                    }
                 ),
             });
-            hit_tool_round_limit = true;
+            hit_tool_round_limit = round + 1 == MAX_TOOL_CALL_ROUNDS;
         }
 
         if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
-            response = "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string();
+            messages.push(ChatMessage {
+                role: "assistant".to_string(),
+                content: response.clone(),
+            });
+            messages.push(ChatMessage {
+                role: "user".to_string(),
+                content: "You have already used the maximum number of tool rounds. Answer the original query directly using the tool results already provided. Do not emit TOOL_CALL.".to_string(),
+            });
+            response = evil_gemma
+                .client
+                .complete_chat(messages, 1024)
+                .await
+                .unwrap_or_else(|_| {
+                    "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
+                });
         }
 
         let mut lines = Vec::new();
@@ -487,6 +510,11 @@ impl App {
             title: title.into(),
             lines,
         };
+    }
+
+    fn dismiss_command_output(&mut self) {
+        self.detail_scroll = 0;
+        self.detail = DetailView::Notification;
     }
 
     fn open_selected_notification(&mut self) {
@@ -595,7 +623,11 @@ async fn run_app(
                         app.detail_scroll = app.detail_scroll.saturating_add(4);
                     }
                     KeyCode::Esc => {
-                        app.input.clear();
+                        if !app.input.is_empty() {
+                            app.input.clear();
+                        } else if app.is_command_fullscreen() {
+                            app.dismiss_command_output();
+                        }
                     }
                     KeyCode::Backspace => {
                         app.input.pop();
@@ -651,7 +683,7 @@ fn build_tool_aware_query_context(
         opened_notification
             .map(search_hints_for_notification)
             .unwrap_or_else(|| {
-                "If you need cached search, use `llm_search` with a `prompt`, optional `source_kinds`, and optionally `actor_did` if you want to inspect another actor. Without `actor_did`, the search tool uses the actor from the selected notification.".to_string()
+                "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt`, optional `collection_ids`, and optionally `actor_did` if you want to inspect another actor. Without `actor_did` or `collection_ids`, the search tool uses the actor from the selected notification when one exists, otherwise it searches all cached collections.".to_string()
             }),
     );
 
@@ -670,7 +702,7 @@ fn build_tool_aware_query_context(
 fn search_hints_for_notification(notification: &Notification) -> String {
     let did = notification.author.data.did.as_str();
     format!(
-        "The selected actor is {did}. `llm_search` can inspect `recent_posts`, `replies_to_actor`, and `clearsky_lists`. Omit `actor_did` to search this actor, or provide another actor DID if a mentioned actor becomes relevant and you want both actors discussed in the same conversation."
+        "The selected actor is {did}. Use `list_collections` to see cached collections for this actor, then `llm_search` with either `collection_ids` or an `actor_did`. Omit `actor_did` to search this actor, or provide another actor DID if a mentioned actor becomes relevant."
     )
 }
 
@@ -888,47 +920,48 @@ fn draw_ui(frame: &mut Frame, app: &App) {
         .constraints([Constraint::Min(0), Constraint::Length(3)])
         .split(frame.area());
 
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(chunks[0]);
+    if app.is_command_fullscreen() {
+        let detail = Paragraph::new(app.detail_text())
+            .block(Block::default().title(app.detail_title()))
+            .scroll((app.detail_scroll, 0))
+            .wrap(Wrap { trim: false });
+        frame.render_widget(detail, chunks[0]);
+    } else {
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+            .split(chunks[0]);
 
-    let notifications = List::new(app.notification_items())
-        .block(
-            Block::default()
-                .title("Notifications")
-                .borders(Borders::ALL),
-        )
-        .highlight_style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(">> ");
+        let notifications = List::new(app.notification_items())
+            .block(Block::default().title("Notifications"))
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(">> ");
 
-    let mut list_state = ListState::default();
-    if !app.store.notifications.is_empty() {
-        list_state.select(Some(app.selected));
+        let mut list_state = ListState::default();
+        if !app.store.notifications.is_empty() {
+            list_state.select(Some(app.selected));
+        }
+        frame.render_stateful_widget(notifications, body[0], &mut list_state);
+
+        let detail = Paragraph::new(app.detail_text())
+            .block(Block::default().title(app.detail_title()))
+            .scroll((app.detail_scroll, 0))
+            .wrap(Wrap { trim: false });
+        frame.render_widget(detail, body[1]);
     }
-    frame.render_stateful_widget(notifications, body[0], &mut list_state);
-
-    let detail = Paragraph::new(app.detail_text())
-        .block(
-            Block::default()
-                .title(app.detail_title())
-                .borders(Borders::ALL),
-        )
-        .scroll((app.detail_scroll, 0))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(detail, body[1]);
 
     let input = Paragraph::new(app.input.as_str())
         .block(
             Block::default()
                 .title(format!("Command | {} ", app.status))
-                .borders(Borders::ALL),
+                .style(Style::default().bg(Color::Rgb(220, 220, 220)).fg(Color::Black)),
         )
+        .style(Style::default().bg(Color::Rgb(220, 220, 220)).fg(Color::Black))
         .wrap(Wrap { trim: false });
     frame.render_widget(input, chunks[1]);
 

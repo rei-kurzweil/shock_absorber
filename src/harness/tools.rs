@@ -49,19 +49,58 @@ impl ToolRegistry {
                 ],
             },
             ToolSpec {
+                name: "list_collections".to_string(),
+                description: "List cached collections, either globally or for one actor.".to_string(),
+                arguments: vec![ToolArgumentSpec {
+                    name: "actor_did".to_string(),
+                    value_type: "string".to_string(),
+                    description: "Optional actor DID. If provided, only collections related to that actor are listed.".to_string(),
+                    required: false,
+                }],
+                when_to_use: "Use when you need to know what cached collections exist before searching or reading an item.".to_string(),
+                notes: vec![
+                    "Returns compact collection summaries.".to_string(),
+                    "If `actor_did` is omitted, all cached collections are listed.".to_string(),
+                    "A synthesized `replies_to_actor:<did>` collection is listed when it can be built from cached pinned-post replies.".to_string(),
+                ],
+            },
+            ToolSpec {
+                name: "read_collection_item".to_string(),
+                description: "Read one specific item from a collection in a richer form suitable for loading into context.".to_string(),
+                arguments: vec![
+                    ToolArgumentSpec {
+                        name: "collection_id".to_string(),
+                        value_type: "string".to_string(),
+                        description: "The collection containing the item.".to_string(),
+                        required: true,
+                    },
+                    ToolArgumentSpec {
+                        name: "item_uri".to_string(),
+                        value_type: "string".to_string(),
+                        description: "The URI of the item to read.".to_string(),
+                        required: true,
+                    },
+                ],
+                when_to_use: "Use after search when you want one item and its richer details in the active context.".to_string(),
+                notes: vec![
+                    "Reads the exact item selected from a search result.".to_string(),
+                    "For reply-oriented collections, returns the synthesized reply record body.".to_string(),
+                ],
+            },
+            ToolSpec {
                 name: "llm_search".to_string(),
-                description: "Run a narrower LLM pass over cached sources for a target actor and choose a single semantically relevant record.".to_string(),
+                description: "Run a narrower LLM pass over cached collections and return grounded evidence anchored to one real record.".to_string(),
                 arguments: vec![
                     ToolArgumentSpec {
                         name: "actor_did".to_string(),
                         value_type: "string".to_string(),
-                        description: "Optional target actor DID. If omitted, the actor from the selected notification is used.".to_string(),
+                        description: "Optional target actor DID. If provided and `collection_ids` is omitted, search all collections related to that actor.".to_string(),
                         required: false,
                     },
                     ToolArgumentSpec {
-                        name: "source_kinds".to_string(),
+                        name: "collection_ids".to_string(),
                         value_type: "array<string>".to_string(),
-                        description: "Optional sources to search for the target actor: `recent_posts`, `replies_to_actor`, `clearsky_lists`. If omitted, all available sources are merged.".to_string(),
+                        description: "Optional explicit collection IDs to search. If provided, these take precedence over `actor_did`.".to_string(),
                         required: false,
                     },
                     ToolArgumentSpec {
@@ -80,11 +119,10 @@ impl ToolRegistry {
                 when_to_use: "Use when semantic relevance matters more than the compact UI preview and you need the model to inspect a cached collection.".to_string(),
                 notes: vec![
                     "The calling agent must write the search prompt.".to_string(),
-                    "If `actor_did` is omitted, the tool searches the actor from the currently selected notification.".to_string(),
-                    "It synthesizes a temporary merged collection from the target actor's cached sources.".to_string(),
-                    "Use this to follow mentions of other actors while keeping the original actor context in the main conversation.".to_string(),
-                    "`replies_to_actor` is currently best-effort and comes from cached replies on that actor's pinned posts, not a general network-wide reply search.".to_string(),
-                    "Returns one synthesized block with a chosen URI and relevance analysis.".to_string(),
+                    "If `collection_ids` is provided, the tool searches exactly those collections.".to_string(),
+                    "If `collection_ids` is omitted and `actor_did` is provided, the tool searches all collections related to that actor.".to_string(),
+                    "If both are omitted, the tool searches all cached collections plus any synthesized `replies_to_actor` collections it can build for cached actors.".to_string(),
+                    "Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated labels from the matching items.".to_string(),
                 ],
             },
         ])
@@ -139,6 +177,7 @@ pub struct PromptToolCall {
 pub struct LlmSearchResult {
     pub title: String,
     pub uri: String,
+    pub source_collection_id: Option<String>,
     pub synthesized_block: String,
 }
 
@@ -158,7 +197,7 @@ impl<'a> LlmSearchComparator<'a> {
         }
 
         let mut context = LLMContext::new(
-            "Choose one post from the provided collection. Return a compact result block with `uri:`, `title:`, and `analysis:` fields. The analysis must quote the chosen post and explain why it matches the prompt.",
+            "Inspect the provided collection carefully. Return a compact result block with `uri:`, `title:`, and `analysis:` fields. Always choose one anchor item with a real `uri:` from the collection. The `analysis:` field is evidence-only: quote exact short snippets, list names, list descriptions, or other text taken from the collection, and note repeated labels or overlapping themes across multiple items when relevant. Do not add higher-level interpretation beyond brief grouping of repeated evidence. Do not answer the user's overall question; just return grounded evidence that the parent agent can analyze.",
         );
         context.push_section("Collection", serialize_collection(collection));
         context.push_section("Search Prompt", self.prompt);
@@ -203,16 +242,17 @@ impl<'a> BlueskyTools<'a> {
         let primary = LlmSearchComparator {
             prompt,
             llm_client,
-            max_output_tokens: 512,
+            max_output_tokens: 768,
         };
         match primary.compare(collection).await {
             Ok(result) => Ok(result),
             Err(primary_err) => {
-                let reduced = reduced_search_collection(collection, 8, 280);
+                let (max_posts, max_body_chars) = reduced_search_budget(collection);
+                let reduced = reduced_search_collection(collection, max_posts, max_body_chars);
                 let retry = LlmSearchComparator {
                     prompt,
                     llm_client,
-                    max_output_tokens: 256,
+                    max_output_tokens: 512,
                 };
                 retry.compare(&reduced).await.map_err(|retry_err| {
                     format!(
@@ -263,6 +303,15 @@ impl<'a> BlueskyTools<'a> {
     ) -> Result<String, Box<dyn std::error::Error>> {
         match tool_call.name.as_str() {
             "read_selected_post" => Ok(self.read_selected_post(selected_notification)),
+            "list_collections" => {
+                let actor_did = optional_did_arg(&tool_call.args, "actor_did")?;
+                Ok(self.list_collections(actor_did.as_ref()))
+            }
+            "read_collection_item" => {
+                let collection_id = require_string_arg(&tool_call.args, "collection_id")?;
+                let item_uri = require_string_arg(&tool_call.args, "item_uri")?;
+                self.read_collection_item(&collection_id, &item_uri)
+            }
             "llm_search" => {
                 let collection =
                     self.resolve_search_collection(&tool_call.args, selected_notification)?;
@@ -272,6 +321,75 @@ impl<'a> BlueskyTools<'a> {
             }
             other => Err(format!("unknown tool `{other}`").into()),
         }
+    }
+
+    pub fn list_collections(&self, actor_did: Option<&Did>) -> String {
+        let collections = match actor_did {
+            Some(actor_did) => self.collections_for_actor(actor_did),
+            None => self.all_collections(),
+        };
+
+        if collections.is_empty() {
+            return match actor_did {
+                Some(actor_did) => {
+                    format!("No cached collections are available for {}.", actor_did.as_str())
+                }
+                None => "No cached collections are available.".to_string(),
+            };
+        }
+
+        collections
+            .into_iter()
+            .map(render_collection_summary)
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    pub fn read_collection_item(
+        &self,
+        collection_id: &str,
+        item_uri: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let collection = self
+            .resolve_collection_by_id(collection_id)
+            .or_else(|| self.find_collection_for_item_uri(item_uri))
+            .ok_or_else(|| format!("unknown collection `{collection_id}`"))?;
+        let post = collection
+            .posts
+            .iter()
+            .find(|post| post.uri == item_uri)
+            .ok_or_else(|| format!("item `{item_uri}` was not found in `{collection_id}`"))?;
+
+        let mut lines = vec![
+            format!("collection_id: {}", collection.id),
+            format!("label: {}", collection.label),
+            format!("collection_kind: {}", collection.collection_kind),
+        ];
+
+        if let Some(actor_did) = collection.actor_did.as_deref() {
+            lines.push(format!("actor_did: {actor_did}"));
+        }
+        lines.push(format!("last_refreshed_at: {}", collection.last_refreshed_at));
+        if let Some(ttl) = collection.refresh_ttl_seconds {
+            lines.push(format!("refresh_ttl_seconds: {ttl}"));
+        }
+        if !collection.related_collection_ids.is_empty() {
+            lines.push(format!(
+                "related_collection_ids: {}",
+                collection.related_collection_ids.join(", ")
+            ));
+        }
+        lines.push(String::new());
+        lines.push(format!("item_uri: {}", post.uri));
+        lines.push(format!("author_handle: {}", post.author_handle));
+        lines.push("body:".to_string());
+        if post.body.is_empty() {
+            lines.push("<empty>".to_string());
+        } else {
+            lines.extend(post.body.lines().map(str::to_owned));
+        }
+
+        Ok(lines.join("\n"))
     }
 
     pub fn load_llm_result_into_context(
@@ -285,8 +403,15 @@ impl<'a> BlueskyTools<'a> {
                 context.push_section(
                     title,
                     format!(
-                        "post: {}\nuri: {}\n{}",
-                        result.title, result.uri, result.synthesized_block
+                        "post: {}\nuri: {}\n{}\n{}",
+                        result.title,
+                        result.uri,
+                        result
+                            .source_collection_id
+                            .as_ref()
+                            .map(|id| format!("source_collection_id: {id}"))
+                            .unwrap_or_default(),
+                        result.synthesized_block
                     ),
                 );
             }
@@ -299,80 +424,99 @@ impl<'a> BlueskyTools<'a> {
         args: &Value,
         selected_notification: Option<&Notification>,
     ) -> Result<LabeledPostCollection, Box<dyn std::error::Error>> {
-        let actor_did = match optional_string_arg(args, "actor_did") {
-            Some(raw_did) => raw_did
-                .parse()
-                .map_err(|err| format!("tool arg `actor_did` must be a DID: {err}"))?,
-            None => selected_notification
-                .map(|notification| notification.author.data.did.clone())
-                .ok_or_else(|| {
-                    "llm_search requires either `actor_did` or a selected notification".to_string()
-                })?,
-        };
-        let source_kinds = optional_string_array_arg(args, "source_kinds")?;
+        let collection_ids = optional_string_array_arg(args, "collection_ids")?;
         let label = optional_string_arg(args, "label");
-        let collections = self.actor_search_collections(&actor_did, &source_kinds)?;
+        let collections = if !collection_ids.is_empty() {
+            self.collections_from_ids(&collection_ids)?
+        } else if let Some(actor_did) = optional_did_arg(args, "actor_did")? {
+            self.collections_for_actor(&actor_did)
+        } else if let Some(notification) = selected_notification {
+            self.collections_for_actor(&notification.author.data.did)
+        } else {
+            self.all_collections()
+        };
+
+        if collections.is_empty() {
+            return Err(
+                "no cached collections matched the requested search scope".to_string().into(),
+            );
+        }
+
         merged_collection_from_refs(
-            collections.iter().collect(),
-            format!("merged_actor:{}", actor_did.as_str()),
+            collections,
+            label
+                .clone()
+                .unwrap_or_else(|| "merged_search_scope".to_string()),
             label.unwrap_or_else(|| {
-                format!(
-                    "Merged search sources for selected actor {}",
-                    actor_did.as_str()
-                )
+                "Merged search scope".to_string()
             }),
         )
     }
 
-    fn actor_search_collections(
-        &self,
-        actor_did: &Did,
-        source_kinds: &[String],
-    ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
-        let requested = if source_kinds.is_empty() {
-            vec![
-                "recent_posts".to_string(),
-                "replies_to_actor".to_string(),
-                "clearsky_lists".to_string(),
-            ]
-        } else {
-            source_kinds.to_vec()
-        };
-
-        let mut collections = Vec::new();
-        for source_kind in requested {
-            match source_kind.as_str() {
-                "recent_posts" => {
-                    let collection_id = self.recent_posts_collection_id(actor_did);
-                    if let Some(collection) = self.store.get_post_collection(&collection_id) {
-                        collections.push(collection.clone());
-                    }
-                }
-                "clearsky_lists" => {
-                    let collection_id = self.clearsky_lists_collection_id(actor_did);
-                    if let Some(collection) = self.store.get_post_collection(&collection_id) {
-                        collections.push(collection.clone());
-                    }
-                }
-                "replies_to_actor" => {
-                    if let Some(collection) = self.build_replies_to_actor_collection(actor_did) {
-                        collections.push(collection);
-                    }
-                }
-                other => {
-                    return Err(format!(
-                        "unknown source_kind `{other}`; expected recent_posts, replies_to_actor, or clearsky_lists"
-                    )
-                    .into());
-                }
+    fn all_collections(&self) -> Vec<LabeledPostCollection> {
+        let mut collections = self
+            .store
+            .post_collections()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        for actor_did in self.store.cached_actor_dids() {
+            if let Some(collection) = self.build_replies_to_actor_collection(&actor_did) {
+                collections.push(collection);
             }
         }
+        collections.sort_by(|left, right| left.id.cmp(&right.id));
+        collections
+    }
 
-        if collections.is_empty() {
-            return Err("no cached sources were available for the selected actor".into());
+    fn collections_for_actor(&self, actor_did: &Did) -> Vec<LabeledPostCollection> {
+        let mut collections = self
+            .store
+            .actor_post_collections(actor_did)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Some(collection) = self.build_replies_to_actor_collection(actor_did) {
+            collections.push(collection);
+        }
+        collections.sort_by(|left, right| left.id.cmp(&right.id));
+        collections
+    }
+
+    fn collections_from_ids(
+        &self,
+        collection_ids: &[String],
+    ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
+        collection_ids
+            .iter()
+            .map(|collection_id| {
+                self.resolve_collection_by_id(collection_id)
+                    .ok_or_else(|| format!("unknown collection `{collection_id}`").into())
+            })
+            .collect()
+    }
+
+    fn resolve_collection_by_id(&self, collection_id: &str) -> Option<LabeledPostCollection> {
+        if let Some(collection) = self.store.get_post_collection(collection_id) {
+            return Some(collection.clone());
         }
 
-        Ok(collections)
+        let did = collection_id
+            .strip_prefix("replies_to_actor:")
+            .and_then(|value| value.parse::<Did>().ok())?;
+        self.build_replies_to_actor_collection(&did)
+    }
+
+    fn find_collection_for_item_uri(&self, item_uri: &str) -> Option<LabeledPostCollection> {
+        let mut matches = self
+            .all_collections()
+            .into_iter()
+            .filter(|collection| collection.posts.iter().any(|post| post.uri == item_uri));
+        let first = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        Some(first)
     }
 
     fn build_replies_to_actor_collection(&self, actor_did: &Did) -> Option<LabeledPostCollection> {
@@ -398,11 +542,7 @@ impl<'a> BlueskyTools<'a> {
         }
 
         let mut metadata = HashMap::new();
-        metadata.insert(
-            "collection_kind".to_string(),
-            "replies_to_actor".to_string(),
-        );
-        metadata.insert("actor_did".to_string(), actor_did.as_str().to_string());
+        metadata.insert("source".to_string(), "pinned_post_replies".to_string());
 
         Some(
             LabeledPostCollection::new(
@@ -410,6 +550,9 @@ impl<'a> BlueskyTools<'a> {
                 format!("Replies to pinned posts by {}", actor_did.as_str()),
                 posts,
             )
+            .with_collection_kind("replies_to_actor")
+            .with_actor_did(actor_did.as_str())
+            .with_refresh_state(0, Some(15 * 60))
             .with_metadata(metadata),
         )
     }
@@ -419,7 +562,17 @@ fn serialize_collection(collection: &LabeledPostCollection) -> String {
     let mut lines = vec![
         format!("collection_id: {}", collection.id),
         format!("label: {}", collection.label),
+        format!("collection_kind: {}", collection.collection_kind),
+        format!("item_count: {}", collection.posts.len()),
+        format!("last_refreshed_at: {}", collection.last_refreshed_at),
     ];
+
+    if let Some(actor_did) = collection.actor_did.as_deref() {
+        lines.push(format!("actor_did: {actor_did}"));
+    }
+    if let Some(ttl) = collection.refresh_ttl_seconds {
+        lines.push(format!("refresh_ttl_seconds: {ttl}"));
+    }
 
     if !collection.related_collection_ids.is_empty() {
         lines.push(format!(
@@ -436,13 +589,34 @@ fn serialize_collection(collection: &LabeledPostCollection) -> String {
 
     lines.push(String::new());
     for (index, post) in collection.posts.iter().enumerate() {
-        lines.push(format!("post[{index}].uri: {}", post.uri));
-        lines.push(format!("post[{index}].author: {}", post.author_handle));
-        lines.push(format!("post[{index}].body: {}", post.body));
+        lines.push(format!("item[{index}]"));
+        lines.push(format!("uri: {}", post.uri));
+        lines.push(format!("author: {}", post.author_handle));
+        lines.extend(render_search_post_fields(post));
         lines.push(String::new());
     }
 
     lines.join("\n")
+}
+
+fn render_search_post_fields(post: &PostRecord) -> Vec<String> {
+    let body_fields = body_field_map(&post.body);
+
+    if body_fields.contains_key("list_name") || body_fields.contains_key("list_description") {
+        let mut lines = vec!["type: moderation_list".to_string()];
+        if let Some(source_collection_id) = body_fields.get("source_collection_id") {
+            lines.push(format!("source_collection_id: {}", source_collection_id));
+        }
+        if let Some(list_name) = body_fields.get("list_name") {
+            lines.push(format!("list_name: {}", list_name));
+        }
+        if let Some(list_description) = body_fields.get("list_description") {
+            lines.push(format!("list_description: {}", list_description));
+        }
+        return lines;
+    }
+
+    vec![format!("body: {}", post.body)]
 }
 
 fn parse_llm_search_result(
@@ -468,7 +642,12 @@ fn parse_llm_search_result(
 
     Some(LlmSearchResult {
         title,
-        uri,
+        uri: uri.clone(),
+        source_collection_id: collection
+            .posts
+            .iter()
+            .find(|post| post.uri == uri)
+            .and_then(source_collection_id_from_post),
         synthesized_block: if synthesized_block.is_empty() {
             response.trim().to_string()
         } else {
@@ -565,14 +744,14 @@ pub fn prompt_tool_protocol_instructions() -> &'static str {
     "Answer the user's query directly when no tool is needed. If one tool would help, emit exactly one tool request block in this format and nothing else:
 TOOL_CALL
 name: llm_search
-args: {\"actor_did\":\"did:plc:...\",\"source_kinds\":[\"recent_posts\",\"replies_to_actor\",\"clearsky_lists\"],\"prompt\":\"...\"}
+args: {\"actor_did\":\"did:plc:...\",\"prompt\":\"...\"}
 
 Valid llm_search examples:
-1. Search only Clearsky lists for another actor: {\"actor_did\":\"did:plc:...\",\"source_kinds\":[\"clearsky_lists\"],\"prompt\":\"what labels or accusations appear in the lists this actor is on?\"}
-2. Search recent posts and replies to the actor: {\"actor_did\":\"did:plc:...\",\"source_kinds\":[\"recent_posts\",\"replies_to_actor\"],\"prompt\":\"what disputes or accusations involve this actor?\"}
-3. Search all available sources for the selected actor: {\"prompt\":\"what is this actor accused of, based on their posts, replies to them, and the lists they are on?\"}
+1. Search all cached collections for another actor: {\"actor_did\":\"did:plc:...\",\"prompt\":\"what labels or accusations appear across this actor's cached collections?\"}
+2. Search two known collections directly: {\"collection_ids\":[\"recent_posts_unaddressed:did:plc:...\",\"replies_to_actor:did:plc:...\"],\"prompt\":\"what disputes or accusations involve this actor?\"}
+3. Search all available collections: {\"prompt\":\"what is this actor accused of, based on the cached collections available here?\"}
 
-Available tools are listed below. The Current UI Context section is intentionally compact and does not include full post text. Use read_selected_post when you need the selected post or reply body and facets. Use llm_search for cached source search about either the selected actor or another actor by DID. After a tool result is provided, either answer directly or request one more tool."
+Available tools are listed below. The Current UI Context section is intentionally compact and does not include full post text. Use read_selected_post when you need the selected post or reply body and facets. Use list_collections before search when you need to inspect cache boundaries. Use llm_search for cached collection search. If an llm_search result includes `source_collection_id`, reuse that exact value for `read_collection_item`; do not infer collection IDs from an item URI. Use read_collection_item when a chosen item should be loaded into context with more detail. After a tool result is provided, either answer directly or request one more tool."
 }
 
 pub fn parse_prompt_tool_call(response: &str) -> Option<PromptToolCall> {
@@ -610,16 +789,64 @@ pub fn parse_prompt_tool_call(response: &str) -> Option<PromptToolCall> {
 
 fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
     match result {
-        Some(result) => format!(
-            "post: {}\nuri: {}\n{}",
-            result.title, result.uri, result.synthesized_block
-        ),
+        Some(result) => {
+            let mut lines = vec![
+                format!("post: {}", result.title),
+                format!("uri: {}", result.uri),
+            ];
+            if let Some(source_collection_id) = result.source_collection_id.as_deref() {
+                lines.push(format!("source_collection_id: {source_collection_id}"));
+            }
+            lines.push(result.synthesized_block.clone());
+            lines.join("\n")
+        }
         None => "No matching cached posts.".to_string(),
     }
 }
 
+fn source_collection_id_from_post(post: &PostRecord) -> Option<String> {
+    body_field_map(&post.body)
+        .get("source_collection_id")
+        .cloned()
+}
+
+fn body_field_map(body: &str) -> HashMap<String, String> {
+    body.lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            let key = key.trim();
+            if key.is_empty() {
+                return None;
+            }
+            Some((key.to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+fn render_collection_summary(collection: LabeledPostCollection) -> String {
+    let mut lines = vec![
+        format!("id: {}", collection.id),
+        format!("label: {}", collection.label),
+        format!("collection_kind: {}", collection.collection_kind),
+        format!("item_count: {}", collection.posts.len()),
+        format!("last_refreshed_at: {}", collection.last_refreshed_at),
+    ];
+
+    if let Some(actor_did) = collection.actor_did.as_deref() {
+        lines.push(format!("actor_did: {actor_did}"));
+    }
+    if !collection.related_collection_ids.is_empty() {
+        lines.push(format!(
+            "related_collection_ids: {}",
+            collection.related_collection_ids.join(", ")
+        ));
+    }
+
+    lines.join("\n")
+}
+
 fn merged_collection_from_refs(
-    collections: Vec<&LabeledPostCollection>,
+    collections: Vec<LabeledPostCollection>,
     id: String,
     label: String,
 ) -> Result<LabeledPostCollection, Box<dyn std::error::Error>> {
@@ -655,7 +882,10 @@ fn merged_collection_from_refs(
         })
         .collect::<Vec<_>>();
 
-    Ok(LabeledPostCollection::new(id, label, posts).with_metadata(metadata))
+    Ok(LabeledPostCollection::new(id, label, posts)
+        .with_collection_kind("merged_search_space")
+        .with_refresh_state(0, None)
+        .with_metadata(metadata))
 }
 
 fn reduced_search_collection(
@@ -663,24 +893,95 @@ fn reduced_search_collection(
     max_posts: usize,
     max_body_chars: usize,
 ) -> LabeledPostCollection {
-    let posts = collection
-        .posts
-        .iter()
-        .take(max_posts)
+    let posts = sample_posts_evenly(&collection.posts, max_posts)
+        .into_iter()
         .map(|post| PostRecord {
             uri: post.uri.clone(),
             author_handle: post.author_handle.clone(),
-            body: truncate_chars(&post.body, max_body_chars),
+            body: reduced_search_body(&post.body, max_body_chars),
         })
         .collect::<Vec<_>>();
 
-    LabeledPostCollection::new(
+    let reduced = LabeledPostCollection::new(
         collection.id.clone(),
         format!("{} (reduced retry view)", collection.label),
         posts,
     )
+    .with_collection_kind(collection.collection_kind.clone())
+    .with_refresh_state(
+        collection.last_refreshed_at,
+        collection.refresh_ttl_seconds,
+    )
     .with_related_collections(collection.related_collection_ids.clone())
-    .with_metadata(collection.metadata.clone())
+    .with_metadata(collection.metadata.clone());
+
+    if let Some(actor_did) = collection.actor_did.as_ref() {
+        reduced.with_actor_did(actor_did.clone())
+    } else {
+        reduced
+    }
+}
+
+fn reduced_search_body(body: &str, max_body_chars: usize) -> String {
+    let fields = body_field_map(body);
+    if fields.contains_key("list_name") || fields.contains_key("list_description") {
+        let mut lines = Vec::new();
+        for key in [
+            "source_collection_id",
+            "source_collection_label",
+            "list_name",
+            "list_description",
+            "list_did",
+            "created_date",
+            "date_added",
+            "url",
+        ] {
+            if let Some(value) = fields.get(key) {
+                lines.push(format!("{key}: {value}"));
+            }
+        }
+        return lines.join("\n");
+    }
+
+    truncate_chars(body, max_body_chars)
+}
+
+fn reduced_search_budget(collection: &LabeledPostCollection) -> (usize, usize) {
+    let list_like_posts = collection
+        .posts
+        .iter()
+        .filter(|post| {
+            let body = &post.body;
+            body.contains("list_name:") || body.contains("post[0].list_name:")
+        })
+        .count();
+
+    if collection.collection_kind == "clearsky_lists"
+        || (collection.collection_kind == "merged_search_space"
+            && list_like_posts.saturating_mul(2) >= collection.posts.len())
+    {
+        return (24, 220);
+    }
+
+    (12, 280)
+}
+
+fn sample_posts_evenly(posts: &[PostRecord], max_posts: usize) -> Vec<&PostRecord> {
+    if posts.len() <= max_posts {
+        return posts.iter().collect();
+    }
+
+    let last_index = posts.len() - 1;
+    (0..max_posts)
+        .map(|slot| {
+            let index = if max_posts <= 1 {
+                0
+            } else {
+                slot * last_index / (max_posts - 1)
+            };
+            &posts[index]
+        })
+        .collect()
 }
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {
@@ -783,6 +1084,15 @@ fn parse_did_arg(args: &Value, key: &str) -> Result<Did, Box<dyn std::error::Err
         .map_err(|err| format!("tool arg `{key}` must be a DID: {err}").into())
 }
 
+fn optional_did_arg(args: &Value, key: &str) -> Result<Option<Did>, Box<dyn std::error::Error>> {
+    optional_string_arg(args, key)
+        .map(|raw| {
+            raw.parse()
+                .map_err(|err| format!("tool arg `{key}` must be a DID: {err}").into())
+        })
+        .transpose()
+}
+
 fn optional_string_array_arg(
     args: &Value,
     key: &str,
@@ -805,8 +1115,9 @@ fn optional_string_array_arg(
 #[cfg(test)]
 mod tests {
     use super::{
-        ToolRegistry, merged_collection_from_refs, parse_llm_search_result, parse_prompt_tool_call,
-        render_post_details,
+        ToolRegistry, merged_collection_from_refs, parse_llm_search_result,
+        parse_prompt_tool_call, reduced_search_collection, render_post_details,
+        serialize_collection, source_collection_id_from_post,
     };
     use crate::model::{LabeledPostCollection, PostRecord};
     use crate::net_backend::{PostDetails, PostFacet};
@@ -871,13 +1182,16 @@ mod tests {
     #[test]
     fn parses_prompt_tool_call_block() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: llm_search\nargs: {\"actor_did\":\"did:plc:testactor\",\"source_kinds\":[\"recent_posts\",\"clearsky_lists\"],\"prompt\":\"find mentions of cats\"}",
+            "TOOL_CALL\nname: llm_search\nargs: {\"actor_did\":\"did:plc:testactor\",\"collection_ids\":[\"recent_posts_unaddressed:did:plc:testactor\",\"clearsky_lists:did:plc:testactor\"],\"prompt\":\"find mentions of cats\"}",
         )
         .expect("expected tool call");
 
         assert_eq!(tool_call.name, "llm_search");
         assert_eq!(tool_call.args["actor_did"], "did:plc:testactor");
-        assert_eq!(tool_call.args["source_kinds"][0], "recent_posts");
+        assert_eq!(
+            tool_call.args["collection_ids"][0],
+            "recent_posts_unaddressed:did:plc:testactor"
+        );
         assert_eq!(tool_call.args["prompt"], "find mentions of cats");
     }
 
@@ -903,7 +1217,7 @@ mod tests {
         );
 
         let merged = merged_collection_from_refs(
-            vec![&left, &right],
+            vec![left, right],
             "merged:test".to_string(),
             "Merged".to_string(),
         )
@@ -920,6 +1234,65 @@ mod tests {
                 .body
                 .contains("source_collection_id: clearsky:test")
         );
+    }
+
+    #[test]
+    fn extracts_source_collection_id_from_merged_post_body() {
+        let post = PostRecord {
+            uri: "at://one".to_string(),
+            author_handle: "alpha.test".to_string(),
+            body: "source_collection_id: clearsky:test\nsource_collection_label: Clearsky\nlist_name: accused troll".to_string(),
+        };
+
+        assert_eq!(
+            source_collection_id_from_post(&post).as_deref(),
+            Some("clearsky:test")
+        );
+    }
+
+    #[test]
+    fn serializes_clearsky_list_posts_compactly_for_search() {
+        let collection = LabeledPostCollection::new(
+            "clearsky:test",
+            "Clearsky test lists",
+            vec![PostRecord {
+                uri: "https://example.com/list-a".to_string(),
+                author_handle: "clearsky".to_string(),
+                body: "source_collection_id: clearsky:test\nsource_collection_label: Clearsky test lists\nlist_name: accused troll\nlist_description: actors accused of trolling\nlist_did: did:plc:abc\ncreated_date: 2026-05-07T14:12:26.507000+00:00\nurl: https://example.com/list-a".to_string(),
+            }],
+        )
+        .with_collection_kind("clearsky_lists");
+
+        let rendered = serialize_collection(&collection);
+
+        assert!(rendered.contains("item[0]"));
+        assert!(rendered.contains("type: moderation_list"));
+        assert!(rendered.contains("list_name: accused troll"));
+        assert!(rendered.contains("list_description: actors accused of trolling"));
+        assert!(!rendered.contains("created_date:"));
+        assert!(!rendered.contains("url: https://example.com/list-a"));
+    }
+
+    #[test]
+    fn reduced_search_keeps_full_list_description_for_moderation_lists() {
+        let description = "Collection of low-quality to outright terrible accounts, by my own standards. Trolls, blue resisters, follower farmers, mod list abusers, maga, bots, scammers, spammers, impersonators, groypers, jerks, racists. Smut, engagement bait, stolen content, useless political memes, crypto.";
+        let collection = LabeledPostCollection::new(
+            "clearsky:test",
+            "Clearsky test lists",
+            vec![PostRecord {
+                uri: "https://example.com/list-a".to_string(),
+                author_handle: "clearsky".to_string(),
+                body: format!(
+                    "source_collection_id: clearsky:test\nsource_collection_label: Clearsky test lists\nlist_name: Block These Fools\nlist_description: {description}\nlist_did: did:plc:abc\ncreated_date: 2026-05-07T14:12:26.507000+00:00\nurl: https://example.com/list-a"
+                ),
+            }],
+        )
+        .with_collection_kind("clearsky_lists");
+
+        let reduced = reduced_search_collection(&collection, 1, 40);
+        let rendered = serialize_collection(&reduced);
+
+        assert!(rendered.contains(description));
     }
 
     #[test]

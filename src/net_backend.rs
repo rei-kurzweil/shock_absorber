@@ -8,6 +8,8 @@ use bsky_sdk::api::types::{Union, Unknown};
 use reqwest::Client;
 use std::collections::{HashMap, HashSet};
 
+const DEFAULT_COLLECTION_REFRESH_TTL_SECONDS: u64 = 15 * 60;
+
 pub struct NotificationStore {
     pub notifications: Vec<Notification>,
     notification_keys: HashSet<String>,
@@ -85,12 +87,43 @@ impl NotificationStore {
     }
 
     pub fn cache_post_collection(&mut self, collection: LabeledPostCollection) {
+        let collection = normalize_collection(collection);
         self.post_collections
             .insert(collection.id.clone(), collection);
     }
 
+    pub fn remove_post_collection(&mut self, collection_id: &str) {
+        self.post_collections.remove(collection_id);
+    }
+
     pub fn get_post_collection(&self, collection_id: &str) -> Option<&LabeledPostCollection> {
         self.post_collections.get(collection_id)
+    }
+
+    pub fn post_collections(&self) -> Vec<&LabeledPostCollection> {
+        let mut collections = self.post_collections.values().collect::<Vec<_>>();
+        collections.sort_by(|left, right| left.id.cmp(&right.id));
+        collections
+    }
+
+    pub fn actor_post_collections(&self, actor_did: &Did) -> Vec<&LabeledPostCollection> {
+        let actor = actor_did.as_str();
+        self.post_collections()
+            .into_iter()
+            .filter(|collection| collection.actor_did.as_deref() == Some(actor))
+            .collect()
+    }
+
+    pub fn cached_actor_dids(&self) -> Vec<Did> {
+        let mut dids = self
+            .post_collections
+            .values()
+            .filter_map(|collection| collection.actor_did.as_deref())
+            .filter_map(|did| did.parse().ok())
+            .collect::<Vec<Did>>();
+        dids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        dids.dedup_by(|left, right| left.as_str() == right.as_str());
+        dids
     }
 
     pub fn get_pinned_posts(&self, did: &Did) -> Option<&[PostRecord]> {
@@ -100,9 +133,9 @@ impl NotificationStore {
     }
 
     #[allow(dead_code)]
-    pub fn get_recent_posts(&self, did: &Did) -> Option<&[PostRecord]> {
+    pub fn get_recent_posts_unaddressed(&self, did: &Did) -> Option<&[PostRecord]> {
         self.post_collections
-            .get(&recent_posts_collection_id(did))
+            .get(&recent_posts_unaddressed_collection_id(did))
             .map(|collection| collection.posts.as_slice())
     }
 
@@ -111,8 +144,16 @@ impl NotificationStore {
     }
 
     #[allow(dead_code)]
-    pub fn get_recent_posts_collection(&self, did: &Did) -> Option<&LabeledPostCollection> {
-        self.get_post_collection(&recent_posts_collection_id(did))
+    pub fn get_recent_posts_unaddressed_collection(
+        &self,
+        did: &Did,
+    ) -> Option<&LabeledPostCollection> {
+        self.get_post_collection(&recent_posts_unaddressed_collection_id(did))
+    }
+
+    #[allow(dead_code)]
+    pub fn get_recent_replies_sent_collection(&self, did: &Did) -> Option<&LabeledPostCollection> {
+        self.get_post_collection(&recent_replies_sent_collection_id(did))
     }
 
     pub fn cache_pinned_post_replies(&mut self, post_uri: &str, replies: Vec<CachedThreadReply>) {
@@ -414,7 +455,9 @@ pub async fn ensure_recent_posts_cached(
     did: &Did,
     limit: u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if store.get_recent_posts_collection(did).is_some() {
+    if store.get_recent_posts_unaddressed_collection(did).is_some()
+        && store.get_recent_replies_sent_collection(did).is_some()
+    {
         return Ok(());
     }
 
@@ -440,9 +483,20 @@ pub async fn ensure_recent_posts_cached(
         .feed
         .into_iter()
         .map(|item| item.post.clone())
-        .collect();
+        .collect::<Vec<_>>();
+    let (recent_posts_unaddressed, recent_replies_sent): (Vec<_>, Vec<_>) = recent_posts
+        .into_iter()
+        .partition(|post| !is_reply_record(&post.record));
 
-    store.cache_post_collection(build_recent_posts_collection(did, recent_posts));
+    store.remove_post_collection(&recent_posts_collection_id(did));
+    store.cache_post_collection(build_recent_posts_unaddressed_collection(
+        did,
+        recent_posts_unaddressed,
+    ));
+    store.cache_post_collection(build_recent_replies_sent_collection(
+        did,
+        recent_replies_sent,
+    ));
     Ok(())
 }
 
@@ -612,32 +666,62 @@ fn build_pinned_posts_collection(
     did: &Did,
     posts: Vec<feed::defs::PostView>,
 ) -> LabeledPostCollection {
-    let mut metadata = HashMap::new();
-    metadata.insert("collection_kind".to_string(), "pinned_posts".to_string());
-    metadata.insert("actor_did".to_string(), did.as_str().to_owned());
-
+    let metadata = HashMap::new();
     LabeledPostCollection::new(
         pinned_posts_collection_id(did),
         format!("Pinned posts by {}", did.as_str()),
         posts.into_iter().map(post_record_from_view).collect(),
     )
+    .with_collection_kind("pinned_posts")
+    .with_actor_did(did.as_str())
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
+    )
     .with_metadata(metadata)
 }
 
-fn build_recent_posts_collection(
+fn build_recent_posts_unaddressed_collection(
     did: &Did,
     posts: Vec<feed::defs::PostView>,
 ) -> LabeledPostCollection {
     let mut metadata = HashMap::new();
-    metadata.insert("collection_kind".to_string(), "recent_posts".to_string());
-    metadata.insert("actor_did".to_string(), did.as_str().to_owned());
+    metadata.insert("source_feed".to_string(), "author_feed".to_string());
 
     LabeledPostCollection::new(
-        recent_posts_collection_id(did),
-        format!("Recent posts by {}", did.as_str()),
+        recent_posts_unaddressed_collection_id(did),
+        format!("Recent top-level posts by {}", did.as_str()),
         posts.into_iter().map(post_record_from_view).collect(),
     )
+    .with_collection_kind("recent_posts_unaddressed")
+    .with_actor_did(did.as_str())
     .with_related_collections(vec![pinned_posts_collection_id(did)])
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
+    )
+    .with_metadata(metadata)
+}
+
+fn build_recent_replies_sent_collection(
+    did: &Did,
+    posts: Vec<feed::defs::PostView>,
+) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("source_feed".to_string(), "author_feed".to_string());
+
+    LabeledPostCollection::new(
+        recent_replies_sent_collection_id(did),
+        format!("Recent replies sent by {}", did.as_str()),
+        posts.into_iter().map(post_record_from_view).collect(),
+    )
+    .with_collection_kind("recent_replies_sent")
+    .with_actor_did(did.as_str())
+    .with_related_collections(vec![recent_posts_unaddressed_collection_id(did)])
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
+    )
     .with_metadata(metadata)
 }
 
@@ -645,14 +729,17 @@ fn build_clearsky_lists_collection(
     did: &Did,
     lists: Vec<clearsky_v1::ModerationListEntry>,
 ) -> LabeledPostCollection {
-    let mut metadata = HashMap::new();
-    metadata.insert("collection_kind".to_string(), "clearsky_lists".to_string());
-    metadata.insert("actor_did".to_string(), did.as_str().to_owned());
-
+    let metadata = HashMap::new();
     LabeledPostCollection::new(
         clearsky_lists_collection_id(did),
         format!("Clearsky moderation lists for {}", did.as_str()),
         lists.into_iter().map(clearsky_list_record).collect(),
+    )
+    .with_collection_kind("clearsky_lists")
+    .with_actor_did(did.as_str())
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
     )
     .with_metadata(metadata)
 }
@@ -689,8 +776,47 @@ fn recent_posts_collection_id(did: &Did) -> String {
     format!("recent_posts:{}", did.as_str())
 }
 
+fn recent_posts_unaddressed_collection_id(did: &Did) -> String {
+    format!("recent_posts_unaddressed:{}", did.as_str())
+}
+
+fn recent_replies_sent_collection_id(did: &Did) -> String {
+    format!("recent_replies_sent:{}", did.as_str())
+}
+
 fn clearsky_lists_collection_id(did: &Did) -> String {
     format!("clearsky_lists:{}", did.as_str())
+}
+
+fn is_reply_record(record: &Unknown) -> bool {
+    serde_json::to_value(record)
+        .ok()
+        .and_then(|value| value.get("reply").cloned())
+        .is_some()
+}
+
+fn normalize_collection(mut collection: LabeledPostCollection) -> LabeledPostCollection {
+    if collection.collection_kind.is_empty() {
+        if let Some(kind) = collection.metadata.get("collection_kind") {
+            collection.collection_kind = kind.clone();
+        }
+    }
+    if collection.actor_did.is_none() {
+        if let Some(actor_did) = collection.metadata.get("actor_did") {
+            collection.actor_did = Some(actor_did.clone());
+        }
+    }
+    if collection.refresh_ttl_seconds.is_none() {
+        collection.refresh_ttl_seconds = Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS);
+    }
+    collection
+}
+
+fn now_unix_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 fn collect_thread_replies(thread: &feed::defs::ThreadViewPost) -> Vec<CachedThreadReply> {
