@@ -164,17 +164,31 @@ The important point is that freshness should be checked inside a dedicated colle
 The LLM should not need to know backend wiring.
 It should know a small set of read/search/enumeration tools.
 
+The tool surface should stay small:
+
+- `list_collections`
+- `llm_search`
+- `read_collection_item`
+
 ### 1. Enumerate collections
 
 The model should be able to ask:
 
 - what collections exist right now
-- what actor-scoped collections exist for actor X
+- what collections exist for actor X
 
-This can be exposed as:
+This can be exposed with one tool:
 
 - `list_collections`
-- `list_actor_collections`
+  - optional `actor_did`
+
+If `actor_did` is omitted:
+
+- return all cached collections
+
+If `actor_did` is provided:
+
+- return only collections related to that actor
 
 Returned fields should include:
 
@@ -190,31 +204,35 @@ Returned fields should include:
 
 The model should know it has one `llm_search` tool.
 
-That tool should be able to:
-
-- search one collection
-- search many collections
-- search all collections
-- search all collections related to one actor
-
-It should not need multiple scope systems that confuse the prompt.
-
-A better shape is:
+The input shape should stay compact:
 
 - `llm_search`
   - optional `actor_did`
   - optional `collection_ids`
-  - optional `collection_kinds`
   - `prompt`
 
-Behavior:
+`actor_did` and `collection_ids` should be treated as alternative selectors in normal use.
 
-- if no actor or collection filter is given, it can search all cached collections
-- if `actor_did` is given, it can search all collections related to that actor
-- if `collection_ids` are given, it searches those exact collections
-- if `collection_kinds` are given, it filters by kind
+Expected selection rules:
 
-The tool implementation can synthesize a temporary merged search space internally.
+- if `collection_ids` is provided:
+  - search exactly those collections
+  - `actor_did` is normally omitted
+
+- if `actor_did` is provided and `collection_ids` is omitted:
+  - search all collections related to that actor
+
+- if both are omitted:
+  - search all cached collections
+
+We should avoid growing more optional selector fields unless there is a strong need.
+The backend can still synthesize a temporary merged search space internally.
+
+This keeps the tool definition small while still supporting:
+
+- search one known actor
+- search a hand-picked set of collections
+- search everything cached
 
 ### 3. Read a specific item into context
 
@@ -306,10 +324,11 @@ That should be treated as a real backend feature gap, not papered over in tool l
 2. split actor-authored recent content into:
    - `recent_replies_sent`
    - `recent_posts_unaddressed`
-3. add collection enumeration helpers:
-   - all collections
-   - actor-related collections
-4. define a cleaner `llm_search` input shape around actor and collection filters
+3. add collection enumeration helpers through `list_collections`
+4. define a cleaner `llm_search` input shape around:
+   - `actor_did`
+   - `collection_ids`
+   - `prompt`
 5. add `read_collection_item`
 6. then revisit whether the current item type should remain `PostRecord` or become a broader collection-item type
 
