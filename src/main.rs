@@ -13,10 +13,13 @@ use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use std::env;
 use std::error::Error;
+use std::future::Future;
 use std::fs;
-use std::io::{self, Stdout};
+use std::io::{self, Stdout, Write};
+use std::fs::OpenOptions;
 use std::path::PathBuf;
-use std::time::{Duration as StdDuration, Instant};
+use std::time::{Duration as StdDuration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::time::timeout;
 
 mod clearsky_v1;
 mod db;
@@ -25,6 +28,7 @@ mod harness;
 mod model;
 mod net_backend;
 mod post;
+mod visualization;
 
 use crate::db::AppDb;
 use crate::harness::context_window::{LLMContext, build_context_window};
@@ -38,6 +42,7 @@ use crate::net_backend::{
     extract_reply_node, poll_notifications,
 };
 use crate::post::{PostNode, render_post_nodes};
+use crate::visualization::context::ContextVisualizationData;
 
 const POLL_INTERVAL: StdDuration = StdDuration::from_secs(30);
 const UI_TICK: StdDuration = StdDuration::from_millis(200);
@@ -46,10 +51,13 @@ const DEFAULT_EVIL_GEMMA_MODEL: &str = "gemma-4-local";
 const DEFAULT_SYSTEM_PROMPT_PATH: &str = "system_prompt.md";
 const DEFAULT_DB_PATH: &str = "shock_absorber.sqlite3";
 const MAX_TOOL_CALL_ROUNDS: usize = 3;
+const INITIAL_COLLECTION_REFRESH_TIMEOUT: StdDuration = StdDuration::from_secs(30);
+const DEBUG_LOG_PATH: &str = "debug.log";
 
 enum DetailView {
     Notification,
     Command { title: String, lines: Vec<String> },
+    ContextVisualization(ContextVisualizationData),
 }
 
 struct App {
@@ -57,10 +65,17 @@ struct App {
     input: String,
     selected: usize,
     opened_notification: Option<usize>,
+    selected_actor: Option<ActorProfile>,
     detail_scroll: u16,
     detail: DetailView,
+    root_conversation: Vec<ConversationTurn>,
     status: String,
     should_quit: bool,
+}
+
+struct ConversationTurn {
+    user: String,
+    assistant: String,
 }
 
 struct EvilGemmaConfig {
@@ -87,6 +102,24 @@ impl EvilGemmaConfig {
     }
 }
 
+fn reset_debug_log() {
+    let _ = fs::write(DEBUG_LOG_PATH, "");
+}
+
+fn append_debug_log(message: impl AsRef<str>) {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0);
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(DEBUG_LOG_PATH)
+    {
+        let _ = writeln!(file, "[{timestamp:.3}] {}", message.as_ref());
+    }
+}
+
 impl App {
     fn new(handle: String) -> Self {
         Self {
@@ -94,11 +127,13 @@ impl App {
             input: String::new(),
             selected: 0,
             opened_notification: None,
+            selected_actor: None,
             detail_scroll: 0,
             detail: DetailView::Command {
                 title: "Welcome".to_string(),
                 lines: help_lines(),
             },
+            root_conversation: Vec::new(),
             status: format!("logged in as {handle}"),
             should_quit: false,
         }
@@ -123,6 +158,33 @@ impl App {
     fn opened_notification(&self) -> Option<&Notification> {
         self.opened_notification
             .and_then(|index| self.store.notifications.get(index))
+    }
+
+    fn selected_actor_did(&self) -> Option<&bsky_sdk::api::types::string::Did> {
+        self.opened_notification()
+            .map(|notification| &notification.author.data.did)
+            .or_else(|| self.selected_actor.as_ref().map(|actor| &actor.did))
+    }
+
+    fn selected_actor_summary(&self) -> Option<String> {
+        if let Some(notification) = self.opened_notification() {
+            return Some(serialize_notification_summary_for_llm(notification));
+        }
+
+        self.selected_actor.as_ref().map(|actor| {
+            let mut lines = vec![
+                format!("selected_actor_handle: {}", actor.handle),
+                format!("selected_actor_did: {}", actor.did.as_str()),
+            ];
+            match actor.bio.as_deref() {
+                Some(bio) if !bio.is_empty() => {
+                    lines.push("selected_actor_bio:".to_string());
+                    lines.extend(bio.lines().map(str::to_owned));
+                }
+                _ => lines.push("selected_actor_bio: <none>".to_string()),
+            }
+            lines.join("\n")
+        })
     }
 
     fn notification_items(&self) -> Vec<ListItem<'_>> {
@@ -150,17 +212,22 @@ impl App {
                 .map(|notif| format!("Notification: @{}", notif.author.data.handle.as_str()))
                 .unwrap_or_else(|| "Notification".to_string()),
             DetailView::Command { title, .. } => title.clone(),
+            DetailView::ContextVisualization(data) => data.title.clone(),
         }
     }
 
-    fn is_command_fullscreen(&self) -> bool {
-        matches!(self.detail, DetailView::Command { .. })
+    fn is_fullscreen_overlay(&self) -> bool {
+        matches!(
+            self.detail,
+            DetailView::Command { .. } | DetailView::ContextVisualization(_)
+        )
     }
 
     fn detail_text(&self) -> Text<'static> {
         match &self.detail {
             DetailView::Notification => self.notification_detail_text(),
             DetailView::Command { lines, .. } => Text::from(lines.join("\n")),
+            DetailView::ContextVisualization(_) => Text::from(""),
         }
     }
 
@@ -324,62 +391,83 @@ impl App {
         let verb = parts.next().unwrap_or_default();
 
         if !is_local_command(verb) {
-            return self.run_evil_gemma_query(evil_gemma, command).await;
+            return self.run_evil_gemma_query(agent, evil_gemma, command).await;
         }
 
         match verb {
-            "bio" => {
+            "bio" | "/bio" => {
                 let Some(actor) = parts.next() else {
                     self.set_command_output(
-                        "bio",
-                        vec!["usage: bio handle.bsky.social".to_string()],
+                        "/bio",
+                        vec!["usage: /bio handle.bsky.social".to_string()],
                     );
                     return Ok(());
                 };
                 let profile =
                     ensure_actor_profile_cached(agent, &mut self.store, normalize_actor_ref(actor))
                         .await?;
+                self.selected_actor = Some(profile.clone());
                 let lines = format_bio_output(&profile);
-                self.set_command_output(format!("bio {}", profile.handle), lines);
+                self.set_command_output(format!("/bio {}", profile.handle), lines);
                 self.status = format!("bio loaded for {}", profile.handle);
             }
-            "replies_from" => {
+            "replies_from" | "/replies_from" => {
                 let Some(actor) = parts.next() else {
                     self.set_command_output(
-                        "replies_from",
-                        vec!["usage: replies_from handle.bsky.social".to_string()],
+                        "/replies_from",
+                        vec!["usage: /replies_from handle.bsky.social".to_string()],
                     );
                     return Ok(());
                 };
                 let profile =
                     ensure_actor_profile_cached(agent, &mut self.store, normalize_actor_ref(actor))
                         .await?;
+                self.selected_actor = Some(profile.clone());
                 let lines = format_replies_output(&self.store, &profile);
-                self.set_command_output(format!("replies_from {}", profile.handle), lines);
+                self.set_command_output(format!("/replies_from {}", profile.handle), lines);
                 self.status = format!("reply cache queried for {}", profile.handle);
             }
-            "pins" => {
+            "pins" | "/pins" => {
                 let Some(actor) = parts.next() else {
                     self.set_command_output(
-                        "pins",
-                        vec!["usage: pins handle.bsky.social".to_string()],
+                        "/pins",
+                        vec!["usage: /pins handle.bsky.social".to_string()],
                     );
                     return Ok(());
                 };
                 let profile =
                     ensure_actor_profile_cached(agent, &mut self.store, normalize_actor_ref(actor))
                         .await?;
+                self.selected_actor = Some(profile.clone());
                 ensure_recent_posts_cached(agent, &mut self.store, &profile.did, 20).await?;
                 ensure_pinned_posts_cached(agent, &mut self.store, &profile.did).await?;
                 ensure_clearsky_lists_cached(&mut self.store, &profile.did).await?;
                 let lines = format_pins_output(&self.store, &profile);
-                self.set_command_output(format!("pins {}", profile.handle), lines);
+                self.set_command_output(format!("/pins {}", profile.handle), lines);
                 self.status = format!("pins loaded for {}", profile.handle);
             }
-            "help" => {
-                self.set_command_output("help", help_lines());
+            "clear" | "/clear" => {
+                self.clear_root_conversation();
+                self.set_command_output(
+                    "/clear",
+                    vec![
+                        "Root agent context cleared.".to_string(),
+                        "The next query will start from system prompt, tool inventory, and current UI state.".to_string(),
+                    ],
+                );
+                self.status = "root agent context cleared".to_string();
             }
-            "q" | "quit" | "exit" => {
+            "context" | "/context" => {
+                self.detail_scroll = 0;
+                self.detail = DetailView::ContextVisualization(
+                    self.build_context_visualization(evil_gemma),
+                );
+                self.status = "context visualization loaded".to_string();
+            }
+            "help" | "/help" => {
+                self.set_command_output("/help", help_lines());
+            }
+            "q" | "/q" | "quit" | "/quit" | "exit" | "/exit" => {
                 self.should_quit = true;
             }
             _ => unreachable!("command list is checked before dispatch"),
@@ -390,16 +478,22 @@ impl App {
 
     async fn run_evil_gemma_query(
         &mut self,
+        agent: &BskyAgent,
         evil_gemma: &EvilGemmaConfig,
         query: String,
     ) -> Result<(), Box<dyn Error>> {
-        let tools = BlueskyTools::new(&self.store);
-        let initial_context = build_tool_aware_query_context(
-            self.opened_notification(),
-            &tools,
-            &query,
-            &evil_gemma.client,
-        );
+        append_debug_log(format!("evil_gemma query start: {query}"));
+        let initial_context = {
+            let tools = BlueskyTools::new(&self.store);
+            build_tool_aware_query_context(
+                self.selected_actor_did(),
+                self.selected_actor_summary(),
+                &tools,
+                &self.root_conversation,
+                &query,
+                &evil_gemma.client,
+            )
+        };
         let mut messages = vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -419,17 +513,210 @@ impl App {
         let mut hit_tool_round_limit = false;
 
         for round in 0..MAX_TOOL_CALL_ROUNDS {
+            append_debug_log(format!(
+                "evil_gemma round {} starting complete_chat with {} messages",
+                round + 1,
+                messages.len()
+            ));
             response = evil_gemma
                 .client
                 .complete_chat(messages.clone(), 1024)
                 .await?;
+            append_debug_log(format!(
+                "evil_gemma round {} complete_chat returned {} chars",
+                round + 1,
+                response.len()
+            ));
 
             let Some(tool_call) = parse_prompt_tool_call(&response) else {
+                append_debug_log(format!(
+                    "evil_gemma round {} produced final answer without tool call",
+                    round + 1
+                ));
                 break;
             };
 
             let tool_name = tool_call.name.clone();
             let tool_args = serde_json::to_string(&tool_call.args)?;
+            append_debug_log(format!(
+                "evil_gemma round {} parsed tool call {} {}",
+                round + 1,
+                tool_name,
+                tool_args
+            ));
+            let selected_actor_did = self.selected_actor_did().cloned();
+            let mut prep_log = vec![format!(
+                "[tool_prep] inspecting tool `{}` for possible initial collection refresh",
+                tool_call.name
+            )];
+            let actor_dids =
+                planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call);
+            append_debug_log(format!(
+                "tool prep planned {} refresh target(s) for {}: {}",
+                actor_dids.len(),
+                tool_name,
+                actor_dids
+                    .iter()
+                    .map(|did| did.as_str().to_owned())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                &tool_name,
+                &tool_args,
+                &prep_log,
+                None,
+            )));
+
+            let mut prep_failed = None;
+            if actor_dids.is_empty() {
+                prep_log.push("[tool_prep] no initial refresh needed".to_string());
+                self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                    &tool_name,
+                    &tool_args,
+                    &prep_log,
+                    None,
+                )));
+            } else {
+                for did in actor_dids {
+                    prep_log.push(format!(
+                        "[tool_prep] initial refresh needed for actor {} before tool `{}`",
+                        did.as_str(),
+                        tool_call.name
+                    ));
+                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+
+                    prep_log.push(format!(
+                        "[tool_prep] -> ensure_recent_posts_cached {}",
+                        did.as_str()
+                    ));
+                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                    if let Err(message) = run_tool_prep_step(
+                        INITIAL_COLLECTION_REFRESH_TIMEOUT,
+                        ensure_recent_posts_cached(agent, &mut self.store, &did, 20),
+                        format!("ensure_recent_posts_cached {}", did.as_str()),
+                    )
+                    .await
+                    {
+                        prep_log.push(format!(
+                            "[tool_prep] initial refresh failed for {}: {message}",
+                            did.as_str()
+                        ));
+                        self.set_evil_gemma_progress(
+                            &query,
+                            &tool_transcript,
+                            Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
+                        );
+                        prep_failed = Some(message);
+                        break;
+                    }
+
+                    prep_log.push(format!(
+                        "[tool_prep] -> ensure_pinned_posts_cached {}",
+                        did.as_str()
+                    ));
+                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                    if let Err(message) = run_tool_prep_step(
+                        INITIAL_COLLECTION_REFRESH_TIMEOUT,
+                        ensure_pinned_posts_cached(agent, &mut self.store, &did),
+                        format!("ensure_pinned_posts_cached {}", did.as_str()),
+                    )
+                    .await
+                    {
+                        prep_log.push(format!(
+                            "[tool_prep] initial refresh failed for {}: {message}",
+                            did.as_str()
+                        ));
+                        self.set_evil_gemma_progress(
+                            &query,
+                            &tool_transcript,
+                            Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
+                        );
+                        prep_failed = Some(message);
+                        break;
+                    }
+
+                    prep_log.push(format!(
+                        "[tool_prep] -> ensure_clearsky_lists_cached {}",
+                        did.as_str()
+                    ));
+                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                    if let Err(message) = run_tool_prep_step(
+                        INITIAL_COLLECTION_REFRESH_TIMEOUT,
+                        ensure_clearsky_lists_cached(&mut self.store, &did),
+                        format!("ensure_clearsky_lists_cached {}", did.as_str()),
+                    )
+                    .await
+                    {
+                        prep_log.push(format!(
+                            "[tool_prep] initial refresh failed for {}: {message}",
+                            did.as_str()
+                        ));
+                        self.set_evil_gemma_progress(
+                            &query,
+                            &tool_transcript,
+                            Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
+                        );
+                        prep_failed = Some(message);
+                        break;
+                    }
+
+                    prep_log.push(format!(
+                        "[tool_prep] initial refresh complete for {}",
+                        did.as_str()
+                    ));
+                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                }
+            }
+
+            if let Some(message) = prep_failed {
+                tool_transcript.push(build_tool_entry(
+                    &tool_name,
+                    &tool_args,
+                    &prep_log,
+                    Some(&format!("Tool preparation failed: {message}")),
+                ));
+                response = format!("Tool preparation failed: {message}");
+                break;
+            }
+
+            self.set_evil_gemma_progress(
+                &query,
+                &tool_transcript,
+                Some(build_tool_entry(
+                    &tool_name,
+                    &tool_args,
+                    &prep_log,
+                    Some("<running tool...>"),
+                )),
+            );
+            append_debug_log(format!("tool execution starting for {}", tool_name));
+            let tools = BlueskyTools::new(&self.store);
             let tool_output = match tools
                 .execute_prompt_tool_call(
                     &tool_call,
@@ -441,9 +728,17 @@ impl App {
                 Ok(output) => output,
                 Err(err) => format!("Tool execution failed: {err}"),
             };
+            append_debug_log(format!(
+                "tool execution finished for {} with {} chars",
+                tool_name,
+                tool_output.len()
+            ));
 
-            tool_transcript.push(format!(
-                "Tool Call\nname: {tool_name}\nargs: {tool_args}\n\nTool Result\n{tool_output}"
+            tool_transcript.push(build_tool_entry(
+                &tool_name,
+                &tool_args,
+                &prep_log,
+                Some(&tool_output),
             ));
             messages.push(ChatMessage {
                 role: "assistant".to_string(),
@@ -461,9 +756,11 @@ impl App {
                 ),
             });
             hit_tool_round_limit = round + 1 == MAX_TOOL_CALL_ROUNDS;
+            self.set_evil_gemma_progress(&query, &tool_transcript, None);
         }
 
         if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
+            append_debug_log("tool round limit reached; requesting forced final answer");
             messages.push(ChatMessage {
                 role: "assistant".to_string(),
                 content: response.clone(),
@@ -479,29 +776,38 @@ impl App {
                 .unwrap_or_else(|_| {
                     "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
                 });
+            append_debug_log(format!(
+                "forced final answer returned {} chars",
+                response.len()
+            ));
         }
 
-        let mut lines = Vec::new();
-        if !tool_transcript.is_empty() {
-            lines.push("Tool Transcript:".to_string());
-            lines.push(String::new());
-            for entry in &tool_transcript {
-                lines.extend(entry.lines().map(str::to_owned));
-                lines.push(String::new());
-            }
-            lines.push("Final Answer:".to_string());
-            lines.push(String::new());
-        }
-
-        if response.trim().is_empty() {
-            lines.push("<empty response>".to_string());
-        } else {
-            lines.extend(response.lines().map(str::to_owned));
-        }
-
-        self.set_command_output(format!("evil_gemma: {query}"), lines);
+        self.set_command_output(
+            format!("evil_gemma: {query}"),
+            build_evil_gemma_output_lines(&tool_transcript, None, Some(&response)),
+        );
+        append_debug_log(format!(
+            "evil_gemma query complete: final response {} chars",
+            response.len()
+        ));
+        self.root_conversation.push(ConversationTurn {
+            user: query,
+            assistant: response,
+        });
         self.status = "evil_gemma response loaded".to_string();
         Ok(())
+    }
+
+    fn set_evil_gemma_progress(
+        &mut self,
+        query: &str,
+        tool_transcript: &[String],
+        active_entry: Option<String>,
+    ) {
+        self.set_command_output(
+            format!("evil_gemma: {query}"),
+            build_evil_gemma_output_lines(tool_transcript, active_entry.as_deref(), None),
+        );
     }
 
     fn set_command_output<T: Into<String>>(&mut self, title: T, lines: Vec<String>) {
@@ -517,11 +823,43 @@ impl App {
         self.detail = DetailView::Notification;
     }
 
+    fn clear_root_conversation(&mut self) {
+        self.root_conversation.clear();
+    }
+
+    fn build_context_visualization(
+        &self,
+        evil_gemma: &EvilGemmaConfig,
+    ) -> ContextVisualizationData {
+        let tools = BlueskyTools::new(&self.store);
+        let tools_inventory = tools.render_tool_inventory();
+        let recent_chat = recent_chat_text(&self.root_conversation);
+
+        ContextVisualizationData::from_root_context(
+            evil_gemma.system_prompt.trim(),
+            prompt_tool_protocol_instructions(),
+            &tools_inventory,
+            "Use the available tools only when they materially improve the answer.",
+            &self
+                .selected_actor_did()
+                .map(search_hints_for_actor_did)
+                .unwrap_or_else(|| {
+                    "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt`, optional `collection_ids`, and optionally `actor_did` if you want to inspect another actor. Without `actor_did` or `collection_ids`, the search tool uses the actor from the selected notification when one exists, otherwise it searches all cached collections.".to_string()
+                }),
+            &self
+                .selected_actor_summary()
+                .unwrap_or_else(|| "No actor is currently selected in the UI.".to_string()),
+            recent_chat.as_deref(),
+            &evil_gemma.client.context_limits(),
+        )
+    }
+
     fn open_selected_notification(&mut self) {
         if self.store.notifications.is_empty() {
             return;
         }
         self.opened_notification = Some(self.selected);
+        self.selected_actor = None;
         self.detail_scroll = 0;
         self.detail = DetailView::Notification;
     }
@@ -529,21 +867,27 @@ impl App {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if dotenvy::dotenv().is_ok() {
-        eprintln!("loaded .env");
-    }
+    reset_debug_log();
+    let _ = dotenvy::dotenv();
+    append_debug_log("shock_absorber startup");
 
     let handle = env::var("BSKY_HANDLE")?;
     let password = env::var("BSKY_APP_PASSWORD")?;
+    append_debug_log("loaded environment variables");
 
     let agent = BskyAgent::builder().build().await?;
+    append_debug_log("constructed BskyAgent");
     agent.login(&handle, &password).await?;
+    append_debug_log(format!("logged in as {handle}"));
     let evil_gemma = EvilGemmaConfig::from_env()?;
+    append_debug_log("loaded evil_gemma config");
     let db_path =
         env::var("SHOCK_ABSORBER_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
     let db = AppDb::new(resolve_db_path(db_path))?;
+    append_debug_log(format!("opened db at {}", db.path().display()));
     let mut app = App::new(handle);
     restore_store_from_db(&mut app.store, &db)?;
+    append_debug_log("restored store from db");
     app.status = format!("{} | db {}", app.status, db.path().display());
 
     enable_raw_mode()?;
@@ -553,6 +897,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let result = run_app(&mut terminal, &agent, &evil_gemma, app, &db).await;
+    append_debug_log("run_app returned");
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -625,7 +970,7 @@ async fn run_app(
                     KeyCode::Esc => {
                         if !app.input.is_empty() {
                             app.input.clear();
-                        } else if app.is_command_fullscreen() {
+                        } else if app.is_fullscreen_overlay() {
                             app.dismiss_command_output();
                         }
                     }
@@ -641,7 +986,7 @@ async fn run_app(
                                 "error",
                                 vec![
                                     format!("command failed: {err}"),
-                                    "try `help` for supported commands".to_string(),
+                                    "try `/help` for supported commands".to_string(),
                                 ],
                             );
                         } else {
@@ -668,39 +1013,225 @@ fn normalize_actor_ref(actor: &str) -> &str {
     actor.strip_prefix('@').unwrap_or(actor)
 }
 
+fn planned_tool_call_refresh_targets(
+    store: &NotificationStore,
+    selected_actor_did: Option<bsky_sdk::api::types::string::Did>,
+    tool_call: &crate::harness::tools::PromptToolCall,
+) -> Vec<bsky_sdk::api::types::string::Did> {
+    let mut actor_dids = Vec::new();
+
+    match tool_call.name.as_str() {
+        "list_collections" => {
+            if let Some(did) = tool_call
+                .args
+                .get("actor_did")
+                .and_then(|value| value.as_str())
+                .and_then(|value| value.parse().ok())
+            {
+                if actor_needs_initial_refresh(store, &did) {
+                    actor_dids.push(did);
+                }
+            }
+        }
+        "llm_search" => {
+            if let Some(collection_ids) = tool_call.args.get("collection_ids").and_then(|value| value.as_array()) {
+                for collection_id in collection_ids.iter().filter_map(|value| value.as_str()) {
+                    if collection_needs_initial_refresh(store, collection_id) {
+                        if let Some(did) = actor_did_from_collection_id(collection_id) {
+                            actor_dids.push(did);
+                        }
+                    }
+                }
+            } else if let Some(did) = tool_call
+                .args
+                .get("actor_did")
+                .and_then(|value| value.as_str())
+                .and_then(|value| value.parse().ok())
+            {
+                if actor_needs_initial_refresh(store, &did) {
+                    actor_dids.push(did);
+                }
+            } else if let Some(did) = selected_actor_did {
+                if actor_needs_initial_refresh(store, &did) {
+                    actor_dids.push(did);
+                }
+            }
+        }
+        "read_collection_item" => {
+            if let Some(collection_id) = tool_call.args.get("collection_id").and_then(|value| value.as_str()) {
+                if collection_needs_initial_refresh(store, collection_id) {
+                    if let Some(did) = actor_did_from_collection_id(collection_id) {
+                        actor_dids.push(did);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    actor_dids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+    actor_dids.dedup_by(|left, right| left.as_str() == right.as_str());
+    actor_dids
+}
+
+fn build_tool_entry(
+    tool_name: &str,
+    tool_args: &str,
+    prep_log: &[String],
+    tool_result: Option<&str>,
+) -> String {
+    let mut entry = format!("Tool Call\nname: {tool_name}\nargs: {tool_args}\n\nTool Prep\n");
+    if prep_log.is_empty() {
+        entry.push_str("<no tool prep>");
+    } else {
+        entry.push_str(&prep_log.join("\n"));
+    }
+    if let Some(tool_result) = tool_result {
+        entry.push_str("\n\nTool Result\n");
+        entry.push_str(tool_result);
+    }
+    entry
+}
+
+fn build_evil_gemma_output_lines(
+    tool_transcript: &[String],
+    active_entry: Option<&str>,
+    response: Option<&str>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !tool_transcript.is_empty() || active_entry.is_some() {
+        lines.push("Tool Transcript:".to_string());
+        lines.push(String::new());
+        for entry in tool_transcript {
+            lines.extend(entry.lines().map(str::to_owned));
+            lines.push(String::new());
+        }
+        if let Some(active_entry) = active_entry {
+            lines.extend(active_entry.lines().map(str::to_owned));
+            lines.push(String::new());
+        }
+    }
+
+    if let Some(response) = response {
+        if !tool_transcript.is_empty() || active_entry.is_some() {
+            lines.push("Final Answer:".to_string());
+            lines.push(String::new());
+        }
+        if response.trim().is_empty() {
+            lines.push("<empty response>".to_string());
+        } else {
+            lines.extend(response.lines().map(str::to_owned));
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push("Waiting for evil_gemma...".to_string());
+    }
+
+    lines
+}
+
+async fn run_tool_prep_step<F, T>(
+    step_timeout: StdDuration,
+    future: F,
+    label: String,
+) -> Result<T, String>
+where
+    F: Future<Output = Result<T, Box<dyn Error>>>,
+{
+    append_debug_log(format!(
+        "tool prep step start: {label} timeout={}s",
+        step_timeout.as_secs()
+    ));
+    let started = Instant::now();
+    let result = timeout(step_timeout, future)
+        .await
+        .map_err(|_| {
+            format!(
+                "{label} timed out after {} seconds",
+                step_timeout.as_secs()
+            )
+        })?
+        .map_err(|err| err.to_string());
+    match &result {
+        Ok(_) => append_debug_log(format!(
+            "tool prep step ok: {label} elapsed={:?}",
+            started.elapsed()
+        )),
+        Err(err) => append_debug_log(format!(
+            "tool prep step failed: {label} elapsed={:?} error={err}",
+            started.elapsed()
+        )),
+    }
+    result
+}
+
+fn actor_needs_initial_refresh(store: &NotificationStore, actor_did: &bsky_sdk::api::types::string::Did) -> bool {
+    store.actor_post_collections(actor_did).is_empty()
+}
+
+fn collection_needs_initial_refresh(store: &NotificationStore, collection_id: &str) -> bool {
+    match store.get_post_collection(collection_id) {
+        Some(collection) => collection.posts.is_empty() && collection.last_refreshed_at == 0,
+        None => actor_did_from_collection_id(collection_id).is_some(),
+    }
+}
+
+fn actor_did_from_collection_id(collection_id: &str) -> Option<bsky_sdk::api::types::string::Did> {
+    collection_id
+        .split_once(':')
+        .map(|(_, rest)| rest)
+        .and_then(|rest| rest.parse().ok())
+}
+
 fn build_tool_aware_query_context(
-    opened_notification: Option<&Notification>,
+    selected_actor_did: Option<&bsky_sdk::api::types::string::Did>,
+    selected_actor_summary: Option<String>,
     tools: &BlueskyTools<'_>,
+    root_conversation: &[ConversationTurn],
     query: &str,
     llm_client: &LlmApiClient,
 ) -> String {
     let mut context =
         LLMContext::new("Use the available tools only when they materially improve the answer.");
     context.push_section("Tools", tools.render_tool_inventory());
-    context.push_section("Current Task", query);
     context.push_section(
         "Search Hints",
-        opened_notification
-            .map(search_hints_for_notification)
+        selected_actor_did
+            .map(search_hints_for_actor_did)
             .unwrap_or_else(|| {
-                "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt`, optional `collection_ids`, and optionally `actor_did` if you want to inspect another actor. Without `actor_did` or `collection_ids`, the search tool uses the actor from the selected notification when one exists, otherwise it searches all cached collections.".to_string()
+                "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt`, optional `collection_ids`, and optionally `actor_did` if you want to inspect another actor. Without `actor_did` or `collection_ids`, the search tool uses the selected actor when one exists, otherwise it searches all cached collections.".to_string()
             }),
     );
 
     context.push_section(
         "Current UI Context",
-        opened_notification
-            .map(serialize_notification_summary_for_llm)
-            .unwrap_or_else(|| {
-                "No notification is currently selected in the detail view.".to_string()
-            }),
+        selected_actor_summary
+            .unwrap_or_else(|| "No actor is currently selected in the UI.".to_string()),
     );
+    if !root_conversation.is_empty() {
+        context.push_section(
+            "Recent Chat",
+            root_conversation
+                .iter()
+                .map(|turn| {
+                    format!(
+                        "user:\n{}\n\nassistant:\n{}",
+                        turn.user.trim(),
+                        turn.assistant.trim()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n---\n\n"),
+        );
+    }
+    context.push_section("Current Task", query);
 
     build_context_window(&context, &llm_client.context_limits())
 }
 
-fn search_hints_for_notification(notification: &Notification) -> String {
-    let did = notification.author.data.did.as_str();
+fn search_hints_for_actor_did(did: &bsky_sdk::api::types::string::Did) -> String {
+    let did = did.as_str();
     format!(
         "The selected actor is {did}. Use `list_collections` to see cached collections for this actor, then `llm_search` with either `collection_ids` or an `actor_did`. Omit `actor_did` to search this actor, or provide another actor DID if a mentioned actor becomes relevant."
     )
@@ -847,11 +1378,13 @@ fn build_post_nodes(replies: Vec<CachedThreadReply>) -> Vec<PostNode> {
 fn help_lines() -> Vec<String> {
     vec![
         "Commands:".to_string(),
-        "  bio handle.bsky.social".to_string(),
-        "  replies_from handle.bsky.social".to_string(),
-        "  pins handle.bsky.social".to_string(),
-        "  help".to_string(),
-        "  quit".to_string(),
+        "  /bio handle.bsky.social".to_string(),
+        "  /replies_from handle.bsky.social".to_string(),
+        "  /pins handle.bsky.social".to_string(),
+        "  /context".to_string(),
+        "  /clear".to_string(),
+        "  /help".to_string(),
+        "  /quit".to_string(),
         String::new(),
         "Any other input is sent to evil_gemma over local OpenAI-compatible REST.".to_string(),
         "Default endpoint: http://127.0.0.1:5000/v1/chat/completions".to_string(),
@@ -864,7 +1397,24 @@ fn help_lines() -> Vec<String> {
 fn is_local_command(verb: &str) -> bool {
     matches!(
         verb,
-        "bio" | "replies_from" | "pins" | "help" | "q" | "quit" | "exit"
+        "/bio"
+            | "/replies_from"
+            | "/pins"
+            | "/context"
+            | "/clear"
+            | "/help"
+            | "/q"
+            | "/quit"
+            | "/exit"
+            | "bio"
+            | "replies_from"
+            | "pins"
+            | "context"
+            | "clear"
+            | "help"
+            | "q"
+            | "quit"
+            | "exit"
     )
 }
 
@@ -907,6 +1457,26 @@ fn restore_store_from_db(
     Ok(())
 }
 
+fn recent_chat_text(root_conversation: &[ConversationTurn]) -> Option<String> {
+    if root_conversation.is_empty() {
+        return None;
+    }
+
+    Some(
+        root_conversation
+            .iter()
+            .map(|turn| {
+                format!(
+                    "user:\n{}\n\nassistant:\n{}",
+                    turn.user.trim(),
+                    turn.assistant.trim()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n"),
+    )
+}
+
 fn line_to_string(line: ratatui::text::Line<'_>) -> String {
     line.spans
         .iter()
@@ -920,12 +1490,20 @@ fn draw_ui(frame: &mut Frame, app: &App) {
         .constraints([Constraint::Min(0), Constraint::Length(3)])
         .split(frame.area());
 
-    if app.is_command_fullscreen() {
-        let detail = Paragraph::new(app.detail_text())
-            .block(Block::default().title(app.detail_title()))
-            .scroll((app.detail_scroll, 0))
-            .wrap(Wrap { trim: false });
-        frame.render_widget(detail, chunks[0]);
+    if app.is_fullscreen_overlay() {
+        match &app.detail {
+            DetailView::Command { .. } => {
+                let detail = Paragraph::new(app.detail_text())
+                    .block(Block::default().title(app.detail_title()))
+                    .scroll((app.detail_scroll, 0))
+                    .wrap(Wrap { trim: false });
+                frame.render_widget(detail, chunks[0]);
+            }
+            DetailView::ContextVisualization(data) => {
+                visualization::context::render(frame, chunks[0], data);
+            }
+            DetailView::Notification => {}
+        }
     } else {
         let body = Layout::default()
             .direction(Direction::Horizontal)

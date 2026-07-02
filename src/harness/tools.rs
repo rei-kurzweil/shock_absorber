@@ -757,7 +757,11 @@ Available tools are listed below. The Current UI Context section is intentionall
 pub fn parse_prompt_tool_call(response: &str) -> Option<PromptToolCall> {
     let mut lines = response.lines();
     while let Some(line) = lines.next() {
-        if line.trim() != "TOOL_CALL" {
+        let trimmed_line = line.trim();
+        if trimmed_line != "TOOL_CALL"
+            && !trimmed_line.ends_with("TOOL_CALL")
+            && !trimmed_line.contains("TOOL_CALL")
+        {
             continue;
         }
 
@@ -1193,6 +1197,17 @@ mod tests {
             "recent_posts_unaddressed:did:plc:testactor"
         );
         assert_eq!(tool_call.args["prompt"], "find mentions of cats");
+    }
+
+    #[test]
+    fn parses_prompt_tool_call_block_with_channel_prefix() {
+        let tool_call = parse_prompt_tool_call(
+            "<|channel>thought\nplan text\n<channel|>TOOL_CALL\nname: list_collections\nargs: {\"actor_did\":\"did:plc:testactor\"}",
+        )
+        .expect("expected tool call");
+
+        assert_eq!(tool_call.name, "list_collections");
+        assert_eq!(tool_call.args["actor_did"], "did:plc:testactor");
     }
 
     #[test]

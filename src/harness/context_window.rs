@@ -84,15 +84,15 @@ pub fn build_context_window(context: &LLMContext, limits: &ProviderContextLimits
     rendered
 }
 
-fn render_header(header: &str) -> String {
+pub fn render_header(header: &str) -> String {
     format!("Instructions:\n{header}\n")
 }
 
-fn render_section(section: &ContextSection) -> String {
+pub fn render_section(section: &ContextSection) -> String {
     format!("\n## {}\n{}\n", section.title, section.body)
 }
 
-fn approximate_tokens(text: &str) -> usize {
+pub fn approximate_tokens(text: &str) -> usize {
     text.chars().count().div_ceil(APPROX_CHARS_PER_TOKEN)
 }
 
