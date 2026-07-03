@@ -15,10 +15,9 @@ use std::env;
 use std::error::Error;
 use std::future::Future;
 use std::fs;
-use std::io::{self, Stdout, Write};
-use std::fs::OpenOptions;
+use std::io::{self, Stdout};
 use std::path::PathBuf;
-use std::time::{Duration as StdDuration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration as StdDuration, Instant};
 use tokio::time::timeout;
 
 mod clearsky_v1;
@@ -52,7 +51,6 @@ const DEFAULT_SYSTEM_PROMPT_PATH: &str = "system_prompt.md";
 const DEFAULT_DB_PATH: &str = "shock_absorber.sqlite3";
 const MAX_TOOL_CALL_ROUNDS: usize = 3;
 const INITIAL_COLLECTION_REFRESH_TIMEOUT: StdDuration = StdDuration::from_secs(30);
-const DEBUG_LOG_PATH: &str = "debug.log";
 
 enum DetailView {
     Notification,
@@ -99,24 +97,6 @@ impl EvilGemmaConfig {
             client: LlmApiClient::new(config),
             system_prompt,
         })
-    }
-}
-
-fn reset_debug_log() {
-    let _ = fs::write(DEBUG_LOG_PATH, "");
-}
-
-fn append_debug_log(message: impl AsRef<str>) {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs_f64())
-        .unwrap_or(0.0);
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(DEBUG_LOG_PATH)
-    {
-        let _ = writeln!(file, "[{timestamp:.3}] {}", message.as_ref());
     }
 }
 
@@ -482,7 +462,6 @@ impl App {
         evil_gemma: &EvilGemmaConfig,
         query: String,
     ) -> Result<(), Box<dyn Error>> {
-        append_debug_log(format!("evil_gemma query start: {query}"));
         let initial_context = {
             let tools = BlueskyTools::new(&self.store);
             build_tool_aware_query_context(
@@ -513,37 +492,17 @@ impl App {
         let mut hit_tool_round_limit = false;
 
         for round in 0..MAX_TOOL_CALL_ROUNDS {
-            append_debug_log(format!(
-                "evil_gemma round {} starting complete_chat with {} messages",
-                round + 1,
-                messages.len()
-            ));
             response = evil_gemma
                 .client
                 .complete_chat(messages.clone(), 1024)
                 .await?;
-            append_debug_log(format!(
-                "evil_gemma round {} complete_chat returned {} chars",
-                round + 1,
-                response.len()
-            ));
 
             let Some(tool_call) = parse_prompt_tool_call(&response) else {
-                append_debug_log(format!(
-                    "evil_gemma round {} produced final answer without tool call",
-                    round + 1
-                ));
                 break;
             };
 
             let tool_name = tool_call.name.clone();
             let tool_args = serde_json::to_string(&tool_call.args)?;
-            append_debug_log(format!(
-                "evil_gemma round {} parsed tool call {} {}",
-                round + 1,
-                tool_name,
-                tool_args
-            ));
             let selected_actor_did = self.selected_actor_did().cloned();
             let mut prep_log = vec![format!(
                 "[tool_prep] inspecting tool `{}` for possible initial collection refresh",
@@ -551,16 +510,6 @@ impl App {
             )];
             let actor_dids =
                 planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call);
-            append_debug_log(format!(
-                "tool prep planned {} refresh target(s) for {}: {}",
-                actor_dids.len(),
-                tool_name,
-                actor_dids
-                    .iter()
-                    .map(|did| did.as_str().to_owned())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
             self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
                 &tool_name,
                 &tool_args,
@@ -715,7 +664,6 @@ impl App {
                     Some("<running tool...>"),
                 )),
             );
-            append_debug_log(format!("tool execution starting for {}", tool_name));
             let tools = BlueskyTools::new(&self.store);
             let tool_output = match tools
                 .execute_prompt_tool_call(
@@ -728,11 +676,6 @@ impl App {
                 Ok(output) => output,
                 Err(err) => format!("Tool execution failed: {err}"),
             };
-            append_debug_log(format!(
-                "tool execution finished for {} with {} chars",
-                tool_name,
-                tool_output.len()
-            ));
 
             tool_transcript.push(build_tool_entry(
                 &tool_name,
@@ -760,7 +703,6 @@ impl App {
         }
 
         if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
-            append_debug_log("tool round limit reached; requesting forced final answer");
             messages.push(ChatMessage {
                 role: "assistant".to_string(),
                 content: response.clone(),
@@ -771,25 +713,33 @@ impl App {
             });
             response = evil_gemma
                 .client
-                .complete_chat(messages, 1024)
+                .complete_chat(messages.clone(), 1024)
                 .await
                 .unwrap_or_else(|_| {
                     "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
                 });
-            append_debug_log(format!(
-                "forced final answer returned {} chars",
-                response.len()
-            ));
+        }
+
+        if parse_prompt_tool_call(&response).is_none() && response_looks_incomplete(&response) {
+            messages.push(ChatMessage {
+                role: "assistant".to_string(),
+                content: response.clone(),
+            });
+            messages.push(ChatMessage {
+                role: "user".to_string(),
+                content: "Your previous answer appears cut off. Finish the answer directly in at most one short paragraph plus up to 3 bullets. Start with a bottom-line conclusion sentence. Do not emit TOOL_CALL.".to_string(),
+            });
+            response = evil_gemma
+                .client
+                .complete_chat(messages, 320)
+                .await
+                .unwrap_or(response);
         }
 
         self.set_command_output(
             format!("evil_gemma: {query}"),
             build_evil_gemma_output_lines(&tool_transcript, None, Some(&response)),
         );
-        append_debug_log(format!(
-            "evil_gemma query complete: final response {} chars",
-            response.len()
-        ));
         self.root_conversation.push(ConversationTurn {
             user: query,
             assistant: response,
@@ -844,7 +794,7 @@ impl App {
                 .selected_actor_did()
                 .map(search_hints_for_actor_did)
                 .unwrap_or_else(|| {
-                    "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt`, optional `collection_ids`, and optionally `actor_did` if you want to inspect another actor. Without `actor_did` or `collection_ids`, the search tool uses the actor from the selected notification when one exists, otherwise it searches all cached collections.".to_string()
+                    "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt` plus either explicit `collection_ids` or an `actor_did`. Do not call `llm_search` without one of those scope selectors.".to_string()
                 }),
             &self
                 .selected_actor_summary()
@@ -867,27 +817,19 @@ impl App {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    reset_debug_log();
     let _ = dotenvy::dotenv();
-    append_debug_log("shock_absorber startup");
 
     let handle = env::var("BSKY_HANDLE")?;
     let password = env::var("BSKY_APP_PASSWORD")?;
-    append_debug_log("loaded environment variables");
 
     let agent = BskyAgent::builder().build().await?;
-    append_debug_log("constructed BskyAgent");
     agent.login(&handle, &password).await?;
-    append_debug_log(format!("logged in as {handle}"));
     let evil_gemma = EvilGemmaConfig::from_env()?;
-    append_debug_log("loaded evil_gemma config");
     let db_path =
         env::var("SHOCK_ABSORBER_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
     let db = AppDb::new(resolve_db_path(db_path))?;
-    append_debug_log(format!("opened db at {}", db.path().display()));
     let mut app = App::new(handle);
     restore_store_from_db(&mut app.store, &db)?;
-    append_debug_log("restored store from db");
     app.status = format!("{} | db {}", app.status, db.path().display());
 
     enable_raw_mode()?;
@@ -897,7 +839,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let result = run_app(&mut terminal, &agent, &evil_gemma, app, &db).await;
-    append_debug_log("run_app returned");
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -1131,6 +1072,32 @@ fn build_evil_gemma_output_lines(
     lines
 }
 
+fn response_looks_incomplete(response: &str) -> bool {
+    let trimmed = response.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if trimmed.ends_with(':') || trimmed.ends_with(',') || trimmed.ends_with(';') {
+        return true;
+    }
+
+    if trimmed.ends_with("Here is the breakdown")
+        || trimmed.ends_with("Here is the breakdown:")
+        || trimmed.ends_with("Here is the breakdown of the sentiment")
+        || trimmed.ends_with("Here is the breakdown of the sentiment:")
+    {
+        return true;
+    }
+
+    let last_line = trimmed.lines().last().unwrap_or(trimmed).trim();
+    if last_line == "-" || last_line == "*" || last_line.chars().all(|ch| ch == '.') {
+        return true;
+    }
+
+    false
+}
+
 async fn run_tool_prep_step<F, T>(
     step_timeout: StdDuration,
     future: F,
@@ -1139,12 +1106,7 @@ async fn run_tool_prep_step<F, T>(
 where
     F: Future<Output = Result<T, Box<dyn Error>>>,
 {
-    append_debug_log(format!(
-        "tool prep step start: {label} timeout={}s",
-        step_timeout.as_secs()
-    ));
-    let started = Instant::now();
-    let result = timeout(step_timeout, future)
+    timeout(step_timeout, future)
         .await
         .map_err(|_| {
             format!(
@@ -1152,18 +1114,7 @@ where
                 step_timeout.as_secs()
             )
         })?
-        .map_err(|err| err.to_string());
-    match &result {
-        Ok(_) => append_debug_log(format!(
-            "tool prep step ok: {label} elapsed={:?}",
-            started.elapsed()
-        )),
-        Err(err) => append_debug_log(format!(
-            "tool prep step failed: {label} elapsed={:?} error={err}",
-            started.elapsed()
-        )),
-    }
-    result
+        .map_err(|err| err.to_string())
 }
 
 fn actor_needs_initial_refresh(store: &NotificationStore, actor_did: &bsky_sdk::api::types::string::Did) -> bool {
@@ -1200,7 +1151,7 @@ fn build_tool_aware_query_context(
         selected_actor_did
             .map(search_hints_for_actor_did)
             .unwrap_or_else(|| {
-                "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt`, optional `collection_ids`, and optionally `actor_did` if you want to inspect another actor. Without `actor_did` or `collection_ids`, the search tool uses the selected actor when one exists, otherwise it searches all cached collections.".to_string()
+                "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt` plus either explicit `collection_ids` or an `actor_did`. For interaction or frequency questions, pass explicit conversational `collection_ids` like `recent_replies_sent`, `recent_posts_unaddressed`, `pinned_posts`, or `replies_to_actor` instead of broad actor-wide search. Likes are not currently available as a searchable collection.".to_string()
             }),
     );
 
@@ -1233,7 +1184,7 @@ fn build_tool_aware_query_context(
 fn search_hints_for_actor_did(did: &bsky_sdk::api::types::string::Did) -> String {
     let did = did.as_str();
     format!(
-        "The selected actor is {did}. Use `list_collections` to see cached collections for this actor, then `llm_search` with either `collection_ids` or an `actor_did`. Omit `actor_did` to search this actor, or provide another actor DID if a mentioned actor becomes relevant."
+        "The selected actor is {did}. Use `list_collections` to see cached collections for this actor, then `llm_search` with either `collection_ids` or an `actor_did`. For interaction/frequency questions, prefer explicit conversational `collection_ids` instead of broad actor-wide search. Likes are not currently available as a searchable collection. Provide another actor DID only if a mentioned actor becomes relevant."
     )
 }
 

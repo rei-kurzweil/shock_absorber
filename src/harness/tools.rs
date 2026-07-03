@@ -94,7 +94,7 @@ impl ToolRegistry {
                     ToolArgumentSpec {
                         name: "actor_did".to_string(),
                         value_type: "string".to_string(),
-                        description: "Optional target actor DID. If provided and `collection_ids` is omitted, search all collections related to that actor.".to_string(),
+                        description: "Optional target actor DID. If provided and `collection_ids` is omitted, search all cached collections related to that actor.".to_string(),
                         required: false,
                     },
                     ToolArgumentSpec {
@@ -119,9 +119,12 @@ impl ToolRegistry {
                 when_to_use: "Use when semantic relevance matters more than the compact UI preview and you need the model to inspect a cached collection.".to_string(),
                 notes: vec![
                     "The calling agent must write the search prompt.".to_string(),
+                    "You must provide either `collection_ids` or `actor_did`; do not call this tool with neither.".to_string(),
                     "If `collection_ids` is provided, the tool searches exactly those collections.".to_string(),
                     "If `collection_ids` is omitted and `actor_did` is provided, the tool searches all collections related to that actor.".to_string(),
-                    "If both are omitted, the tool searches all cached collections plus any synthesized `replies_to_actor` collections it can build for cached actors.".to_string(),
+                    "For interaction or frequency questions like who this actor replies to, mentions, or interacts with most, prefer explicit conversational `collection_ids` such as `recent_replies_sent`, `recent_posts_unaddressed`, `pinned_posts`, or `replies_to_actor` instead of searching all actor collections.".to_string(),
+                    "For moderation-label or list-membership questions, prefer `clearsky_lists` explicitly or search all actor collections when the scope should include list labels.".to_string(),
+                    "Authored likes are not currently exposed as a searchable collection, so do not assume a likes collection exists yet.".to_string(),
                     "Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated labels from the matching items.".to_string(),
                 ],
             },
@@ -313,9 +316,9 @@ impl<'a> BlueskyTools<'a> {
                 self.read_collection_item(&collection_id, &item_uri)
             }
             "llm_search" => {
+                let prompt = require_string_arg(&tool_call.args, "prompt")?;
                 let collection =
                     self.resolve_search_collection(&tool_call.args, selected_notification)?;
-                let prompt = require_string_arg(&tool_call.args, "prompt")?;
                 let result = self.llm_search(&collection, &prompt, llm_client).await?;
                 Ok(render_llm_result(result.as_ref()))
             }
@@ -422,7 +425,7 @@ impl<'a> BlueskyTools<'a> {
     fn resolve_search_collection(
         &self,
         args: &Value,
-        selected_notification: Option<&Notification>,
+        _selected_notification: Option<&Notification>,
     ) -> Result<LabeledPostCollection, Box<dyn std::error::Error>> {
         let collection_ids = optional_string_array_arg(args, "collection_ids")?;
         let label = optional_string_arg(args, "label");
@@ -430,10 +433,12 @@ impl<'a> BlueskyTools<'a> {
             self.collections_from_ids(&collection_ids)?
         } else if let Some(actor_did) = optional_did_arg(args, "actor_did")? {
             self.collections_for_actor(&actor_did)
-        } else if let Some(notification) = selected_notification {
-            self.collections_for_actor(&notification.author.data.did)
         } else {
-            self.all_collections()
+            return Err(
+                "llm_search requires either `collection_ids` or `actor_did`"
+                    .to_string()
+                    .into(),
+            );
         };
 
         if collections.is_empty() {
@@ -487,13 +492,21 @@ impl<'a> BlueskyTools<'a> {
         &self,
         collection_ids: &[String],
     ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
-        collection_ids
-            .iter()
-            .map(|collection_id| {
-                self.resolve_collection_by_id(collection_id)
-                    .ok_or_else(|| format!("unknown collection `{collection_id}`").into())
-            })
-            .collect()
+        let mut collections = Vec::new();
+
+        for collection_id in collection_ids {
+            match self.resolve_collection_by_id(collection_id) {
+                Some(collection) => collections.push(collection),
+                None if collection_id.starts_with("replies_to_actor:") => {}
+                None => return Err(format!("unknown collection `{collection_id}`").into()),
+            }
+        }
+
+        if collections.is_empty() {
+            return Err("no cached collections matched the requested search scope".into());
+        }
+
+        Ok(collections)
     }
 
     fn resolve_collection_by_id(&self, collection_id: &str) -> Option<LabeledPostCollection> {
@@ -749,9 +762,10 @@ args: {\"actor_did\":\"did:plc:...\",\"prompt\":\"...\"}
 Valid llm_search examples:
 1. Search all cached collections for another actor: {\"actor_did\":\"did:plc:...\",\"prompt\":\"what labels or accusations appear across this actor's cached collections?\"}
 2. Search two known collections directly: {\"collection_ids\":[\"recent_posts_unaddressed:did:plc:...\",\"replies_to_actor:did:plc:...\"],\"prompt\":\"what disputes or accusations involve this actor?\"}
-3. Search all available collections: {\"prompt\":\"what is this actor accused of, based on the cached collections available here?\"}
+3. For interaction/frequency questions, target conversational collections explicitly: {\"collection_ids\":[\"recent_replies_sent:did:plc:...\",\"recent_posts_unaddressed:did:plc:...\",\"replies_to_actor:did:plc:...\"],\"prompt\":\"who does this actor reply to or mention most often? give the top 3 with approximate counts\"}
+4. For list-label questions, target moderation collections explicitly when needed: {\"collection_ids\":[\"clearsky_lists:did:plc:...\"],\"prompt\":\"what labels or accusations appear across these moderation lists?\"}
 
-Available tools are listed below. The Current UI Context section is intentionally compact and does not include full post text. Use read_selected_post when you need the selected post or reply body and facets. Use list_collections before search when you need to inspect cache boundaries. Use llm_search for cached collection search. If an llm_search result includes `source_collection_id`, reuse that exact value for `read_collection_item`; do not infer collection IDs from an item URI. Use read_collection_item when a chosen item should be loaded into context with more detail. After a tool result is provided, either answer directly or request one more tool."
+Available tools are listed below. The Current UI Context section is intentionally compact and does not include full post text. Use read_selected_post when you need the selected post or reply body and facets. Use list_collections before search when you need to inspect cache boundaries. Use llm_search for cached collection search. Always choose an explicit scope for `llm_search`: either `actor_did` or `collection_ids`. Do not call `llm_search` with neither. When the question is about interaction patterns, mentions, replies, frequency counts, or who the actor talks to, use explicit conversational `collection_ids` and avoid unrelated moderation-list collections unless the user asked about lists or labels. If an llm_search result includes `source_collection_id`, reuse that exact value for `read_collection_item`; do not infer collection IDs from an item URI. Use read_collection_item when a chosen item should be loaded into context with more detail. After a tool result is provided, either answer directly or request one more tool."
 }
 
 pub fn parse_prompt_tool_call(response: &str) -> Option<PromptToolCall> {
@@ -777,18 +791,148 @@ pub fn parse_prompt_tool_call(response: &str) -> Option<PromptToolCall> {
 
             if let Some(value) = trimmed.strip_prefix("args:") {
                 args_lines.push(value.trim().to_string());
-                args_lines.extend(lines.map(str::to_owned));
+                args_lines.extend(lines.by_ref().map(str::to_owned));
                 break;
             }
         }
 
         let name = name?;
-        let raw_args = args_lines.join("\n").trim().to_string();
-        let args = serde_json::from_str(&raw_args).ok()?;
+        let raw_args = extract_first_args_object(&args_lines.join("\n"))?;
+        let args = parse_tool_args_json(&raw_args)?;
         return Some(PromptToolCall { name, args });
     }
 
     None
+}
+
+fn extract_first_args_object(raw_args: &str) -> Option<String> {
+    let chars = raw_args.char_indices().collect::<Vec<_>>();
+    let start = chars.iter().find(|(_, ch)| *ch == '{').map(|(idx, _)| *idx)?;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (idx, ch) in raw_args[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if ch == '"' {
+            in_string = true;
+            continue;
+        }
+
+        if ch == '{' {
+            depth += 1;
+        } else if ch == '}' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                let end = start + idx + ch.len_utf8();
+                return Some(raw_args[start..end].to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn parse_tool_args_json(raw_args: &str) -> Option<Value> {
+    serde_json::from_str(raw_args)
+        .ok()
+        .or_else(|| serde_json::from_str(&repair_tool_args_json(raw_args)).ok())
+}
+
+fn repair_tool_args_json(raw_args: &str) -> String {
+    let normalized_quotes = raw_args.replace("<|\"|>", "\"");
+    quote_bare_object_keys(&normalized_quotes)
+}
+
+fn quote_bare_object_keys(input: &str) -> String {
+    let chars = input.chars().collect::<Vec<_>>();
+    let mut out = String::new();
+    let mut i = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    while i < chars.len() {
+        let ch = chars[i];
+
+        if in_string {
+            out.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if ch == '"' {
+            in_string = true;
+            out.push(ch);
+            i += 1;
+            continue;
+        }
+
+        if ch == '{' || ch == ',' {
+            out.push(ch);
+            i += 1;
+
+            while i < chars.len() && chars[i].is_whitespace() {
+                out.push(chars[i]);
+                i += 1;
+            }
+
+            let key_start = i;
+            if i < chars.len() && (chars[i].is_ascii_alphabetic() || chars[i] == '_') {
+                i += 1;
+                while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+
+                let key_end = i;
+                let mut probe = i;
+                while probe < chars.len() && chars[probe].is_whitespace() {
+                    probe += 1;
+                }
+
+                if probe < chars.len() && chars[probe] == ':' {
+                    out.push('"');
+                    for key_char in &chars[key_start..key_end] {
+                        out.push(*key_char);
+                    }
+                    out.push('"');
+                    while i < probe {
+                        out.push(chars[i]);
+                        i += 1;
+                    }
+                    continue;
+                }
+
+                for key_char in &chars[key_start..key_end] {
+                    out.push(*key_char);
+                }
+                continue;
+            }
+
+            continue;
+        }
+
+        out.push(ch);
+        i += 1;
+    }
+
+    out
 }
 
 fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
@@ -927,6 +1071,7 @@ fn reduced_search_collection(
 }
 
 fn reduced_search_body(body: &str, max_body_chars: usize) -> String {
+    let _ = max_body_chars;
     let fields = body_field_map(body);
     if fields.contains_key("list_name") || fields.contains_key("list_description") {
         let mut lines = Vec::new();
@@ -947,7 +1092,7 @@ fn reduced_search_body(body: &str, max_body_chars: usize) -> String {
         return lines.join("\n");
     }
 
-    truncate_chars(body, max_body_chars)
+    body.to_string()
 }
 
 fn reduced_search_budget(collection: &LabeledPostCollection) -> (usize, usize) {
@@ -1119,12 +1264,12 @@ fn optional_string_array_arg(
 #[cfg(test)]
 mod tests {
     use super::{
-        ToolRegistry, merged_collection_from_refs, parse_llm_search_result,
+        BlueskyTools, ToolRegistry, merged_collection_from_refs, parse_llm_search_result,
         parse_prompt_tool_call, reduced_search_collection, render_post_details,
         serialize_collection, source_collection_id_from_post,
     };
     use crate::model::{LabeledPostCollection, PostRecord};
-    use crate::net_backend::{PostDetails, PostFacet};
+    use crate::net_backend::{NotificationStore, PostDetails, PostFacet};
 
     #[test]
     fn llm_search_result_requires_a_known_uri() {
@@ -1211,6 +1356,36 @@ mod tests {
     }
 
     #[test]
+    fn parses_prompt_tool_call_block_with_repaired_args_json() {
+        let tool_call = parse_prompt_tool_call(
+            "TOOL_CALL\nname: llm_search\nargs:\n{collection_ids:[<|\"|>clearsky_lists:did:plc:testactor<|\"|>,<|\"|>recent_posts_unaddressed:did:plc:testactor<|\"|>],\nprompt:<|\"|>cluster the sentiment<|\"|>}",
+        )
+        .expect("expected tool call");
+
+        assert_eq!(tool_call.name, "llm_search");
+        assert_eq!(
+            tool_call.args["collection_ids"][0],
+            "clearsky_lists:did:plc:testactor"
+        );
+        assert_eq!(
+            tool_call.args["collection_ids"][1],
+            "recent_posts_unaddressed:did:plc:testactor"
+        );
+        assert_eq!(tool_call.args["prompt"], "cluster the sentiment");
+    }
+
+    #[test]
+    fn parses_first_tool_call_when_trailing_thought_continues() {
+        let tool_call = parse_prompt_tool_call(
+            "TOOL_CALL\nname: list_collections\nargs: {actor_did: \"did:plc:testactor\"}\n\n<|channel>thought\nextra commentary\n<channel|>TOOL_CALL\nname: llm_search\nargs: {collection_ids:[\"recent_replies_sent:did:plc:testactor\"], prompt:\"who do they talk to most\"}",
+        )
+        .expect("expected first tool call");
+
+        assert_eq!(tool_call.name, "list_collections");
+        assert_eq!(tool_call.args["actor_did"], "did:plc:testactor");
+    }
+
+    #[test]
     fn merges_collections_into_a_search_space() {
         let left = LabeledPostCollection::new(
             "recent:test",
@@ -1249,6 +1424,26 @@ mod tests {
                 .body
                 .contains("source_collection_id: clearsky:test")
         );
+    }
+
+    #[test]
+    fn collections_from_ids_skips_missing_replies_to_actor_collection() {
+        let mut store = NotificationStore::new();
+        store.cache_post_collection(
+            LabeledPostCollection::new("recent:test", "Recent", vec![])
+                .with_collection_kind("recent_posts_unaddressed"),
+        );
+        let tools = BlueskyTools::new(&store);
+
+        let collections = tools
+            .collections_from_ids(&[
+                "recent:test".to_string(),
+                "replies_to_actor:did:plc:testactor".to_string(),
+            ])
+            .expect("expected recent collection to survive optional replies_to_actor miss");
+
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].id, "recent:test");
     }
 
     #[test]
@@ -1308,6 +1503,27 @@ mod tests {
         let rendered = serialize_collection(&reduced);
 
         assert!(rendered.contains(description));
+    }
+
+    #[test]
+    fn reduced_search_keeps_full_body_for_regular_posts() {
+        let body = "source_collection_id: recent_posts_unaddressed:did:plc:test\nsource_collection_label: Recent top-level posts by did:plc:test\nSome companies who told their staff to use AI now are discovering the actual costs were hidden in the hype cycle and the rollback is messy.";
+        let collection = LabeledPostCollection::new(
+            "recent:test",
+            "Recent posts",
+            vec![PostRecord {
+                uri: "at://did:plc:test/app.bsky.feed.post/abc".to_string(),
+                author_handle: "author.test".to_string(),
+                body: body.to_string(),
+            }],
+        )
+        .with_collection_kind("recent_posts_unaddressed");
+
+        let reduced = reduced_search_collection(&collection, 1, 40);
+        let rendered = serialize_collection(&reduced);
+
+        assert!(rendered.contains(body));
+        assert!(!rendered.contains("..."));
     }
 
     #[test]
