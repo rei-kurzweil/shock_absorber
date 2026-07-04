@@ -16,6 +16,23 @@ impl ProviderContextLimits {
 }
 
 #[derive(Clone, Debug)]
+pub struct BuiltContextSection {
+    pub title: String,
+    pub used_tokens: usize,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct BuiltContextWindow {
+    pub rendered: String,
+    pub limits: ProviderContextLimits,
+    pub header_tokens: usize,
+    pub used_input_tokens: usize,
+    pub truncated: bool,
+    pub sections: Vec<BuiltContextSection>,
+}
+
+#[derive(Clone, Debug)]
 pub struct ContextSection {
     pub title: String,
     pub body: String,
@@ -56,9 +73,19 @@ impl LLMContext {
 }
 
 pub fn build_context_window(context: &LLMContext, limits: &ProviderContextLimits) -> String {
+    build_context_window_report(context, limits).rendered
+}
+
+pub fn build_context_window_report(
+    context: &LLMContext,
+    limits: &ProviderContextLimits,
+) -> BuiltContextWindow {
     let mut rendered = render_header(context.header());
-    let mut used_tokens = approximate_tokens(&rendered);
+    let header_tokens = approximate_tokens(&rendered);
+    let mut used_tokens = header_tokens;
     let token_budget = limits.available_input_tokens();
+    let mut sections = Vec::new();
+    let mut was_truncated = false;
 
     for section in context.sections() {
         let candidate = render_section(section);
@@ -66,22 +93,43 @@ pub fn build_context_window(context: &LLMContext, limits: &ProviderContextLimits
         if used_tokens + section_tokens <= token_budget {
             rendered.push_str(&candidate);
             used_tokens += section_tokens;
+            sections.push(BuiltContextSection {
+                title: section.title.clone(),
+                used_tokens: section_tokens,
+                truncated: false,
+            });
             continue;
         }
 
         let remaining_tokens = token_budget.saturating_sub(used_tokens);
         if remaining_tokens == 0 {
+            was_truncated = true;
             break;
         }
 
-        let truncated = truncate_text_to_tokens(&candidate, remaining_tokens);
-        if !truncated.trim().is_empty() {
-            rendered.push_str(&truncated);
+        let truncated_text = truncate_text_to_tokens(&candidate, remaining_tokens);
+        if !truncated_text.trim().is_empty() {
+            let truncated_tokens = approximate_tokens(&truncated_text);
+            rendered.push_str(&truncated_text);
+            used_tokens += truncated_tokens;
+            sections.push(BuiltContextSection {
+                title: section.title.clone(),
+                used_tokens: truncated_tokens,
+                truncated: true,
+            });
         }
+        was_truncated = true;
         break;
     }
 
-    rendered
+    BuiltContextWindow {
+        rendered,
+        limits: limits.clone(),
+        header_tokens,
+        used_input_tokens: used_tokens,
+        truncated: was_truncated,
+        sections,
+    }
 }
 
 pub fn render_header(header: &str) -> String {
@@ -102,12 +150,38 @@ fn truncate_text_to_tokens(text: &str, token_budget: usize) -> String {
         return text.to_owned();
     }
 
-    let mut truncated = String::new();
-    for ch in text.chars().take(char_budget.saturating_sub(1)) {
-        truncated.push(ch);
+    let hard_limit = char_budget.saturating_sub(1);
+    let mut cutoff = 0usize;
+
+    for (idx, ch) in text.char_indices() {
+        let next = idx + ch.len_utf8();
+        if next > hard_limit {
+            break;
+        }
+        cutoff = next;
     }
-    truncated.push_str("...");
-    truncated
+
+    let prefix = &text[..cutoff];
+    if let Some(double_newline) = prefix.rfind("\n\n") {
+        let candidate = prefix[..double_newline].trim_end();
+        if !candidate.is_empty() {
+            return format!("{candidate}\n\n...");
+        }
+    }
+
+    if let Some(newline) = prefix.rfind('\n') {
+        let candidate = prefix[..newline].trim_end();
+        if !candidate.is_empty() {
+            return format!("{candidate}\n...");
+        }
+    }
+
+    let candidate = prefix.trim_end();
+    if candidate.is_empty() {
+        "...".to_string()
+    } else {
+        format!("{candidate}...")
+    }
 }
 
 #[cfg(test)]
@@ -130,5 +204,26 @@ mod tests {
         let rendered = build_context_window(&context, &limits);
         assert!(rendered.contains("## first"));
         assert!(rendered.chars().count() <= 80);
+    }
+
+    #[test]
+    fn truncates_at_line_boundary_instead_of_mid_line() {
+        let mut context = LLMContext::new("brief header");
+        context.push_section(
+            "collection",
+            "item[0]\nuri: one\nauthor: clearsky\nlist_name: alpha\n\nitem[1]\nuri: two\nauthor: clearsky\nlist_name: beta".to_string(),
+        );
+
+        let limits = ProviderContextLimits {
+            provider_name: "test".to_string(),
+            model_name: "tiny".to_string(),
+            max_context_tokens: 22,
+            reserved_output_tokens: 4,
+        };
+
+        let rendered = build_context_window(&context, &limits);
+        assert!(rendered.contains("item[0]"));
+        assert!(!rendered.contains("list_name: b..."));
+        assert!(rendered.ends_with("...\n") || rendered.ends_with("\n..."));
     }
 }

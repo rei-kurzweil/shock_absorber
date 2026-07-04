@@ -1,4 +1,6 @@
-use crate::harness::context_window::{LLMContext, build_context_window};
+use crate::harness::context_window::{
+    BuiltContextWindow, LLMContext, build_context_window_report,
+};
 use crate::harness::llm_api::{ChatMessage, LlmApiClient};
 use crate::model::{LabeledPostCollection, PostRecord};
 use crate::net_backend::{
@@ -187,6 +189,27 @@ pub struct LlmSearchResult {
     pub synthesized_block: String,
 }
 
+pub struct LlmSearchExecution {
+    pub result: Option<LlmSearchResult>,
+    pub context_window: BuiltContextWindow,
+}
+
+pub struct ToolExecutionOutput {
+    pub rendered: String,
+    pub context_windows: Vec<ToolContextWindow>,
+}
+
+pub struct ToolContextWindow {
+    pub title: String,
+    pub window: BuiltContextWindow,
+}
+
+struct CollectionSearchOutcome {
+    collection_id: String,
+    collection_label: String,
+    execution: Result<LlmSearchExecution, String>,
+}
+
 pub struct LlmSearchComparator<'a> {
     pub prompt: &'a str,
     pub llm_client: &'a LlmApiClient,
@@ -197,9 +220,18 @@ impl<'a> LlmSearchComparator<'a> {
     pub async fn compare(
         &self,
         collection: &LabeledPostCollection,
-    ) -> Result<Option<LlmSearchResult>, Box<dyn std::error::Error>> {
+    ) -> Result<LlmSearchExecution, Box<dyn std::error::Error>> {
         if collection.posts.is_empty() {
-            return Ok(None);
+            let context = LLMContext::new(
+                "Inspect the provided collection carefully. Return a compact result block with `uri:`, `title:`, and `analysis:` fields. Always choose one anchor item with a real `uri:` from the collection. The `analysis:` field is evidence-only: quote exact short snippets, list names, list descriptions, or other text taken from the collection, and note repeated themes across multiple items when relevant. For moderation-list records, treat `list_name` as the primary signal and `list_description` as supporting context; do not invent a separate label field unless it appears explicitly in the collection text. Do not add higher-level interpretation beyond brief grouping of repeated evidence. Do not answer the user's overall question; just return grounded evidence that the parent agent can analyze.",
+            );
+            return Ok(LlmSearchExecution {
+                result: None,
+                context_window: build_context_window_report(
+                    &context,
+                    &self.llm_client.context_limits(),
+                ),
+            });
         }
 
         let mut context = LLMContext::new(
@@ -208,7 +240,8 @@ impl<'a> LlmSearchComparator<'a> {
         context.push_section("Collection", serialize_collection(collection));
         context.push_section("Search Prompt", self.prompt);
 
-        let rendered_context = build_context_window(&context, &self.llm_client.context_limits());
+        let context_window = build_context_window_report(&context, &self.llm_client.context_limits());
+        let rendered_context = context_window.rendered.clone();
         let response = self
             .llm_client
             .complete_chat(
@@ -226,7 +259,10 @@ impl<'a> LlmSearchComparator<'a> {
             )
             .await?;
 
-        Ok(parse_llm_search_result(collection, &response))
+        Ok(LlmSearchExecution {
+            result: parse_llm_search_result(collection, &response),
+            context_window,
+        })
     }
 }
 
@@ -244,7 +280,7 @@ impl<'a> BlueskyTools<'a> {
         collection: &LabeledPostCollection,
         prompt: &str,
         llm_client: &LlmApiClient,
-    ) -> Result<Option<LlmSearchResult>, Box<dyn std::error::Error>> {
+    ) -> Result<LlmSearchExecution, Box<dyn std::error::Error>> {
         let primary = LlmSearchComparator {
             prompt,
             llm_client,
@@ -306,24 +342,50 @@ impl<'a> BlueskyTools<'a> {
         tool_call: &PromptToolCall,
         selected_notification: Option<&Notification>,
         llm_client: &LlmApiClient,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<ToolExecutionOutput, Box<dyn std::error::Error>> {
         match tool_call.name.as_str() {
-            "read_selected_post" => Ok(self.read_selected_post(selected_notification)),
+            "read_selected_post" => Ok(ToolExecutionOutput {
+                rendered: self.read_selected_post(selected_notification),
+                context_windows: Vec::new(),
+            }),
             "list_collections" => {
                 let actor_did = optional_did_arg(&tool_call.args, "actor_did")?;
-                Ok(self.list_collections(actor_did.as_ref()))
+                Ok(ToolExecutionOutput {
+                    rendered: self.list_collections(actor_did.as_ref()),
+                    context_windows: Vec::new(),
+                })
             }
             "read_collection_item" => {
                 let collection_id = require_string_arg(&tool_call.args, "collection_id")?;
                 let item_uri = require_string_arg(&tool_call.args, "item_uri")?;
-                self.read_collection_item(&collection_id, &item_uri)
+                Ok(ToolExecutionOutput {
+                    rendered: self.read_collection_item(&collection_id, &item_uri)?,
+                    context_windows: Vec::new(),
+                })
             }
             "llm_search" => {
                 let prompt = require_string_arg(&tool_call.args, "prompt")?;
-                let collection =
-                    self.resolve_search_collection(&tool_call.args, selected_notification)?;
-                let result = self.llm_search(&collection, &prompt, llm_client).await?;
-                Ok(render_llm_result(result.as_ref()))
+                let collections =
+                    self.resolve_search_collections(&tool_call.args, selected_notification)?;
+                let outcomes = self
+                    .run_collection_searches(&collections, &prompt, llm_client)
+                    .await;
+                Ok(ToolExecutionOutput {
+                    rendered: render_combined_llm_search_results(&outcomes),
+                    context_windows: outcomes
+                        .into_iter()
+                        .filter_map(|outcome| match outcome.execution {
+                            Ok(execution) => Some(ToolContextWindow {
+                                title: format!(
+                                    "llm_search: {}",
+                                    outcome.collection_label
+                                ),
+                                window: execution.context_window,
+                            }),
+                            Err(_) => None,
+                        })
+                        .collect(),
+                })
             }
             other => Err(format!("unknown tool `{other}`").into()),
         }
@@ -425,14 +487,36 @@ impl<'a> BlueskyTools<'a> {
         }
     }
 
-    fn resolve_search_collection(
+    async fn run_collection_searches(
+        &self,
+        collections: &[LabeledPostCollection],
+        prompt: &str,
+        llm_client: &LlmApiClient,
+    ) -> Vec<CollectionSearchOutcome> {
+        let mut outcomes = Vec::with_capacity(collections.len());
+
+        for collection in collections {
+            let execution = self
+                .llm_search(collection, prompt, llm_client)
+                .await
+                .map_err(|err| err.to_string());
+            outcomes.push(CollectionSearchOutcome {
+                collection_id: collection.id.clone(),
+                collection_label: collection.label.clone(),
+                execution,
+            });
+        }
+
+        outcomes
+    }
+
+    fn resolve_search_collections(
         &self,
         args: &Value,
         _selected_notification: Option<&Notification>,
-    ) -> Result<LabeledPostCollection, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
         let collection_ids = optional_string_array_arg(args, "collection_ids")?;
-        let label = optional_string_arg(args, "label");
-        let collections = if !collection_ids.is_empty() {
+        let mut collections = if !collection_ids.is_empty() {
             self.collections_from_ids(&collection_ids)?
         } else if let Some(actor_did) = optional_did_arg(args, "actor_did")? {
             self.collections_for_actor(&actor_did)
@@ -450,15 +534,8 @@ impl<'a> BlueskyTools<'a> {
             );
         }
 
-        merged_collection_from_refs(
-            collections,
-            label
-                .clone()
-                .unwrap_or_else(|| "merged_search_scope".to_string()),
-            label.unwrap_or_else(|| {
-                "Merged search scope".to_string()
-            }),
-        )
+        collections.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(collections)
     }
 
     fn all_collections(&self) -> Vec<LabeledPostCollection> {
@@ -663,7 +740,8 @@ fn parse_llm_search_result(
             .posts
             .iter()
             .find(|post| post.uri == uri)
-            .and_then(source_collection_id_from_post),
+            .and_then(source_collection_id_from_post)
+            .or_else(|| Some(collection.id.clone())),
         synthesized_block: if synthesized_block.is_empty() {
             response.trim().to_string()
         } else {
@@ -953,6 +1031,56 @@ fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
         }
         None => "No matching cached posts.".to_string(),
     }
+}
+
+fn render_combined_llm_search_results(outcomes: &[CollectionSearchOutcome]) -> String {
+    if outcomes.len() == 1 {
+        return match outcomes.first() {
+            Some(outcome) => match outcome.execution.as_ref() {
+                Ok(execution) => render_llm_result(execution.result.as_ref()),
+                Err(err) => format!(
+                    "collection_id: {}\nlabel: {}\nstatus: failed\nerror: {}",
+                    outcome.collection_id, outcome.collection_label, err
+                ),
+            },
+            None => "No matching cached posts.".to_string(),
+        };
+    }
+
+    let mut lines = vec![
+        "llm_search searched collections independently and combined the grounded results below."
+            .to_string(),
+    ];
+
+    if let Some((outcome, result)) = outcomes.iter().find_map(|outcome| match outcome.execution.as_ref() {
+        Ok(execution) => execution.result.as_ref().map(|result| (outcome, result)),
+        Err(_) => None,
+    }) {
+        lines.push(format!("anchor_uri: {}", result.uri));
+        lines.push(format!("anchor_collection_id: {}", outcome.collection_id));
+        lines.push(format!(
+            "anchor_collection_label: {}",
+            outcome.collection_label
+        ));
+    }
+
+    for outcome in outcomes {
+        lines.push(String::new());
+        lines.push(format!("collection_id: {}", outcome.collection_id));
+        lines.push(format!("collection_label: {}", outcome.collection_label));
+        match outcome.execution.as_ref() {
+            Ok(execution) => {
+                lines.push("status: ok".to_string());
+                lines.push(render_llm_result(execution.result.as_ref()));
+            }
+            Err(err) => {
+                lines.push("status: failed".to_string());
+                lines.push(format!("error: {err}"));
+            }
+        }
+    }
+
+    lines.join("\n")
 }
 
 fn source_collection_id_from_post(post: &PostRecord) -> Option<String> {

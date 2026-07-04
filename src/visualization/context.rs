@@ -1,5 +1,5 @@
-use crate::harness::context_window::{ProviderContextLimits, approximate_tokens, render_header};
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use crate::harness::context_window::BuiltContextWindow;
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
@@ -20,10 +20,11 @@ pub struct ContextSegment {
     pub label: String,
     pub category: ContextCategory,
     pub tokens: usize,
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug)]
-pub struct ContextVisualizationData {
+pub struct PromptContextSnapshot {
     pub title: String,
     pub provider_name: String,
     pub model_name: String,
@@ -31,147 +32,157 @@ pub struct ContextVisualizationData {
     pub reserved_output_tokens: usize,
     pub input_budget_tokens: usize,
     pub used_input_tokens: usize,
+    pub truncated: bool,
     pub segments: Vec<ContextSegment>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ContextVisualizationData {
+    pub title: String,
+    pub windows: Vec<PromptContextSnapshot>,
+}
+
 impl ContextVisualizationData {
-    pub fn from_root_context(
-        system_prompt: &str,
-        tool_protocol: &str,
-        tools_inventory: &str,
-        ui_header: &str,
-        search_hints: &str,
-        current_ui_context: &str,
-        current_task: Option<&str>,
-        recent_chat: Option<&str>,
-        limits: &ProviderContextLimits,
+    pub fn from_windows(
+        title: impl Into<String>,
+        windows: Vec<PromptContextSnapshot>,
     ) -> Self {
-        let mut segments = Vec::new();
-
-        let system_prompt_text = system_prompt.trim();
-        let system_tokens = approximate_tokens(system_prompt_text);
-        if system_tokens > 0 {
-            segments.push(ContextSegment {
-                label: "System Prompt".to_string(),
-                category: ContextCategory::SystemPrompt,
-                tokens: system_tokens,
-            });
-        }
-
-        let tool_text = format!(
-            "{}\n\n## Tools\n{}\n",
-            tool_protocol.trim(),
-            tools_inventory.trim()
-        );
-        let tool_tokens = approximate_tokens(&tool_text);
-        if tool_tokens > 0 {
-            segments.push(ContextSegment {
-                label: "Tool Definitions".to_string(),
-                category: ContextCategory::ToolDefinitions,
-                tokens: tool_tokens,
-            });
-        }
-
-        let ui_text = format!(
-            "{}\n\n## Search Hints\n{}\n\n## Current UI Context\n{}\n",
-            render_header(ui_header).trim_end(),
-            search_hints.trim(),
-            current_ui_context.trim()
-        );
-        let ui_tokens = approximate_tokens(&ui_text);
-        if ui_tokens > 0 {
-            segments.push(ContextSegment {
-                label: "UI Context".to_string(),
-                category: ContextCategory::UiContext,
-                tokens: ui_tokens,
-            });
-        }
-
-        let task_tokens = current_task
-            .map(str::trim)
-            .filter(|task| !task.is_empty())
-            .map(approximate_tokens)
-            .unwrap_or(0);
-        segments.push(ContextSegment {
-            label: "Current Task".to_string(),
-            category: ContextCategory::CurrentTask,
-            tokens: task_tokens,
-        });
-
-        let chat_tokens = recent_chat
-            .map(str::trim)
-            .filter(|chat| !chat.is_empty())
-            .map(approximate_tokens)
-            .unwrap_or(0);
-        segments.push(ContextSegment {
-            label: "User / AI Chat".to_string(),
-            category: ContextCategory::UserAiChat,
-            tokens: chat_tokens,
-        });
-
-        segments.push(ContextSegment {
-            label: "Tool Results".to_string(),
-            category: ContextCategory::ToolResults,
-            tokens: 0,
-        });
-
-        let used_input_tokens = segments.iter().map(|segment| segment.tokens).sum();
-
         Self {
-            title: "/context".to_string(),
-            provider_name: limits.provider_name.clone(),
-            model_name: limits.model_name.clone(),
-            max_context_tokens: limits.max_context_tokens,
-            reserved_output_tokens: limits.reserved_output_tokens,
-            input_budget_tokens: limits.available_input_tokens(),
-            used_input_tokens,
-            segments,
+            title: title.into(),
+            windows,
         }
+    }
+
+    pub fn from_root_window(title: impl Into<String>, window: &BuiltContextWindow) -> Self {
+        Self::from_windows(title, vec![snapshot_from_root_window(window)])
+    }
+}
+
+pub fn snapshot_from_root_window(window: &BuiltContextWindow) -> PromptContextSnapshot {
+    let mut segments = vec![ContextSegment {
+        label: "System Prompt".to_string(),
+        category: ContextCategory::SystemPrompt,
+        tokens: window.header_tokens,
+        truncated: false,
+    }];
+
+    for section in &window.sections {
+        segments.push(ContextSegment {
+            label: section.title.clone(),
+            category: category_for_root_section(&section.title),
+            tokens: section.used_tokens,
+            truncated: section.truncated,
+        });
+    }
+
+    snapshot_from_window("Root Agent", window, segments)
+}
+
+pub fn snapshot_from_llm_search_window(
+    title: impl Into<String>,
+    window: &BuiltContextWindow,
+) -> PromptContextSnapshot {
+    let mut segments = vec![ContextSegment {
+        label: "Search Instructions".to_string(),
+        category: ContextCategory::SystemPrompt,
+        tokens: window.header_tokens,
+        truncated: false,
+    }];
+
+    for section in &window.sections {
+        let category = match section.title.as_str() {
+            "Collection" => ContextCategory::ToolResults,
+            "Search Prompt" => ContextCategory::CurrentTask,
+            _ => ContextCategory::UiContext,
+        };
+        segments.push(ContextSegment {
+            label: section.title.clone(),
+            category,
+            tokens: section.used_tokens,
+            truncated: section.truncated,
+        });
+    }
+
+    snapshot_from_window(title, window, segments)
+}
+
+fn snapshot_from_window(
+    title: impl Into<String>,
+    window: &BuiltContextWindow,
+    segments: Vec<ContextSegment>,
+) -> PromptContextSnapshot {
+    PromptContextSnapshot {
+        title: title.into(),
+        provider_name: window.limits.provider_name.clone(),
+        model_name: window.limits.model_name.clone(),
+        max_context_tokens: window.limits.max_context_tokens,
+        reserved_output_tokens: window.limits.reserved_output_tokens,
+        input_budget_tokens: window.limits.available_input_tokens(),
+        used_input_tokens: window.used_input_tokens,
+        truncated: window.truncated,
+        segments,
     }
 }
 
 pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData) {
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Length(3),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(area);
-
-    let summary = Paragraph::new(Text::from(vec![
+    let bar_width = area.width.saturating_sub(2);
+    let mut lines = vec![
         Line::from(data.title.as_str()),
-        Line::from(format!(
-            "{} / {} | used {} of {} input tokens | total {} | reserved output {}",
-            data.provider_name,
-            data.model_name,
-            data.used_input_tokens,
-            data.input_budget_tokens,
-            data.max_context_tokens,
-            data.reserved_output_tokens
-        )),
-    ]));
-    frame.render_widget(summary, layout[0]);
+        Line::from(""),
+    ];
 
-    let bar_text = Text::from(vec![
-        context_bar_line(data, layout[1].width),
-        context_bar_line(data, layout[1].width),
-        context_bar_line(data, layout[1].width),
-    ]);
-    frame.render_widget(Paragraph::new(bar_text), layout[1]);
+    for (index, window) in data.windows.iter().enumerate() {
+        lines.push(Line::from(format!(
+            "{} | {} / {} | used {} of {} input tokens | total {} | reserved output {}{}",
+            window.title,
+            window.provider_name,
+            window.model_name,
+            window.used_input_tokens,
+            window.input_budget_tokens,
+            window.max_context_tokens,
+            window.reserved_output_tokens,
+            if window.truncated { " | truncated" } else { "" }
+        )));
 
-    let footer = Paragraph::new(Text::from(vec![legend_line()]));
-    frame.render_widget(footer, layout[2]);
+        let bar_height = if index == 0 { 3 } else { 1 };
+        for _ in 0..bar_height {
+            lines.push(context_bar_line(window, bar_width));
+        }
 
-    let details = Paragraph::new(section_details(data));
-    frame.render_widget(details, layout[3]);
+        for segment in &window.segments {
+            let pct = if window.input_budget_tokens == 0 {
+                0.0
+            } else {
+                (segment.tokens as f64 / window.input_budget_tokens as f64) * 100.0
+            };
+            let suffix = if segment.truncated { " (trimmed)" } else { "" };
+            lines.push(Line::from(format!(
+                "{}: {} tokens ({pct:.1}%){}",
+                segment.label, segment.tokens, suffix
+            )));
+        }
+
+        if window.used_input_tokens > window.input_budget_tokens {
+            lines.push(Line::from(format!(
+                "Warning: estimated input exceeds budget by {} tokens.",
+                window.used_input_tokens - window.input_budget_tokens
+            )));
+        }
+
+        if index + 1 < data.windows.len() {
+            lines.push(Line::from(""));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(legend_line());
+
+    frame.render_widget(Paragraph::new(Text::from(lines)), area);
 }
 
-fn context_bar_line(data: &ContextVisualizationData, width: u16) -> Line<'static> {
+fn context_bar_line(window: &PromptContextSnapshot, width: u16) -> Line<'static> {
     let width = width as usize;
-    if width == 0 || data.input_budget_tokens == 0 {
+    if width == 0 || window.input_budget_tokens == 0 {
         return Line::from("");
     }
 
@@ -181,7 +192,7 @@ fn context_bar_line(data: &ContextVisualizationData, width: u16) -> Line<'static
     let mut current_width = 0usize;
 
     for cell in 0..width {
-        let style = style_for_cell(data, cell, width, danger_start);
+        let style = style_for_cell(window, cell, width, danger_start);
         if current_style == Some(style) {
             current_width += 1;
         } else {
@@ -201,7 +212,7 @@ fn context_bar_line(data: &ContextVisualizationData, width: u16) -> Line<'static
 }
 
 fn style_for_cell(
-    data: &ContextVisualizationData,
+    window: &PromptContextSnapshot,
     cell: usize,
     width: usize,
     danger_start: usize,
@@ -210,13 +221,13 @@ fn style_for_cell(
         return Style::default().bg(Color::Red);
     }
 
-    let position_token = cell * data.input_budget_tokens / width.max(1);
-    if position_token >= data.used_input_tokens {
+    let position_token = cell * window.input_budget_tokens / width.max(1);
+    if position_token >= window.used_input_tokens {
         return Style::default().bg(Color::DarkGray);
     }
 
     let mut running = 0usize;
-    for segment in &data.segments {
+    for segment in &window.segments {
         running += segment.tokens;
         if position_token < running {
             return Style::default().bg(color_for_category(&segment.category));
@@ -258,31 +269,26 @@ fn legend_line() -> Line<'static> {
     Line::from(spans)
 }
 
-fn section_details(data: &ContextVisualizationData) -> Text<'static> {
-    let mut lines = vec![
-        Line::from("Sections"),
-        Line::from(""),
-    ];
-
-    for segment in &data.segments {
-        let pct = if data.input_budget_tokens == 0 {
-            0.0
-        } else {
-            (segment.tokens as f64 / data.input_budget_tokens as f64) * 100.0
-        };
-        lines.push(Line::from(format!(
-            "{}: {} tokens ({pct:.1}%)",
-            segment.label, segment.tokens
-        )));
+fn category_for_root_section(title: &str) -> ContextCategory {
+    match title {
+        "Tools" => ContextCategory::ToolDefinitions,
+        "Search Hints" | "Current UI Context" => ContextCategory::UiContext,
+        "Current Task" => ContextCategory::CurrentTask,
+        "Recent Chat" => ContextCategory::UserAiChat,
+        title if title.starts_with("Tool Result") => ContextCategory::ToolResults,
+        _ => {
+            let lowered = title.to_ascii_lowercase();
+            if lowered.contains("tool") {
+                ContextCategory::ToolDefinitions
+            } else if lowered.contains("chat") {
+                ContextCategory::UserAiChat
+            } else if lowered.contains("task") || lowered.contains("prompt") {
+                ContextCategory::CurrentTask
+            } else if lowered.contains("result") || lowered.contains("collection") {
+                ContextCategory::ToolResults
+            } else {
+                ContextCategory::UiContext
+            }
+        }
     }
-
-    if data.used_input_tokens > data.input_budget_tokens {
-        lines.push(Line::from(""));
-        lines.push(Line::from(format!(
-            "Warning: estimated input exceeds budget by {} tokens.",
-            data.used_input_tokens - data.input_budget_tokens
-        )));
-    }
-
-    Text::from(lines)
 }

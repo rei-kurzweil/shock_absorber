@@ -30,7 +30,10 @@ mod post;
 mod visualization;
 
 use crate::db::AppDb;
-use crate::harness::context_window::{LLMContext, build_context_window};
+use crate::harness::context_window::{
+    BuiltContextWindow, LLMContext, ProviderContextLimits, approximate_tokens,
+    build_context_window_report,
+};
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
 use crate::harness::tools::{
     BlueskyTools, parse_prompt_tool_call, prompt_tool_protocol_instructions,
@@ -41,7 +44,10 @@ use crate::net_backend::{
     extract_reply_node, poll_notifications,
 };
 use crate::post::{PostNode, render_post_nodes};
-use crate::visualization::context::ContextVisualizationData;
+use crate::visualization::context::{
+    ContextCategory, ContextSegment, ContextVisualizationData, PromptContextSnapshot,
+    snapshot_from_llm_search_window,
+};
 
 const POLL_INTERVAL: StdDuration = StdDuration::from_secs(30);
 const UI_TICK: StdDuration = StdDuration::from_millis(200);
@@ -67,6 +73,8 @@ struct App {
     detail_scroll: u16,
     detail: DetailView,
     root_conversation: Vec<ConversationTurn>,
+    context_visualization: Option<ContextVisualizationData>,
+    deferred_detail: Option<DetailView>,
     status: String,
     should_quit: bool,
 }
@@ -114,6 +122,8 @@ impl App {
                 lines: help_lines(),
             },
             root_conversation: Vec::new(),
+            context_visualization: None,
+            deferred_detail: None,
             status: format!("logged in as {handle}"),
             should_quit: false,
         }
@@ -428,6 +438,7 @@ impl App {
             }
             "clear" | "/clear" => {
                 self.clear_root_conversation();
+                self.context_visualization = None;
                 self.set_command_output(
                     "/clear",
                     vec![
@@ -462,9 +473,11 @@ impl App {
         evil_gemma: &EvilGemmaConfig,
         query: String,
     ) -> Result<(), Box<dyn Error>> {
-        let initial_context = {
+        let keep_context_overlay = matches!(self.detail, DetailView::ContextVisualization(_));
+        self.deferred_detail = None;
+        let root_context_window = {
             let tools = BlueskyTools::new(&self.store);
-            build_tool_aware_query_context(
+            build_tool_aware_query_context_window(
                 self.selected_actor_did(),
                 self.selected_actor_summary(),
                 &tools,
@@ -473,6 +486,7 @@ impl App {
                 &evil_gemma.client,
             )
         };
+        let initial_context = root_context_window.rendered.clone();
         let mut messages = vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -490,6 +504,16 @@ impl App {
         let mut tool_transcript = Vec::new();
         let mut response = String::new();
         let mut hit_tool_round_limit = false;
+        let mut child_contexts = Vec::new();
+        self.context_visualization = Some(build_live_context_visualization(
+            "/context",
+            &messages,
+            evil_gemma.system_prompt.trim(),
+            prompt_tool_protocol_instructions(),
+            &root_context_window,
+            &child_contexts,
+            &evil_gemma.client.context_limits(),
+        ));
 
         for round in 0..MAX_TOOL_CALL_ROUNDS {
             response = evil_gemma
@@ -510,22 +534,35 @@ impl App {
             )];
             let actor_dids =
                 planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call);
-            self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                &tool_name,
-                &tool_args,
-                &prep_log,
-                None,
-            )));
-
-            let mut prep_warnings = Vec::new();
-            if actor_dids.is_empty() {
-                prep_log.push("[tool_prep] no initial refresh needed".to_string());
+            if keep_context_overlay {
+                self.set_query_output_hidden(
+                    format!("evil_gemma: {query}"),
+                    build_evil_gemma_output_lines(
+                        &tool_transcript,
+                        Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)).as_deref(),
+                        None,
+                    ),
+                );
+            } else {
                 self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
                     &tool_name,
                     &tool_args,
                     &prep_log,
                     None,
                 )));
+            }
+
+            let mut prep_warnings = Vec::new();
+            if actor_dids.is_empty() {
+                prep_log.push("[tool_prep] no initial refresh needed".to_string());
+                if !keep_context_overlay {
+                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                }
             } else {
                 for did in actor_dids {
                     prep_log.push(format!(
@@ -533,23 +570,27 @@ impl App {
                         did.as_str(),
                         tool_call.name
                     ));
-                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                        &tool_name,
-                        &tool_args,
-                        &prep_log,
-                        None,
-                    )));
+                    if !keep_context_overlay {
+                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                            &tool_name,
+                            &tool_args,
+                            &prep_log,
+                            None,
+                        )));
+                    }
 
                     prep_log.push(format!(
                         "[tool_prep] -> ensure_recent_posts_cached {}",
                         did.as_str()
                     ));
-                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                        &tool_name,
-                        &tool_args,
-                        &prep_log,
-                        None,
-                    )));
+                    if !keep_context_overlay {
+                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                            &tool_name,
+                            &tool_args,
+                            &prep_log,
+                            None,
+                        )));
+                    }
                     if let Err(message) = run_tool_prep_step(
                         INITIAL_COLLECTION_REFRESH_TIMEOUT,
                         ensure_recent_posts_cached(agent, &mut self.store, &did, 20),
@@ -564,11 +605,13 @@ impl App {
                         prep_log.push(
                             "[tool_prep] continuing with already cached collections".to_string(),
                         );
-                        self.set_evil_gemma_progress(
-                            &query,
-                            &tool_transcript,
-                            Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
-                        );
+                        if !keep_context_overlay {
+                            self.set_evil_gemma_progress(
+                                &query,
+                                &tool_transcript,
+                                Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
+                            );
+                        }
                         prep_warnings.push(format!(
                             "initial refresh for {} failed during recent-post fetch: {}",
                             did.as_str(),
@@ -581,12 +624,14 @@ impl App {
                         "[tool_prep] -> ensure_pinned_posts_cached {}",
                         did.as_str()
                     ));
-                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                        &tool_name,
-                        &tool_args,
-                        &prep_log,
-                        None,
-                    )));
+                    if !keep_context_overlay {
+                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                            &tool_name,
+                            &tool_args,
+                            &prep_log,
+                            None,
+                        )));
+                    }
                     if let Err(message) = run_tool_prep_step(
                         INITIAL_COLLECTION_REFRESH_TIMEOUT,
                         ensure_pinned_posts_cached(agent, &mut self.store, &did),
@@ -601,11 +646,13 @@ impl App {
                         prep_log.push(
                             "[tool_prep] continuing with already cached collections".to_string(),
                         );
-                        self.set_evil_gemma_progress(
-                            &query,
-                            &tool_transcript,
-                            Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
-                        );
+                        if !keep_context_overlay {
+                            self.set_evil_gemma_progress(
+                                &query,
+                                &tool_transcript,
+                                Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
+                            );
+                        }
                         prep_warnings.push(format!(
                             "initial refresh for {} failed during pinned-post fetch: {}",
                             did.as_str(),
@@ -618,12 +665,14 @@ impl App {
                         "[tool_prep] -> ensure_clearsky_lists_cached {}",
                         did.as_str()
                     ));
-                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                        &tool_name,
-                        &tool_args,
-                        &prep_log,
-                        None,
-                    )));
+                    if !keep_context_overlay {
+                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                            &tool_name,
+                            &tool_args,
+                            &prep_log,
+                            None,
+                        )));
+                    }
                     if let Err(message) = run_tool_prep_step(
                         INITIAL_COLLECTION_REFRESH_TIMEOUT,
                         ensure_clearsky_lists_cached(&mut self.store, &did),
@@ -638,11 +687,13 @@ impl App {
                         prep_log.push(
                             "[tool_prep] continuing with already cached collections".to_string(),
                         );
-                        self.set_evil_gemma_progress(
-                            &query,
-                            &tool_transcript,
-                            Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
-                        );
+                        if !keep_context_overlay {
+                            self.set_evil_gemma_progress(
+                                &query,
+                                &tool_transcript,
+                                Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
+                            );
+                        }
                         prep_warnings.push(format!(
                             "initial refresh for {} failed during Clearsky list fetch: {}",
                             did.as_str(),
@@ -655,25 +706,29 @@ impl App {
                         "[tool_prep] initial refresh complete for {}",
                         did.as_str()
                     ));
-                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                        &tool_name,
-                        &tool_args,
-                        &prep_log,
-                        None,
-                    )));
+                    if !keep_context_overlay {
+                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                            &tool_name,
+                            &tool_args,
+                            &prep_log,
+                            None,
+                        )));
+                    }
                 }
             }
 
-            self.set_evil_gemma_progress(
-                &query,
-                &tool_transcript,
-                Some(build_tool_entry(
-                    &tool_name,
-                    &tool_args,
-                    &prep_log,
-                    Some("<running tool...>"),
-                )),
-            );
+            if !keep_context_overlay {
+                self.set_evil_gemma_progress(
+                    &query,
+                    &tool_transcript,
+                    Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        Some("<running tool...>"),
+                    )),
+                );
+            }
             let tools = BlueskyTools::new(&self.store);
             let tool_output = match tools
                 .execute_prompt_tool_call(
@@ -684,15 +739,24 @@ impl App {
                 .await
             {
                 Ok(output) => output,
-                Err(err) => format!("Tool execution failed: {err}"),
+                Err(err) => crate::harness::tools::ToolExecutionOutput {
+                    rendered: format!("Tool execution failed: {err}"),
+                    context_windows: Vec::new(),
+                },
             };
+            for context_window in &tool_output.context_windows {
+                child_contexts.push(snapshot_from_llm_search_window(
+                    &context_window.title,
+                    &context_window.window,
+                ));
+            }
             let tool_output = if prep_warnings.is_empty() {
-                tool_output
+                tool_output.rendered
             } else {
                 format!(
                     "Tool preparation warning:\n{}\n\n{}",
                     prep_warnings.join("\n"),
-                    tool_output
+                    tool_output.rendered
                 )
             };
 
@@ -718,7 +782,23 @@ impl App {
                 ),
             });
             hit_tool_round_limit = round + 1 == MAX_TOOL_CALL_ROUNDS;
-            self.set_evil_gemma_progress(&query, &tool_transcript, None);
+            self.context_visualization = Some(build_live_context_visualization(
+                "/context",
+                &messages,
+                evil_gemma.system_prompt.trim(),
+                prompt_tool_protocol_instructions(),
+                &root_context_window,
+                &child_contexts,
+                &evil_gemma.client.context_limits(),
+            ));
+            if keep_context_overlay {
+                self.set_query_output_hidden(
+                    format!("evil_gemma: {query}"),
+                    build_evil_gemma_output_lines(&tool_transcript, None, None),
+                );
+            } else {
+                self.set_evil_gemma_progress(&query, &tool_transcript, None);
+            }
         }
 
         if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
@@ -737,6 +817,15 @@ impl App {
                 .unwrap_or_else(|_| {
                     "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
                 });
+            self.context_visualization = Some(build_live_context_visualization(
+                "/context",
+                &messages,
+                evil_gemma.system_prompt.trim(),
+                prompt_tool_protocol_instructions(),
+                &root_context_window,
+                &child_contexts,
+                &evil_gemma.client.context_limits(),
+            ));
         }
 
         if parse_prompt_tool_call(&response).is_none() && response_looks_incomplete(&response) {
@@ -750,20 +839,32 @@ impl App {
             });
             response = evil_gemma
                 .client
-                .complete_chat(messages, 320)
+                .complete_chat(messages.clone(), 320)
                 .await
                 .unwrap_or(response);
+            self.context_visualization = Some(build_live_context_visualization(
+                "/context",
+                &messages,
+                evil_gemma.system_prompt.trim(),
+                prompt_tool_protocol_instructions(),
+                &root_context_window,
+                &child_contexts,
+                &evil_gemma.client.context_limits(),
+            ));
         }
 
-        self.set_command_output(
-            format!("evil_gemma: {query}"),
-            build_evil_gemma_output_lines(&tool_transcript, None, Some(&response)),
-        );
+        let output_lines = build_evil_gemma_output_lines(&tool_transcript, None, Some(&response));
+        if keep_context_overlay {
+            self.set_query_output_hidden(format!("evil_gemma: {query}"), output_lines);
+            self.status = "evil_gemma response ready; dismiss /context to view output".to_string();
+        } else {
+            self.set_command_output(format!("evil_gemma: {query}"), output_lines);
+            self.status = "evil_gemma response loaded".to_string();
+        }
         self.root_conversation.push(ConversationTurn {
             user: query,
             assistant: response,
         });
-        self.status = "evil_gemma response loaded".to_string();
         Ok(())
     }
 
@@ -779,6 +880,13 @@ impl App {
         );
     }
 
+    fn set_query_output_hidden<T: Into<String>>(&mut self, title: T, lines: Vec<String>) {
+        self.deferred_detail = Some(DetailView::Command {
+            title: title.into(),
+            lines,
+        });
+    }
+
     fn set_command_output<T: Into<String>>(&mut self, title: T, lines: Vec<String>) {
         self.detail_scroll = 0;
         self.detail = DetailView::Command {
@@ -789,7 +897,11 @@ impl App {
 
     fn dismiss_command_output(&mut self) {
         self.detail_scroll = 0;
-        self.detail = DetailView::Notification;
+        if let Some(detail) = self.deferred_detail.take() {
+            self.detail = detail;
+        } else {
+            self.detail = DetailView::Notification;
+        }
     }
 
     fn clear_root_conversation(&mut self) {
@@ -800,29 +912,20 @@ impl App {
         &self,
         evil_gemma: &EvilGemmaConfig,
     ) -> ContextVisualizationData {
-        let tools = BlueskyTools::new(&self.store);
-        let tools_inventory = tools.render_tool_inventory();
-        let recent_chat = recent_chat_text(&self.root_conversation);
-        let current_task = self.input.trim();
+        if let Some(data) = &self.context_visualization {
+            return data.clone();
+        }
 
-        ContextVisualizationData::from_root_context(
-            evil_gemma.system_prompt.trim(),
-            prompt_tool_protocol_instructions(),
-            &tools_inventory,
-            "Use the available tools only when they materially improve the answer.",
-            &self
-                .selected_actor_did()
-                .map(search_hints_for_actor_did)
-                .unwrap_or_else(|| {
-                    "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt` plus either explicit `collection_ids` or an `actor_did`. Do not call `llm_search` without one of those scope selectors.".to_string()
-            }),
-            &self
-                .selected_actor_summary()
-                .unwrap_or_else(|| "No actor is currently selected in the UI.".to_string()),
-            (!current_task.is_empty()).then_some(current_task),
-            recent_chat.as_deref(),
-            &evil_gemma.client.context_limits(),
-        )
+        let tools = BlueskyTools::new(&self.store);
+        let root_window = build_tool_aware_query_context_window(
+            self.selected_actor_did(),
+            self.selected_actor_summary(),
+            &tools,
+            &self.root_conversation,
+            self.input.trim(),
+            &evil_gemma.client,
+        );
+        ContextVisualizationData::from_root_window("/context", &root_window)
     }
 
     fn open_selected_notification(&mut self) {
@@ -1036,6 +1139,131 @@ fn planned_tool_call_refresh_targets(
     actor_dids
 }
 
+fn build_live_context_visualization(
+    title: &str,
+    messages: &[ChatMessage],
+    system_prompt: &str,
+    tool_protocol: &str,
+    root_context_window: &BuiltContextWindow,
+    child_contexts: &[PromptContextSnapshot],
+    limits: &ProviderContextLimits,
+) -> ContextVisualizationData {
+    let mut windows = vec![build_root_context_snapshot(
+        messages,
+        system_prompt,
+        tool_protocol,
+        root_context_window,
+        limits,
+    )];
+    windows.extend(child_contexts.iter().cloned());
+    ContextVisualizationData::from_windows(title, windows)
+}
+
+fn build_root_context_snapshot(
+    messages: &[ChatMessage],
+    system_prompt: &str,
+    tool_protocol: &str,
+    root_context_window: &BuiltContextWindow,
+    limits: &ProviderContextLimits,
+) -> PromptContextSnapshot {
+    let mut segments = Vec::new();
+
+    let system_prompt_tokens = approximate_tokens(system_prompt.trim());
+    if system_prompt_tokens > 0 {
+        segments.push(ContextSegment {
+            label: "System Prompt".to_string(),
+            category: ContextCategory::SystemPrompt,
+            tokens: system_prompt_tokens,
+            truncated: false,
+        });
+    }
+
+    let tool_protocol_tokens = approximate_tokens(tool_protocol.trim());
+    if tool_protocol_tokens > 0 {
+        segments.push(ContextSegment {
+            label: "Tool Protocol".to_string(),
+            category: ContextCategory::ToolDefinitions,
+            tokens: tool_protocol_tokens,
+            truncated: false,
+        });
+    }
+
+    if root_context_window.header_tokens > 0 {
+        segments.push(ContextSegment {
+            label: "Context Header".to_string(),
+            category: ContextCategory::UiContext,
+            tokens: root_context_window.header_tokens,
+            truncated: false,
+        });
+    }
+
+    for section in &root_context_window.sections {
+        segments.push(ContextSegment {
+            label: section.title.clone(),
+            category: root_category_for_section(&section.title),
+            tokens: section.used_tokens,
+            truncated: section.truncated,
+        });
+    }
+
+    for message in messages.iter().skip(2) {
+        let trimmed = message.content.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let (label, category) = classify_followup_message(message);
+        segments.push(ContextSegment {
+            label,
+            category,
+            tokens: approximate_tokens(trimmed),
+            truncated: false,
+        });
+    }
+
+    let used_input_tokens = segments.iter().map(|segment| segment.tokens).sum();
+    PromptContextSnapshot {
+        title: "Root Agent".to_string(),
+        provider_name: limits.provider_name.clone(),
+        model_name: limits.model_name.clone(),
+        max_context_tokens: limits.max_context_tokens,
+        reserved_output_tokens: limits.reserved_output_tokens,
+        input_budget_tokens: limits.available_input_tokens(),
+        used_input_tokens,
+        truncated: root_context_window.truncated,
+        segments,
+    }
+}
+
+fn classify_followup_message(message: &ChatMessage) -> (String, ContextCategory) {
+    if message.role == "assistant" {
+        return ("Assistant Reply".to_string(), ContextCategory::UserAiChat);
+    }
+
+    let trimmed = message.content.trim();
+    if trimmed.starts_with("Tool Result\nname:") {
+        return ("Tool Output".to_string(), ContextCategory::ToolResults);
+    }
+    if trimmed.starts_with("You have already used the maximum number of tool rounds.") {
+        return ("Round Limit Prompt".to_string(), ContextCategory::CurrentTask);
+    }
+    if trimmed.starts_with("Your previous answer appears cut off.") {
+        return ("Repair Prompt".to_string(), ContextCategory::CurrentTask);
+    }
+
+    ("User Follow-up".to_string(), ContextCategory::UserAiChat)
+}
+
+fn root_category_for_section(title: &str) -> ContextCategory {
+    match title {
+        "Tools" => ContextCategory::ToolDefinitions,
+        "Search Hints" | "Current UI Context" => ContextCategory::UiContext,
+        "Current Task" => ContextCategory::CurrentTask,
+        "Recent Chat" => ContextCategory::UserAiChat,
+        _ => ContextCategory::UiContext,
+    }
+}
+
 fn build_tool_entry(
     tool_name: &str,
     tool_args: &str,
@@ -1156,14 +1384,14 @@ fn actor_did_from_collection_id(collection_id: &str) -> Option<bsky_sdk::api::ty
         .and_then(|rest| rest.parse().ok())
 }
 
-fn build_tool_aware_query_context(
+fn build_tool_aware_query_context_window(
     selected_actor_did: Option<&bsky_sdk::api::types::string::Did>,
     selected_actor_summary: Option<String>,
     tools: &BlueskyTools<'_>,
     root_conversation: &[ConversationTurn],
     query: &str,
     llm_client: &LlmApiClient,
-) -> String {
+) -> crate::harness::context_window::BuiltContextWindow {
     let mut context =
         LLMContext::new("Use the available tools only when they materially improve the answer.");
     context.push_section("Tools", tools.render_tool_inventory());
@@ -1200,7 +1428,7 @@ fn build_tool_aware_query_context(
         );
     }
 
-    build_context_window(&context, &llm_client.context_limits())
+    build_context_window_report(&context, &llm_client.context_limits())
 }
 
 fn search_hints_for_actor_did(did: &bsky_sdk::api::types::string::Did) -> String {
@@ -1428,26 +1656,6 @@ fn restore_store_from_db(
     }
 
     Ok(())
-}
-
-fn recent_chat_text(root_conversation: &[ConversationTurn]) -> Option<String> {
-    if root_conversation.is_empty() {
-        return None;
-    }
-
-    Some(
-        root_conversation
-            .iter()
-            .map(|turn| {
-                format!(
-                    "user:\n{}\n\nassistant:\n{}",
-                    turn.user.trim(),
-                    turn.assistant.trim()
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n---\n\n"),
-    )
 }
 
 fn line_to_string(line: ratatui::text::Line<'_>) -> String {
