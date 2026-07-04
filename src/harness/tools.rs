@@ -119,13 +119,16 @@ impl ToolRegistry {
                 when_to_use: "Use when semantic relevance matters more than the compact UI preview and you need the model to inspect a cached collection.".to_string(),
                 notes: vec![
                     "The calling agent must write the search prompt.".to_string(),
+                    "The search prompt is fully dynamic per call, but the tool contract, examples, and result format are hardcoded in this binary.".to_string(),
                     "You must provide either `collection_ids` or `actor_did`; do not call this tool with neither.".to_string(),
                     "If `collection_ids` is provided, the tool searches exactly those collections.".to_string(),
                     "If `collection_ids` is omitted and `actor_did` is provided, the tool searches all collections related to that actor.".to_string(),
                     "For interaction or frequency questions like who this actor replies to, mentions, or interacts with most, prefer explicit conversational `collection_ids` such as `recent_replies_sent`, `recent_posts_unaddressed`, `pinned_posts`, or `replies_to_actor` instead of searching all actor collections.".to_string(),
-                    "For moderation-label or list-membership questions, prefer `clearsky_lists` explicitly or search all actor collections when the scope should include list labels.".to_string(),
+                    "For moderation-list questions, prefer `clearsky_lists` explicitly or search all actor collections when the scope should include list membership evidence.".to_string(),
+                    "Current Clearsky list records expose `list_name` and `list_description`; there is no separate serialized `label` field on those records.".to_string(),
+                    "When a question is about sentiment or accusations from moderation lists, prioritize `list_name` first, then use `list_description` for supporting theme/context.".to_string(),
                     "Authored likes are not currently exposed as a searchable collection, so do not assume a likes collection exists yet.".to_string(),
-                    "Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated labels from the matching items.".to_string(),
+                    "Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated themes from the matching items.".to_string(),
                 ],
             },
         ])
@@ -200,7 +203,7 @@ impl<'a> LlmSearchComparator<'a> {
         }
 
         let mut context = LLMContext::new(
-            "Inspect the provided collection carefully. Return a compact result block with `uri:`, `title:`, and `analysis:` fields. Always choose one anchor item with a real `uri:` from the collection. The `analysis:` field is evidence-only: quote exact short snippets, list names, list descriptions, or other text taken from the collection, and note repeated labels or overlapping themes across multiple items when relevant. Do not add higher-level interpretation beyond brief grouping of repeated evidence. Do not answer the user's overall question; just return grounded evidence that the parent agent can analyze.",
+            "Inspect the provided collection carefully. Return a compact result block with `uri:`, `title:`, and `analysis:` fields. Always choose one anchor item with a real `uri:` from the collection. The `analysis:` field is evidence-only: quote exact short snippets, list names, list descriptions, or other text taken from the collection, and note repeated themes across multiple items when relevant. For moderation-list records, treat `list_name` as the primary signal and `list_description` as supporting context; do not invent a separate label field unless it appears explicitly in the collection text. Do not add higher-level interpretation beyond brief grouping of repeated evidence. Do not answer the user's overall question; just return grounded evidence that the parent agent can analyze.",
         );
         context.push_section("Collection", serialize_collection(collection));
         context.push_section("Search Prompt", self.prompt);
@@ -760,12 +763,12 @@ name: llm_search
 args: {\"actor_did\":\"did:plc:...\",\"prompt\":\"...\"}
 
 Valid llm_search examples:
-1. Search all cached collections for another actor: {\"actor_did\":\"did:plc:...\",\"prompt\":\"what labels or accusations appear across this actor's cached collections?\"}
+1. Search all cached collections for another actor: {\"actor_did\":\"did:plc:...\",\"prompt\":\"what accusations, themes, or reputation signals appear across this actor's cached collections?\"}
 2. Search two known collections directly: {\"collection_ids\":[\"recent_posts_unaddressed:did:plc:...\",\"replies_to_actor:did:plc:...\"],\"prompt\":\"what disputes or accusations involve this actor?\"}
 3. For interaction/frequency questions, target conversational collections explicitly: {\"collection_ids\":[\"recent_replies_sent:did:plc:...\",\"recent_posts_unaddressed:did:plc:...\",\"replies_to_actor:did:plc:...\"],\"prompt\":\"who does this actor reply to or mention most often? give the top 3 with approximate counts\"}
-4. For list-label questions, target moderation collections explicitly when needed: {\"collection_ids\":[\"clearsky_lists:did:plc:...\"],\"prompt\":\"what labels or accusations appear across these moderation lists?\"}
+4. For moderation-list questions, target moderation collections explicitly when needed: {\"collection_ids\":[\"clearsky_lists:did:plc:...\"],\"prompt\":\"summarize the moderation-list evidence for this actor. prioritize list_name first, then use list_description only as supporting context for themes or accusations\"}
 
-Available tools are listed below. The Current UI Context section is intentionally compact and does not include full post text. Use read_selected_post when you need the selected post or reply body and facets. Use list_collections before search when you need to inspect cache boundaries. Use llm_search for cached collection search. Always choose an explicit scope for `llm_search`: either `actor_did` or `collection_ids`. Do not call `llm_search` with neither. When the question is about interaction patterns, mentions, replies, frequency counts, or who the actor talks to, use explicit conversational `collection_ids` and avoid unrelated moderation-list collections unless the user asked about lists or labels. If an llm_search result includes `source_collection_id`, reuse that exact value for `read_collection_item`; do not infer collection IDs from an item URI. Use read_collection_item when a chosen item should be loaded into context with more detail. After a tool result is provided, either answer directly or request one more tool."
+Available tools are listed below. The Current UI Context section is intentionally compact and does not include full post text. Use read_selected_post when you need the selected post or reply body and facets. Use list_collections before search when you need to inspect cache boundaries. Use llm_search for cached collection search. Always choose an explicit scope for `llm_search`: either `actor_did` or `collection_ids`. Do not call `llm_search` with neither. When the question is about interaction patterns, mentions, replies, frequency counts, or who the actor talks to, use explicit conversational `collection_ids` and avoid unrelated moderation-list collections unless the user explicitly asked about moderation lists or list membership. For Clearsky moderation-list records, assume `list_name` and `list_description` are the relevant fields unless the collection text shows another explicit field. If an llm_search result includes `source_collection_id`, reuse that exact value for `read_collection_item`; do not infer collection IDs from an item URI. Use read_collection_item when a chosen item should be loaded into context with more detail. After a tool result is provided, either answer directly or request one more tool."
 }
 
 pub fn parse_prompt_tool_call(response: &str) -> Option<PromptToolCall> {
