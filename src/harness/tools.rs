@@ -2,6 +2,7 @@ use crate::harness::context_window::{
     BuiltContextWindow, LLMContext, build_context_window_report,
 };
 use crate::harness::llm_api::{ChatMessage, LlmApiClient};
+use crate::harness::prompts::{AgentKind, tool_prompt};
 use crate::model::{LabeledPostCollection, PostRecord};
 use crate::net_backend::{
     NotificationStore, PostDetails, extract_post_details, extract_reply_node,
@@ -181,11 +182,16 @@ pub struct PromptToolCall {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LlmSearchResult {
-    pub title: String,
+pub struct LlmSearchCitation {
     pub uri: String,
     pub source_collection_id: Option<String>,
-    pub synthesized_block: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LlmSearchResult {
+    pub title: String,
+    pub summary: String,
+    pub citations: Vec<LlmSearchCitation>,
 }
 
 pub struct LlmSearchExecution {
@@ -233,9 +239,7 @@ impl<'a> LlmSearchComparator<'a> {
             });
         }
 
-        let mut context = LLMContext::new(
-            "Inspect the provided collection carefully. Return a compact result block with `uri:`, `title:`, and `analysis:` fields. Always choose one anchor item with a real `uri:` from the collection. The `analysis:` field is evidence-only: quote exact short snippets, list names, list descriptions, or other text taken from the collection, and note repeated themes across multiple items when relevant. For moderation-list records, treat `list_name` as the primary signal and `list_description` as supporting context; do not invent a separate label field unless it appears explicitly in the collection text. Do not add higher-level interpretation beyond brief grouping of repeated evidence. Do not answer the user's overall question; just return grounded evidence that the parent agent can analyze.",
-        );
+        let mut context = LLMContext::new(AgentKind::LlmSearch.system_prompt());
         context.push_section("Collection", serialize_collection(collection));
         context.push_section("Search Prompt", self.prompt);
 
@@ -467,19 +471,23 @@ impl<'a> BlueskyTools<'a> {
     ) {
         match result {
             Some(result) => {
+                let mut lines = vec![
+                    format!("post: {}", result.title),
+                    format!("summary: {}", result.summary),
+                ];
+                for (index, citation) in result.citations.iter().enumerate() {
+                    lines.push(format!("citation_uri_{}: {}", index + 1, citation.uri));
+                    if let Some(source_collection_id) = citation.source_collection_id.as_deref() {
+                        lines.push(format!(
+                            "citation_source_collection_id_{}: {}",
+                            index + 1,
+                            source_collection_id
+                        ));
+                    }
+                }
                 context.push_section(
                     title,
-                    format!(
-                        "post: {}\nuri: {}\n{}\n{}",
-                        result.title,
-                        result.uri,
-                        result
-                            .source_collection_id
-                            .as_ref()
-                            .map(|id| format!("source_collection_id: {id}"))
-                            .unwrap_or_default(),
-                        result.synthesized_block
-                    ),
+                    lines.join("\n"),
                 );
             }
             None => context.push_section(title, "No matching cached posts."),
@@ -715,7 +723,21 @@ fn parse_llm_search_result(
     collection: &LabeledPostCollection,
     response: &str,
 ) -> Option<LlmSearchResult> {
-    let uri = find_matching_uri_from_response(collection, response)?;
+    let citations = find_matching_uris_from_response(collection, response)
+        .into_iter()
+        .map(|uri| LlmSearchCitation {
+            source_collection_id: collection
+                .posts
+                .iter()
+                .find(|post| post.uri == uri)
+                .and_then(source_collection_id_from_post)
+                .or_else(|| Some(collection.id.clone())),
+            uri,
+        })
+        .collect::<Vec<_>>();
+    if citations.is_empty() {
+        return None;
+    }
 
     let title = response
         .lines()
@@ -724,64 +746,93 @@ fn parse_llm_search_result(
         .map(str::to_owned)
         .unwrap_or_else(|| format!("LLM-selected post in {}", collection.label));
 
-    let synthesized_block = response
+    let summary = response
         .lines()
-        .skip_while(|line| !line.starts_with("analysis:"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string();
+        .find_map(|line| line.strip_prefix("summary:").map(str::trim))
+        .filter(|summary| !summary.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            let analysis = response
+                .lines()
+                .skip_while(|line| !line.starts_with("analysis:"))
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string();
+            (!analysis.is_empty()).then_some(analysis)
+        })
+        .unwrap_or_else(|| response.trim().to_string());
 
     Some(LlmSearchResult {
         title,
-        uri: uri.clone(),
-        source_collection_id: collection
-            .posts
-            .iter()
-            .find(|post| post.uri == uri)
-            .and_then(source_collection_id_from_post)
-            .or_else(|| Some(collection.id.clone())),
-        synthesized_block: if synthesized_block.is_empty() {
-            response.trim().to_string()
-        } else {
-            synthesized_block
-        },
+        summary,
+        citations,
     })
 }
 
-fn find_matching_uri_from_response(
+fn find_matching_uris_from_response(
     collection: &LabeledPostCollection,
     response: &str,
-) -> Option<String> {
-    if let Some(uri) = response
-        .lines()
-        .find_map(|line| line.strip_prefix("uri:").map(str::trim))
-        .filter(|uri| collection.posts.iter().any(|post| post.uri == *uri))
-    {
-        return Some(uri.to_string());
-    }
+) -> Vec<String> {
+    let mut uris = Vec::new();
 
-    if let Some(post) = collection
-        .posts
-        .iter()
-        .find(|post| response.contains(&post.uri))
-    {
-        return Some(post.uri.clone());
-    }
-
-    let response_lower = response.to_ascii_lowercase();
-    let mut best_score = 0usize;
-    let mut best_uri = None;
-
-    for post in &collection.posts {
-        let score = candidate_match_score(post, &response_lower);
-        if score > best_score {
-            best_score = score;
-            best_uri = Some(post.uri.clone());
+    for line in response.lines() {
+        let trimmed = line.trim();
+        if let Some(uri) = trimmed
+            .strip_prefix("uri:")
+            .or_else(|| trimmed.strip_prefix("citation_uri_1:"))
+            .or_else(|| trimmed.strip_prefix("citation_uri_2:"))
+            .or_else(|| trimmed.strip_prefix("citation_uri_3:"))
+        {
+            push_search_uri(collection, &mut uris, uri.trim(), 3);
         }
     }
 
-    if best_score > 0 { best_uri } else { None }
+    for post in &collection.posts {
+        if uris.len() >= 3 {
+            break;
+        }
+        if response.contains(&post.uri) {
+            push_search_uri(collection, &mut uris, &post.uri, 3);
+        }
+    }
+
+    if uris.len() >= 3 {
+        return uris;
+    }
+
+    let response_lower = response.to_ascii_lowercase();
+    let mut scored = collection
+        .posts
+        .iter()
+        .map(|post| (candidate_match_score(post, &response_lower), post.uri.clone()))
+        .filter(|(score, _)| *score > 0)
+        .collect::<Vec<_>>();
+    scored.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+
+    for (_, uri) in scored {
+        if uris.len() >= 3 {
+            break;
+        }
+        push_search_uri(collection, &mut uris, &uri, 3);
+    }
+
+    uris
+}
+
+fn push_search_uri(
+    collection: &LabeledPostCollection,
+    uris: &mut Vec<String>,
+    uri: &str,
+    limit: usize,
+) {
+    if uris.len() >= limit {
+        return;
+    }
+    if collection.posts.iter().any(|post| post.uri == uri) && !uris.iter().any(|seen| seen == uri)
+    {
+        uris.push(uri.to_string());
+    }
 }
 
 fn candidate_match_score(post: &PostRecord, response_lower: &str) -> usize {
@@ -834,18 +885,7 @@ fn candidate_hints(post: &PostRecord) -> Vec<&str> {
 }
 
 pub fn prompt_tool_protocol_instructions() -> &'static str {
-    "Answer the user's query directly when no tool is needed. If one tool would help, emit exactly one tool request block in this format and nothing else:
-TOOL_CALL
-name: llm_search
-args: {\"actor_did\":\"did:plc:...\",\"prompt\":\"...\"}
-
-Valid llm_search examples:
-1. Search all cached collections for another actor: {\"actor_did\":\"did:plc:...\",\"prompt\":\"what accusations, themes, or reputation signals appear across this actor's cached collections?\"}
-2. Search two known collections directly: {\"collection_ids\":[\"recent_posts_unaddressed:did:plc:...\",\"replies_to_actor:did:plc:...\"],\"prompt\":\"what disputes or accusations involve this actor?\"}
-3. For interaction/frequency questions, target conversational collections explicitly: {\"collection_ids\":[\"recent_replies_sent:did:plc:...\",\"recent_posts_unaddressed:did:plc:...\",\"replies_to_actor:did:plc:...\"],\"prompt\":\"who does this actor reply to or mention most often? give the top 3 with approximate counts\"}
-4. For list-membership or reputation questions, either search the actor broadly or use an exact list collection ID: {\"actor_did\":\"did:plc:...\",\"prompt\":\"what list memberships, themes, or repeated accusations appear across this actor's cached collections? quote the most relevant list names or phrases\"}
-
-Available tools are listed below. The Current UI Context section is intentionally compact and does not include full post text. Use read_selected_post when you need the selected post or reply body and facets. Use list_collections before search when you need to inspect cache boundaries. Use llm_search for cached collection search. Always choose an explicit scope for `llm_search`: either `actor_did` or `collection_ids`. Do not call `llm_search` with neither. If you use `collection_ids`, they must be exact cached IDs, not bare collection kinds. When the question is about interaction patterns, mentions, replies, frequency counts, or who the actor talks to, use explicit conversational `collection_ids` and avoid unrelated collection kinds. For structured list records, prefer exact fields like `list_name` and `list_description` as evidence. If an llm_search result includes `source_collection_id`, reuse that exact value for `read_collection_item`; do not infer collection IDs from an item URI. Use read_collection_item when a chosen item should be loaded into context with more detail. After a tool result is provided, either answer directly or request one more tool."
+    tool_prompt()
 }
 
 pub fn parse_prompt_tool_call(response: &str) -> Option<PromptToolCall> {
@@ -1020,12 +1060,18 @@ fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
         Some(result) => {
             let mut lines = vec![
                 format!("post: {}", result.title),
-                format!("uri: {}", result.uri),
+                format!("summary: {}", result.summary),
             ];
-            if let Some(source_collection_id) = result.source_collection_id.as_deref() {
-                lines.push(format!("source_collection_id: {source_collection_id}"));
+            for (index, citation) in result.citations.iter().enumerate() {
+                lines.push(format!("citation_uri_{}: {}", index + 1, citation.uri));
+                if let Some(source_collection_id) = citation.source_collection_id.as_deref() {
+                    lines.push(format!(
+                        "citation_source_collection_id_{}: {}",
+                        index + 1,
+                        source_collection_id
+                    ));
+                }
             }
-            lines.push(result.synthesized_block.clone());
             lines.join("\n")
         }
         None => "No matching cached posts.".to_string(),
@@ -1055,7 +1101,12 @@ fn render_combined_llm_search_results(outcomes: &[CollectionSearchOutcome]) -> S
         Ok(execution) => execution.result.as_ref().map(|result| (outcome, result)),
         Err(_) => None,
     }) {
-        lines.push(format!("anchor_uri: {}", result.uri));
+        if let Some(citation) = result.citations.first() {
+            lines.push(format!("anchor_uri: {}", citation.uri));
+            if let Some(source_collection_id) = citation.source_collection_id.as_deref() {
+                lines.push(format!("anchor_source_collection_id: {source_collection_id}"));
+            }
+        }
         lines.push(format!("anchor_collection_id: {}", outcome.collection_id));
         lines.push(format!(
             "anchor_collection_label: {}",
@@ -1395,7 +1446,7 @@ fn optional_string_array_arg(
 mod tests {
     use super::{
         BlueskyTools, ToolRegistry, merged_collection_from_refs, parse_llm_search_result,
-        parse_prompt_tool_call, reduced_search_collection, render_post_details,
+        parse_prompt_tool_call, reduced_search_collection, render_llm_result, render_post_details,
         serialize_collection, source_collection_id_from_post,
     };
     use crate::model::{LabeledPostCollection, PostRecord};
@@ -1419,7 +1470,7 @@ mod tests {
         )
         .expect("expected parsed result");
 
-        assert_eq!(result.uri, "at://one");
+        assert_eq!(result.citations[0].uri, "at://one");
         assert_eq!(result.title, "picked post");
     }
 
@@ -1449,7 +1500,70 @@ mod tests {
         )
         .expect("expected parsed result");
 
-        assert_eq!(result.uri, "https://example.com/list-a");
+        assert_eq!(result.citations[0].uri, "https://example.com/list-a");
+    }
+
+    #[test]
+    fn llm_search_result_collects_up_to_three_citations() {
+        let collection = LabeledPostCollection::new(
+            "recent:test",
+            "Recent test posts",
+            vec![
+                PostRecord {
+                    uri: "at://one".to_string(),
+                    author_handle: "alpha.test".to_string(),
+                    body: "cats dogs".to_string(),
+                },
+                PostRecord {
+                    uri: "at://two".to_string(),
+                    author_handle: "beta.test".to_string(),
+                    body: "cats birds".to_string(),
+                },
+                PostRecord {
+                    uri: "at://three".to_string(),
+                    author_handle: "gamma.test".to_string(),
+                    body: "cats fish".to_string(),
+                },
+                PostRecord {
+                    uri: "at://four".to_string(),
+                    author_handle: "delta.test".to_string(),
+                    body: "cats lizards".to_string(),
+                },
+            ],
+        );
+
+        let result = parse_llm_search_result(
+            &collection,
+            "title: cited posts\nsummary: repeated cat references\ncitation_uri_1: at://one\ncitation_uri_2: at://two\ncitation_uri_3: at://three\ncitation_uri_4: at://four",
+        )
+        .expect("expected parsed result");
+
+        assert_eq!(result.citations.len(), 3);
+        assert_eq!(result.citations[0].uri, "at://one");
+        assert_eq!(result.citations[2].uri, "at://three");
+    }
+
+    #[test]
+    fn render_llm_result_includes_summary_and_citations() {
+        let collection = LabeledPostCollection::new(
+            "recent:test",
+            "Recent test posts",
+            vec![PostRecord {
+                uri: "at://one".to_string(),
+                author_handle: "alpha.test".to_string(),
+                body: "source_collection_id: recent:test\ncats dogs birds".to_string(),
+            }],
+        );
+        let result = parse_llm_search_result(
+            &collection,
+            "title: picked post\nsummary: quote and context\ncitation_uri_1: at://one",
+        )
+        .expect("expected parsed result");
+
+        let rendered = render_llm_result(Some(&result));
+        assert!(rendered.contains("summary: quote and context"));
+        assert!(rendered.contains("citation_uri_1: at://one"));
+        assert!(rendered.contains("citation_source_collection_id_1: recent:test"));
     }
 
     #[test]

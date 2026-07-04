@@ -58,10 +58,20 @@ const DEFAULT_DB_PATH: &str = "shock_absorber.sqlite3";
 const MAX_TOOL_CALL_ROUNDS: usize = 3;
 const INITIAL_COLLECTION_REFRESH_TIMEOUT: StdDuration = StdDuration::from_secs(30);
 
+#[derive(Clone)]
 enum DetailView {
     Notification,
     Command { title: String, lines: Vec<String> },
+    AiChat { title: String, lines: Vec<String> },
     ContextVisualization(ContextVisualizationData),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AppActivity {
+    NotificationDetail,
+    CommandOverlay,
+    ContextVisualization,
+    AiChat,
 }
 
 struct App {
@@ -75,6 +85,7 @@ struct App {
     root_conversation: Vec<ConversationTurn>,
     context_visualization: Option<ContextVisualizationData>,
     deferred_detail: Option<DetailView>,
+    ai_chat_detail: Option<DetailView>,
     status: String,
     should_quit: bool,
 }
@@ -124,6 +135,7 @@ impl App {
             root_conversation: Vec::new(),
             context_visualization: None,
             deferred_detail: None,
+            ai_chat_detail: None,
             status: format!("logged in as {handle}"),
             should_quit: false,
         }
@@ -202,14 +214,26 @@ impl App {
                 .map(|notif| format!("Notification: @{}", notif.author.data.handle.as_str()))
                 .unwrap_or_else(|| "Notification".to_string()),
             DetailView::Command { title, .. } => title.clone(),
+            DetailView::AiChat { title, .. } => title.clone(),
             DetailView::ContextVisualization(data) => data.title.clone(),
+        }
+    }
+
+    fn current_activity(&self) -> AppActivity {
+        match self.detail {
+            DetailView::Notification => AppActivity::NotificationDetail,
+            DetailView::Command { .. } => AppActivity::CommandOverlay,
+            DetailView::AiChat { .. } => AppActivity::AiChat,
+            DetailView::ContextVisualization(_) => AppActivity::ContextVisualization,
         }
     }
 
     fn is_fullscreen_overlay(&self) -> bool {
         matches!(
             self.detail,
-            DetailView::Command { .. } | DetailView::ContextVisualization(_)
+            DetailView::Command { .. }
+                | DetailView::AiChat { .. }
+                | DetailView::ContextVisualization(_)
         )
     }
 
@@ -217,6 +241,7 @@ impl App {
         match &self.detail {
             DetailView::Notification => self.notification_detail_text(),
             DetailView::Command { lines, .. } => Text::from(lines.join("\n")),
+            DetailView::AiChat { lines, .. } => Text::from(lines.join("\n")),
             DetailView::ContextVisualization(_) => Text::from(""),
         }
     }
@@ -535,13 +560,14 @@ impl App {
             let actor_dids =
                 planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call);
             if keep_context_overlay {
-                self.set_query_output_hidden(
+                self.set_ai_chat_output(
                     format!("evil_gemma: {query}"),
                     build_evil_gemma_output_lines(
                         &tool_transcript,
                         Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)).as_deref(),
                         None,
                     ),
+                    false,
                 );
             } else {
                 self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
@@ -792,9 +818,10 @@ impl App {
                 &evil_gemma.client.context_limits(),
             ));
             if keep_context_overlay {
-                self.set_query_output_hidden(
+                self.set_ai_chat_output(
                     format!("evil_gemma: {query}"),
                     build_evil_gemma_output_lines(&tool_transcript, None, None),
+                    false,
                 );
             } else {
                 self.set_evil_gemma_progress(&query, &tool_transcript, None);
@@ -855,10 +882,10 @@ impl App {
 
         let output_lines = build_evil_gemma_output_lines(&tool_transcript, None, Some(&response));
         if keep_context_overlay {
-            self.set_query_output_hidden(format!("evil_gemma: {query}"), output_lines);
+            self.set_ai_chat_output(format!("evil_gemma: {query}"), output_lines, false);
             self.status = "evil_gemma response ready; dismiss /context to view output".to_string();
         } else {
-            self.set_command_output(format!("evil_gemma: {query}"), output_lines);
+            self.set_ai_chat_output(format!("evil_gemma: {query}"), output_lines, true);
             self.status = "evil_gemma response loaded".to_string();
         }
         self.root_conversation.push(ConversationTurn {
@@ -874,17 +901,26 @@ impl App {
         tool_transcript: &[String],
         active_entry: Option<String>,
     ) {
-        self.set_command_output(
+        self.set_ai_chat_output(
             format!("evil_gemma: {query}"),
             build_evil_gemma_output_lines(tool_transcript, active_entry.as_deref(), None),
+            true,
         );
     }
 
-    fn set_query_output_hidden<T: Into<String>>(&mut self, title: T, lines: Vec<String>) {
-        self.deferred_detail = Some(DetailView::Command {
+    fn set_ai_chat_output<T: Into<String>>(&mut self, title: T, lines: Vec<String>, visible: bool) {
+        let detail = DetailView::AiChat {
             title: title.into(),
             lines,
-        });
+        };
+        self.ai_chat_detail = Some(detail.clone());
+        if visible {
+            if !matches!(self.detail, DetailView::AiChat { .. }) {
+                self.deferred_detail = Some(self.detail.clone());
+            }
+            self.detail_scroll = 0;
+            self.detail = detail;
+        }
     }
 
     fn set_command_output<T: Into<String>>(&mut self, title: T, lines: Vec<String>) {
@@ -901,6 +937,30 @@ impl App {
             self.detail = detail;
         } else {
             self.detail = DetailView::Notification;
+        }
+    }
+
+    fn toggle_ai_chat_view(&mut self) {
+        match self.current_activity() {
+            AppActivity::AiChat => {
+                self.detail_scroll = 0;
+                if let Some(detail) = self.deferred_detail.take() {
+                    self.detail = detail;
+                } else {
+                    self.detail = DetailView::Notification;
+                }
+                self.status = "returned to previous view".to_string();
+            }
+            _ => {
+                let Some(ai_chat_detail) = self.ai_chat_detail.clone() else {
+                    self.status = "no ai chat view available".to_string();
+                    return;
+                };
+                self.deferred_detail = Some(self.detail.clone());
+                self.detail_scroll = 0;
+                self.detail = ai_chat_detail;
+                self.status = "ai chat view loaded".to_string();
+            }
         }
     }
 
@@ -1031,6 +1091,9 @@ async fn run_app(
                     }
                     KeyCode::PageDown => {
                         app.detail_scroll = app.detail_scroll.saturating_add(4);
+                    }
+                    KeyCode::Tab => {
+                        app.toggle_ai_chat_view();
                     }
                     KeyCode::Esc => {
                         if !app.input.is_empty() {
@@ -1591,7 +1654,7 @@ fn help_lines() -> Vec<String> {
         "Default endpoint: http://127.0.0.1:5000/v1/chat/completions".to_string(),
         "Override with EVIL_GEMMA_BASE_URL and EVIL_GEMMA_MODEL.".to_string(),
         String::new(),
-        "Navigation: Up/Down selects a notification; Enter opens it; PageUp/PageDown scroll detail.".to_string(),
+        "Navigation: Up/Down selects a notification; Enter opens it; PageUp/PageDown scroll detail; Tab toggles AI chat view.".to_string(),
     ]
 }
 
@@ -1673,7 +1736,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 
     if app.is_fullscreen_overlay() {
         match &app.detail {
-            DetailView::Command { .. } => {
+            DetailView::Command { .. } | DetailView::AiChat { .. } => {
                 let detail = Paragraph::new(app.detail_text())
                     .block(Block::default().title(app.detail_title()))
                     .scroll((app.detail_scroll, 0))
