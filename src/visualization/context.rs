@@ -1,3 +1,4 @@
+use crate::harness::agents::{AgentNode, AgentNodeKind};
 use crate::harness::context_window::BuiltContextWindow;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
@@ -106,6 +107,57 @@ pub fn snapshot_from_llm_search_window(
     snapshot_from_window(title, window, segments)
 }
 
+pub fn snapshot_from_agent_node(
+    node: &AgentNode,
+    depth: usize,
+) -> Option<PromptContextSnapshot> {
+    let title = format!(
+        "{}{} [{}]",
+        "  ".repeat(depth),
+        node.label,
+        node.status.as_str()
+    );
+    match node.agent_type {
+        AgentNodeKind::ToolAgent => node
+            .context_window_report
+            .as_ref()
+            .map(|window| snapshot_from_tool_agent_window(title, window)),
+        AgentNodeKind::CollectionSearchAgent => node
+            .context_window_report
+            .as_ref()
+            .map(|window| snapshot_from_llm_search_window(title, window)),
+        AgentNodeKind::RootAgent => None,
+    }
+}
+
+fn snapshot_from_tool_agent_window(
+    title: impl Into<String>,
+    window: &BuiltContextWindow,
+) -> PromptContextSnapshot {
+    let mut segments = vec![ContextSegment {
+        label: "Tool Instructions".to_string(),
+        category: ContextCategory::SystemPrompt,
+        tokens: window.header_tokens,
+        truncated: false,
+    }];
+
+    for section in &window.sections {
+        let category = match section.title.as_str() {
+            "Original Search Prompt" => ContextCategory::CurrentTask,
+            "Per-Collection Results" => ContextCategory::ToolResults,
+            _ => ContextCategory::UiContext,
+        };
+        segments.push(ContextSegment {
+            label: section.title.clone(),
+            category,
+            tokens: section.used_tokens,
+            truncated: section.truncated,
+        });
+    }
+
+    snapshot_from_window(title, window, segments)
+}
+
 fn snapshot_from_window(
     title: impl Into<String>,
     window: &BuiltContextWindow,
@@ -124,7 +176,7 @@ fn snapshot_from_window(
     }
 }
 
-pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData) {
+pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData, scroll: u16) {
     let bar_width = area.width.saturating_sub(2);
     let mut lines = vec![
         Line::from(data.title.as_str()),
@@ -144,22 +196,26 @@ pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData) {
             if window.truncated { " | truncated" } else { "" }
         )));
 
-        let bar_height = if index == 0 { 3 } else { 1 };
+        let bar_height = if index == 0 { 2 } else { 1 };
         for _ in 0..bar_height {
             lines.push(context_bar_line(window, bar_width));
         }
 
-        for segment in &window.segments {
-            let pct = if window.input_budget_tokens == 0 {
-                0.0
-            } else {
-                (segment.tokens as f64 / window.input_budget_tokens as f64) * 100.0
-            };
-            let suffix = if segment.truncated { " (trimmed)" } else { "" };
-            lines.push(Line::from(format!(
-                "{}: {} tokens ({pct:.1}%){}",
-                segment.label, segment.tokens, suffix
-            )));
+        if index == 0 {
+            for segment in &window.segments {
+                let pct = if window.input_budget_tokens == 0 {
+                    0.0
+                } else {
+                    (segment.tokens as f64 / window.input_budget_tokens as f64) * 100.0
+                };
+                let suffix = if segment.truncated { " (trimmed)" } else { "" };
+                lines.push(Line::from(format!(
+                    "{}: {} tokens ({pct:.1}%){}",
+                    segment.label, segment.tokens, suffix
+                )));
+            }
+        } else {
+            lines.push(Line::from(compact_segment_summary(window)));
         }
 
         if window.used_input_tokens > window.input_budget_tokens {
@@ -177,7 +233,23 @@ pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData) {
     lines.push(Line::from(""));
     lines.push(legend_line());
 
-    frame.render_widget(Paragraph::new(Text::from(lines)), area);
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .scroll((scroll, 0)),
+        area,
+    );
+}
+
+fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
+    window
+        .segments
+        .iter()
+        .map(|segment| {
+            let suffix = if segment.truncated { "*" } else { "" };
+            format!("{} {}{}", segment.label, segment.tokens, suffix)
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 fn context_bar_line(window: &PromptContextSnapshot, width: u16) -> Line<'static> {

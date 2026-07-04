@@ -11,13 +11,13 @@ args: {"actor_did":"did:plc:...","prompt":"..."}
 Valid `llm_search` examples:
 
 1. Search all cached collections for another actor:
-   `{"actor_did":"did:plc:...","prompt":"what accusations, themes, or reputation signals appear across this actor's cached collections?"}`
+   `{"actor_did":"did:plc:...","prompt":"what themes, reputation signals, or repeated descriptions appear across this actor's cached collections?"}`
 2. Search two known collections directly:
-   `{"collection_ids":["recent_posts_unaddressed:did:plc:...","replies_to_actor:did:plc:..."],"prompt":"what disputes or accusations involve this actor?"}`
+   `{"collection_ids":["recent_posts_unaddressed:did:plc:...","replies_to_actor:did:plc:..."],"prompt":"what recurring topics or conflicts involve this actor?"}`
 3. For interaction or frequency questions, target conversational collections explicitly:
    `{"collection_ids":["recent_replies_sent:did:plc:...","recent_posts_unaddressed:did:plc:...","replies_to_actor:did:plc:..."],"prompt":"who does this actor reply to or mention most often? give the top 3 with approximate counts"}`
 4. For list-membership or reputation questions, either search the actor broadly or use an exact list collection ID:
-   `{"actor_did":"did:plc:...","prompt":"what list memberships, themes, or repeated accusations appear across this actor's cached collections? quote the most relevant list names or phrases"}`
+   `{"actor_did":"did:plc:...","prompt":"what list memberships, themes, or repeated descriptions appear across this actor's cached collections? quote the most relevant list names or phrases"}`
 
 Available tools are listed below.
 
@@ -32,6 +32,10 @@ Use `llm_search` for cached collection search.
 Always choose an explicit scope for `llm_search`: either `actor_did` or `collection_ids`.
 
 Do not call `llm_search` with neither.
+
+When you write the `prompt` for `llm_search`, preserve the user's actual intent.
+
+Do not rewrite a broad semantic question into a checklist of literal keywords or named words to hunt for unless the user explicitly asked for exact-word matching.
 
 If you use `collection_ids`, they must be exact cached IDs, not bare collection kinds.
 

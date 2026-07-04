@@ -30,6 +30,7 @@ mod post;
 mod visualization;
 
 use crate::db::AppDb;
+use crate::harness::agents::{AgentGraph, AgentNodeStatus};
 use crate::harness::context_window::{
     BuiltContextWindow, LLMContext, ProviderContextLimits, approximate_tokens,
     build_context_window_report,
@@ -46,7 +47,7 @@ use crate::net_backend::{
 use crate::post::{PostNode, render_post_nodes};
 use crate::visualization::context::{
     ContextCategory, ContextSegment, ContextVisualizationData, PromptContextSnapshot,
-    snapshot_from_llm_search_window,
+    snapshot_from_agent_node,
 };
 
 const POLL_INTERVAL: StdDuration = StdDuration::from_secs(30);
@@ -83,6 +84,7 @@ struct App {
     detail_scroll: u16,
     detail: DetailView,
     root_conversation: Vec<ConversationTurn>,
+    agent_graph: Option<AgentGraph>,
     context_visualization: Option<ContextVisualizationData>,
     deferred_detail: Option<DetailView>,
     ai_chat_detail: Option<DetailView>,
@@ -133,6 +135,7 @@ impl App {
                 lines: help_lines(),
             },
             root_conversation: Vec::new(),
+            agent_graph: None,
             context_visualization: None,
             deferred_detail: None,
             ai_chat_detail: None,
@@ -463,6 +466,7 @@ impl App {
             }
             "clear" | "/clear" => {
                 self.clear_root_conversation();
+                self.agent_graph = None;
                 self.context_visualization = None;
                 self.set_command_output(
                     "/clear",
@@ -529,14 +533,16 @@ impl App {
         let mut tool_transcript = Vec::new();
         let mut response = String::new();
         let mut hit_tool_round_limit = false;
-        let mut child_contexts = Vec::new();
+        let mut agent_graph = AgentGraph::new_root("Root Agent");
+        agent_graph.set_context_window(agent_graph.root_agent_id(), root_context_window.clone());
+        agent_graph.set_result_summary(agent_graph.root_agent_id(), query.clone());
         self.context_visualization = Some(build_live_context_visualization(
             "/context",
             &messages,
             evil_gemma.system_prompt.trim(),
             prompt_tool_protocol_instructions(),
             &root_context_window,
-            &child_contexts,
+            &agent_graph,
             &evil_gemma.client.context_limits(),
         ));
 
@@ -768,13 +774,11 @@ impl App {
                 Err(err) => crate::harness::tools::ToolExecutionOutput {
                     rendered: format!("Tool execution failed: {err}"),
                     context_windows: Vec::new(),
+                    agent_node: None,
                 },
             };
-            for context_window in &tool_output.context_windows {
-                child_contexts.push(snapshot_from_llm_search_window(
-                    &context_window.title,
-                    &context_window.window,
-                ));
+            if let Some(agent_node) = tool_output.agent_node.clone() {
+                agent_graph.attach_template(agent_graph.root_agent_id(), agent_node);
             }
             let tool_output = if prep_warnings.is_empty() {
                 tool_output.rendered
@@ -792,6 +796,7 @@ impl App {
                 &prep_log,
                 Some(&tool_output),
             ));
+            let tool_context_result = compact_tool_result_for_root_context(&tool_name, &tool_output);
             messages.push(ChatMessage {
                 role: "assistant".to_string(),
                 content: response.clone(),
@@ -799,7 +804,7 @@ impl App {
             messages.push(ChatMessage {
                 role: "user".to_string(),
                 content: format!(
-                    "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_output}\n\n{}",
+                    "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_context_result}\n\n{}",
                     if round + 1 == MAX_TOOL_CALL_ROUNDS {
                         "This was the final allowed tool round. Answer the original query directly now. Do not request another tool or emit a TOOL_CALL block."
                     } else {
@@ -814,7 +819,7 @@ impl App {
                 evil_gemma.system_prompt.trim(),
                 prompt_tool_protocol_instructions(),
                 &root_context_window,
-                &child_contexts,
+                &agent_graph,
                 &evil_gemma.client.context_limits(),
             ));
             if keep_context_overlay {
@@ -850,7 +855,7 @@ impl App {
                 evil_gemma.system_prompt.trim(),
                 prompt_tool_protocol_instructions(),
                 &root_context_window,
-                &child_contexts,
+                &agent_graph,
                 &evil_gemma.client.context_limits(),
             ));
         }
@@ -875,7 +880,7 @@ impl App {
                 evil_gemma.system_prompt.trim(),
                 prompt_tool_protocol_instructions(),
                 &root_context_window,
-                &child_contexts,
+                &agent_graph,
                 &evil_gemma.client.context_limits(),
             ));
         }
@@ -892,6 +897,8 @@ impl App {
             user: query,
             assistant: response,
         });
+        agent_graph.set_status(agent_graph.root_agent_id(), AgentNodeStatus::Completed);
+        self.agent_graph = Some(agent_graph);
         Ok(())
     }
 
@@ -1208,17 +1215,24 @@ fn build_live_context_visualization(
     system_prompt: &str,
     tool_protocol: &str,
     root_context_window: &BuiltContextWindow,
-    child_contexts: &[PromptContextSnapshot],
+    agent_graph: &AgentGraph,
     limits: &ProviderContextLimits,
 ) -> ContextVisualizationData {
-    let mut windows = vec![build_root_context_snapshot(
+    let root_snapshot = build_root_context_snapshot(
         messages,
         system_prompt,
         tool_protocol,
         root_context_window,
         limits,
-    )];
-    windows.extend(child_contexts.iter().cloned());
+    );
+    let mut windows = vec![root_snapshot];
+    windows.extend(
+        agent_graph
+            .descendant_ids_depth_first()
+            .into_iter()
+            .filter_map(|(depth, node_id)| agent_graph.node(node_id).map(|node| (depth, node)))
+            .filter_map(|(depth, node)| snapshot_from_agent_node(node, depth)),
+    );
     ContextVisualizationData::from_windows(title, windows)
 }
 
@@ -1269,19 +1283,24 @@ fn build_root_context_snapshot(
         });
     }
 
+    let mut tool_round = 0usize;
     for message in messages.iter().skip(2) {
         let trimmed = message.content.trim();
         if trimmed.is_empty() {
             continue;
         }
 
-        let (label, category) = classify_followup_message(message);
+        let (label, category, increment_round) =
+            classify_followup_message(message, tool_round + 1);
         segments.push(ContextSegment {
             label,
             category,
             tokens: approximate_tokens(trimmed),
             truncated: false,
         });
+        if increment_round {
+            tool_round += 1;
+        }
     }
 
     let used_input_tokens = segments.iter().map(|segment| segment.tokens).sum();
@@ -1298,23 +1317,54 @@ fn build_root_context_snapshot(
     }
 }
 
-fn classify_followup_message(message: &ChatMessage) -> (String, ContextCategory) {
+fn classify_followup_message(
+    message: &ChatMessage,
+    next_tool_round: usize,
+) -> (String, ContextCategory, bool) {
+    let trimmed = message.content.trim();
+
     if message.role == "assistant" {
-        return ("Assistant Reply".to_string(), ContextCategory::UserAiChat);
+        if parse_prompt_tool_call(trimmed).is_some() {
+            return (
+                format!("Tool Request #{next_tool_round}"),
+                ContextCategory::ToolResults,
+                false,
+            );
+        }
+        return (
+            "Assistant Reply".to_string(),
+            ContextCategory::UserAiChat,
+            false,
+        );
     }
 
-    let trimmed = message.content.trim();
     if trimmed.starts_with("Tool Result\nname:") {
-        return ("Tool Output".to_string(), ContextCategory::ToolResults);
+        return (
+            format!("Tool Result #{next_tool_round}"),
+            ContextCategory::ToolResults,
+            true,
+        );
     }
     if trimmed.starts_with("You have already used the maximum number of tool rounds.") {
-        return ("Round Limit Prompt".to_string(), ContextCategory::CurrentTask);
+        return (
+            "Round Limit Prompt".to_string(),
+            ContextCategory::CurrentTask,
+            false,
+        );
     }
     if trimmed.starts_with("Your previous answer appears cut off.") {
-        return ("Repair Prompt".to_string(), ContextCategory::CurrentTask);
+        return (
+            "Repair Prompt".to_string(),
+            ContextCategory::CurrentTask,
+            false,
+        );
     }
 
-    ("User Follow-up".to_string(), ContextCategory::UserAiChat)
+    (
+        "User Follow-up".to_string(),
+        ContextCategory::UserAiChat,
+        false,
+    )
 }
 
 fn root_category_for_section(title: &str) -> ContextCategory {
@@ -1325,6 +1375,49 @@ fn root_category_for_section(title: &str) -> ContextCategory {
         "Recent Chat" => ContextCategory::UserAiChat,
         _ => ContextCategory::UiContext,
     }
+}
+
+fn compact_tool_result_for_root_context(tool_name: &str, tool_output: &str) -> String {
+    match tool_name {
+        "llm_search" => compact_llm_search_result_for_root_context(tool_output),
+        _ => truncate_for_root_context(tool_output, 24),
+    }
+}
+
+fn compact_llm_search_result_for_root_context(tool_output: &str) -> String {
+    let mut kept = Vec::new();
+    for line in tool_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if kept.is_empty() {
+            kept.push(trimmed.to_string());
+            continue;
+        }
+        if trimmed.starts_with("anchor_uri:")
+            || trimmed.starts_with("anchor_collection_id:")
+            || trimmed.starts_with("anchor_collection_label:")
+            || trimmed.starts_with("collection_id:")
+            || trimmed.starts_with("collection_label:")
+            || trimmed.starts_with("status:")
+            || trimmed.starts_with("error:")
+        {
+            kept.push(trimmed.to_string());
+        }
+    }
+    if kept.is_empty() {
+        return truncate_for_root_context(tool_output, 24);
+    }
+    kept.join("\n")
+}
+
+fn truncate_for_root_context(text: &str, max_lines: usize) -> String {
+    let mut lines = text.lines().take(max_lines).map(str::to_owned).collect::<Vec<_>>();
+    if text.lines().count() > max_lines {
+        lines.push("...".to_string());
+    }
+    lines.join("\n")
 }
 
 fn build_tool_entry(
@@ -1744,7 +1837,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
                 frame.render_widget(detail, chunks[0]);
             }
             DetailView::ContextVisualization(data) => {
-                visualization::context::render(frame, chunks[0], data);
+                visualization::context::render(frame, chunks[0], data, app.detail_scroll);
             }
             DetailView::Notification => {}
         }

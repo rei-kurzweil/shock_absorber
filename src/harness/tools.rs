@@ -1,3 +1,6 @@
+use crate::harness::agents::{
+    AgentNodeKind, AgentNodeStatus, AgentNodeTemplate,
+};
 use crate::harness::context_window::{
     BuiltContextWindow, LLMContext, build_context_window_report,
 };
@@ -202,6 +205,7 @@ pub struct LlmSearchExecution {
 pub struct ToolExecutionOutput {
     pub rendered: String,
     pub context_windows: Vec<ToolContextWindow>,
+    pub agent_node: Option<AgentNodeTemplate>,
 }
 
 pub struct ToolContextWindow {
@@ -350,12 +354,14 @@ impl<'a> BlueskyTools<'a> {
             "read_selected_post" => Ok(ToolExecutionOutput {
                 rendered: self.read_selected_post(selected_notification),
                 context_windows: Vec::new(),
+                agent_node: None,
             }),
             "list_collections" => {
                 let actor_did = optional_did_arg(&tool_call.args, "actor_did")?;
                 Ok(ToolExecutionOutput {
                     rendered: self.list_collections(actor_did.as_ref()),
                     context_windows: Vec::new(),
+                    agent_node: None,
                 })
             }
             "read_collection_item" => {
@@ -364,6 +370,7 @@ impl<'a> BlueskyTools<'a> {
                 Ok(ToolExecutionOutput {
                     rendered: self.read_collection_item(&collection_id, &item_uri)?,
                     context_windows: Vec::new(),
+                    agent_node: None,
                 })
             }
             "llm_search" => {
@@ -376,18 +383,23 @@ impl<'a> BlueskyTools<'a> {
                 Ok(ToolExecutionOutput {
                     rendered: render_combined_llm_search_results(&outcomes),
                     context_windows: outcomes
-                        .into_iter()
-                        .filter_map(|outcome| match outcome.execution {
+                        .iter()
+                        .filter_map(|outcome| match outcome.execution.as_ref() {
                             Ok(execution) => Some(ToolContextWindow {
                                 title: format!(
                                     "llm_search: {}",
                                     outcome.collection_label
                                 ),
-                                window: execution.context_window,
+                                window: execution.context_window.clone(),
                             }),
                             Err(_) => None,
                         })
                         .collect(),
+                    agent_node: Some(build_llm_search_agent_node(
+                        &prompt,
+                        &outcomes,
+                        llm_client,
+                    )),
                 })
             }
             other => Err(format!("unknown tool `{other}`").into()),
@@ -1076,6 +1088,101 @@ fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
         }
         None => "No matching cached posts.".to_string(),
     }
+}
+
+fn build_llm_search_agent_node(
+    prompt: &str,
+    outcomes: &[CollectionSearchOutcome],
+    llm_client: &LlmApiClient,
+) -> AgentNodeTemplate {
+    AgentNodeTemplate {
+        agent_type: AgentNodeKind::ToolAgent,
+        label: "llm_search tool agent".to_string(),
+        status: if outcomes
+            .iter()
+            .any(|outcome| outcome.execution.is_err())
+        {
+            AgentNodeStatus::Failed
+        } else {
+            AgentNodeStatus::Completed
+        },
+        tool_name: Some("llm_search".to_string()),
+        collection_id: None,
+        context_window_report: Some(build_llm_search_tool_context_window(
+            prompt,
+            outcomes,
+            llm_client,
+        )),
+        result_summary: Some(render_combined_llm_search_results(outcomes)),
+        children: outcomes
+            .iter()
+            .map(build_collection_search_agent_node)
+            .collect(),
+    }
+}
+
+fn build_collection_search_agent_node(
+    outcome: &CollectionSearchOutcome,
+) -> AgentNodeTemplate {
+    let (status, context_window_report, result_summary) = match outcome.execution.as_ref() {
+        Ok(execution) => (
+            AgentNodeStatus::Completed,
+            Some(execution.context_window.clone()),
+            Some(render_llm_result(execution.result.as_ref())),
+        ),
+        Err(err) => (
+            AgentNodeStatus::Failed,
+            None,
+            Some(format!("Tool execution failed: {err}")),
+        ),
+    };
+
+    AgentNodeTemplate {
+        agent_type: AgentNodeKind::CollectionSearchAgent,
+        label: format!("collection search: {}", outcome.collection_label),
+        status,
+        tool_name: None,
+        collection_id: Some(outcome.collection_id.clone()),
+        context_window_report,
+        result_summary,
+        children: Vec::new(),
+    }
+}
+
+fn build_llm_search_tool_context_window(
+    prompt: &str,
+    outcomes: &[CollectionSearchOutcome],
+    llm_client: &LlmApiClient,
+) -> BuiltContextWindow {
+    let mut context = LLMContext::new(
+        "Synthesize grounded per-collection search results. Keep collection boundaries explicit and retain failures as diagnostics.",
+    );
+    context.push_section("Original Search Prompt", prompt);
+    context.push_section(
+        "Per-Collection Results",
+        outcomes
+            .iter()
+            .map(|outcome| {
+                let mut lines = vec![
+                    format!("collection_id: {}", outcome.collection_id),
+                    format!("collection_label: {}", outcome.collection_label),
+                ];
+                match outcome.execution.as_ref() {
+                    Ok(execution) => {
+                        lines.push("status: ok".to_string());
+                        lines.push(render_llm_result(execution.result.as_ref()));
+                    }
+                    Err(err) => {
+                        lines.push("status: failed".to_string());
+                        lines.push(format!("error: {err}"));
+                    }
+                }
+                lines.join("\n")
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+    );
+    build_context_window_report(&context, &llm_client.context_limits())
 }
 
 fn render_combined_llm_search_results(outcomes: &[CollectionSearchOutcome]) -> String {
