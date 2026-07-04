@@ -10,6 +10,7 @@ pub enum ContextCategory {
     SystemPrompt,
     ToolDefinitions,
     UiContext,
+    CurrentTask,
     UserAiChat,
     ToolResults,
 }
@@ -41,6 +42,7 @@ impl ContextVisualizationData {
         ui_header: &str,
         search_hints: &str,
         current_ui_context: &str,
+        current_task: Option<&str>,
         recent_chat: Option<&str>,
         limits: &ProviderContextLimits,
     ) -> Self {
@@ -84,6 +86,17 @@ impl ContextVisualizationData {
                 tokens: ui_tokens,
             });
         }
+
+        let task_tokens = current_task
+            .map(str::trim)
+            .filter(|task| !task.is_empty())
+            .map(approximate_tokens)
+            .unwrap_or(0);
+        segments.push(ContextSegment {
+            label: "Current Task".to_string(),
+            category: ContextCategory::CurrentTask,
+            tokens: task_tokens,
+        });
 
         let chat_tokens = recent_chat
             .map(str::trim)
@@ -218,6 +231,7 @@ fn color_for_category(category: &ContextCategory) -> Color {
         ContextCategory::SystemPrompt => Color::Magenta,
         ContextCategory::ToolDefinitions => Color::Blue,
         ContextCategory::UiContext => Color::Green,
+        ContextCategory::CurrentTask => Color::Cyan,
         ContextCategory::UserAiChat => Color::Yellow,
         ContextCategory::ToolResults => Color::Rgb(255, 165, 0),
     }
@@ -228,6 +242,7 @@ fn legend_line() -> Line<'static> {
         ("  ", Color::Magenta, " system "),
         ("  ", Color::Blue, " tools "),
         ("  ", Color::Green, " ui "),
+        ("  ", Color::Cyan, " task "),
         ("  ", Color::Yellow, " chat "),
         ("  ", Color::Rgb(255, 165, 0), " tool results "),
         ("  ", Color::Red, " final 25% "),

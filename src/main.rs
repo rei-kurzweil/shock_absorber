@@ -517,7 +517,7 @@ impl App {
                 None,
             )));
 
-            let mut prep_failed = None;
+            let mut prep_warnings = Vec::new();
             if actor_dids.is_empty() {
                 prep_log.push("[tool_prep] no initial refresh needed".to_string());
                 self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
@@ -561,12 +561,19 @@ impl App {
                             "[tool_prep] initial refresh failed for {}: {message}",
                             did.as_str()
                         ));
+                        prep_log.push(
+                            "[tool_prep] continuing with already cached collections".to_string(),
+                        );
                         self.set_evil_gemma_progress(
                             &query,
                             &tool_transcript,
                             Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
                         );
-                        prep_failed = Some(message);
+                        prep_warnings.push(format!(
+                            "initial refresh for {} failed during recent-post fetch: {}",
+                            did.as_str(),
+                            message
+                        ));
                         break;
                     }
 
@@ -591,12 +598,19 @@ impl App {
                             "[tool_prep] initial refresh failed for {}: {message}",
                             did.as_str()
                         ));
+                        prep_log.push(
+                            "[tool_prep] continuing with already cached collections".to_string(),
+                        );
                         self.set_evil_gemma_progress(
                             &query,
                             &tool_transcript,
                             Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
                         );
-                        prep_failed = Some(message);
+                        prep_warnings.push(format!(
+                            "initial refresh for {} failed during pinned-post fetch: {}",
+                            did.as_str(),
+                            message
+                        ));
                         break;
                     }
 
@@ -621,12 +635,19 @@ impl App {
                             "[tool_prep] initial refresh failed for {}: {message}",
                             did.as_str()
                         ));
+                        prep_log.push(
+                            "[tool_prep] continuing with already cached collections".to_string(),
+                        );
                         self.set_evil_gemma_progress(
                             &query,
                             &tool_transcript,
                             Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
                         );
-                        prep_failed = Some(message);
+                        prep_warnings.push(format!(
+                            "initial refresh for {} failed during Clearsky list fetch: {}",
+                            did.as_str(),
+                            message
+                        ));
                         break;
                     }
 
@@ -641,17 +662,6 @@ impl App {
                         None,
                     )));
                 }
-            }
-
-            if let Some(message) = prep_failed {
-                tool_transcript.push(build_tool_entry(
-                    &tool_name,
-                    &tool_args,
-                    &prep_log,
-                    Some(&format!("Tool preparation failed: {message}")),
-                ));
-                response = format!("Tool preparation failed: {message}");
-                break;
             }
 
             self.set_evil_gemma_progress(
@@ -675,6 +685,15 @@ impl App {
             {
                 Ok(output) => output,
                 Err(err) => format!("Tool execution failed: {err}"),
+            };
+            let tool_output = if prep_warnings.is_empty() {
+                tool_output
+            } else {
+                format!(
+                    "Tool preparation warning:\n{}\n\n{}",
+                    prep_warnings.join("\n"),
+                    tool_output
+                )
             };
 
             tool_transcript.push(build_tool_entry(
@@ -784,6 +803,7 @@ impl App {
         let tools = BlueskyTools::new(&self.store);
         let tools_inventory = tools.render_tool_inventory();
         let recent_chat = recent_chat_text(&self.root_conversation);
+        let current_task = self.input.trim();
 
         ContextVisualizationData::from_root_context(
             evil_gemma.system_prompt.trim(),
@@ -795,10 +815,11 @@ impl App {
                 .map(search_hints_for_actor_did)
                 .unwrap_or_else(|| {
                     "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt` plus either explicit `collection_ids` or an `actor_did`. Do not call `llm_search` without one of those scope selectors.".to_string()
-                }),
+            }),
             &self
                 .selected_actor_summary()
                 .unwrap_or_else(|| "No actor is currently selected in the UI.".to_string()),
+            (!current_task.is_empty()).then_some(current_task),
             recent_chat.as_deref(),
             &evil_gemma.client.context_limits(),
         )
@@ -1160,6 +1181,8 @@ fn build_tool_aware_query_context(
         selected_actor_summary
             .unwrap_or_else(|| "No actor is currently selected in the UI.".to_string()),
     );
+    context.push_section("Current Task", query);
+
     if !root_conversation.is_empty() {
         context.push_section(
             "Recent Chat",
@@ -1176,7 +1199,6 @@ fn build_tool_aware_query_context(
                 .join("\n\n---\n\n"),
         );
     }
-    context.push_section("Current Task", query);
 
     build_context_window(&context, &llm_client.context_limits())
 }
