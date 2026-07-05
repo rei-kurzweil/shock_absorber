@@ -367,11 +367,13 @@ pub async fn ensure_actor_profile_cached(
             store.get_handle(&did),
             store.get_bio(&did).map(|bio| bio.map(str::to_owned)),
         ) {
-            return Ok(ActorProfile {
+            let profile = ActorProfile {
                 did,
                 handle: handle.to_owned(),
                 bio,
-            });
+            };
+            store.cache_post_collection(build_actor_profile_collection(&profile));
+            return Ok(profile);
         }
     }
 
@@ -392,8 +394,48 @@ pub async fn ensure_actor_profile_cached(
 
     store.cache_actor(&did, &handle, bio.clone());
     store.cache_bio(&did, bio.clone());
+    store.cache_post_collection(build_actor_profile_collection(&ActorProfile {
+        did: did.clone(),
+        handle: handle.clone(),
+        bio: bio.clone(),
+    }));
 
     Ok(ActorProfile { did, handle, bio })
+}
+
+pub async fn cache_global_search_posts(
+    agent: &BskyAgent,
+    store: &mut NotificationStore,
+    query: &str,
+    limit: u8,
+) -> Result<LabeledPostCollection, Box<dyn std::error::Error>> {
+    let result = agent
+        .api
+        .app
+        .bsky
+        .feed
+        .search_posts(
+            feed::search_posts::ParametersData {
+                author: None,
+                cursor: None,
+                domain: None,
+                lang: None,
+                limit: Some(limit.try_into()?),
+                mentions: None,
+                q: query.to_string(),
+                since: None,
+                sort: None,
+                tag: None,
+                until: None,
+                url: None,
+            }
+            .into(),
+        )
+        .await?;
+
+    let collection = build_global_search_posts_collection(query, result.data.posts);
+    store.cache_post_collection(collection.clone());
+    Ok(collection)
 }
 
 pub async fn ensure_pinned_posts_cached(
@@ -681,6 +723,38 @@ fn build_pinned_posts_collection(
     .with_metadata(metadata)
 }
 
+fn build_actor_profile_collection(profile: &ActorProfile) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("source".to_string(), "actor_profile".to_string());
+
+    let mut body = vec![
+        format!("handle: {}", profile.handle),
+        format!("did: {}", profile.did.as_str()),
+    ];
+    body.push("bio:".to_string());
+    match profile.bio.as_deref() {
+        Some(bio) if !bio.is_empty() => body.extend(bio.lines().map(str::to_owned)),
+        _ => body.push("<none>".to_string()),
+    }
+
+    LabeledPostCollection::new(
+        actor_profile_collection_id(&profile.did),
+        format!("Profile for {}", profile.handle),
+        vec![PostRecord {
+            uri: format!("at://{}/app.bsky.actor.profile/self", profile.did.as_str()),
+            author_handle: profile.handle.clone(),
+            body: body.join("\n"),
+        }],
+    )
+    .with_collection_kind("actor_profile")
+    .with_actor_did(profile.did.as_str())
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
+    )
+    .with_metadata(metadata)
+}
+
 fn build_recent_posts_unaddressed_collection(
     did: &Did,
     posts: Vec<feed::defs::PostView>,
@@ -744,6 +818,27 @@ fn build_clearsky_lists_collection(
     .with_metadata(metadata)
 }
 
+fn build_global_search_posts_collection(
+    query: &str,
+    posts: Vec<feed::defs::PostView>,
+) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("source".to_string(), "app.bsky.feed.searchPosts".to_string());
+    metadata.insert("query".to_string(), query.to_string());
+
+    LabeledPostCollection::new(
+        global_search_posts_collection_id(query),
+        format!("Global Bluesky search results for \"{}\"", query),
+        posts.into_iter().map(post_record_from_view).collect(),
+    )
+    .with_collection_kind("global_search_posts")
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
+    )
+    .with_metadata(metadata)
+}
+
 fn post_record_from_view(post: feed::defs::PostView) -> PostRecord {
     PostRecord {
         uri: post.uri.clone(),
@@ -786,6 +881,18 @@ fn recent_replies_sent_collection_id(did: &Did) -> String {
 
 fn clearsky_lists_collection_id(did: &Did) -> String {
     format!("clearsky_lists:{}", did.as_str())
+}
+
+fn actor_profile_collection_id(did: &Did) -> String {
+    format!("actor_profile:{}", did.as_str())
+}
+
+fn global_search_posts_collection_id(query: &str) -> String {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    query.hash(&mut hasher);
+    format!("global_search_posts:{:x}", hasher.finish())
 }
 
 fn is_reply_record(record: &Unknown) -> bool {

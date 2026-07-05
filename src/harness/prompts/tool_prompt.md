@@ -5,19 +5,19 @@ If one tool would help, emit exactly one tool request block in this format and n
 ```text
 TOOL_CALL
 name: llm_search
-args: {"actor_did":"did:plc:...","prompt":"..."}
+args: {"query":"..."}
 ```
 
 Valid `llm_search` examples:
 
-1. Search all cached collections for another actor:
-   `{"actor_did":"did:plc:...","prompt":"what themes, reputation signals, or repeated descriptions appear across this actor's cached collections?"}`
-2. Search two known collections directly:
-   `{"collection_ids":["recent_posts_unaddressed:did:plc:...","replies_to_actor:did:plc:..."],"prompt":"what recurring topics or conflicts involve this actor?"}`
-3. For interaction or frequency questions, target conversational collections explicitly:
-   `{"collection_ids":["recent_replies_sent:did:plc:...","recent_posts_unaddressed:did:plc:...","replies_to_actor:did:plc:..."],"prompt":"who does this actor reply to or mention most often? give the top 3 with approximate counts"}`
-4. For list-membership or reputation questions, either search the actor broadly or use an exact list collection ID:
-   `{"actor_did":"did:plc:...","prompt":"what list memberships, themes, or repeated descriptions appear across this actor's cached collections? quote the most relevant list names or phrases"}`
+1. Look up who a handle is:
+   `{"query":"who is 2gd4.me?"}`
+2. Compare two named handles:
+   `{"query":"who are 2gd4.me and rei-cast.xyz? use their bios and posts for grounding"}`
+3. Search Bluesky posts about a topic:
+   `{"query":"what are people on Bluesky saying about topic X?"}`
+4. Ask an actor-focused question without knowing any collection IDs:
+   `{"query":"what themes, reputation signals, or repeated descriptions appear around rei-cast.xyz?"}`
 
 Available tools are listed below.
 
@@ -27,19 +27,13 @@ Use `read_selected_post` when you need the selected post or reply body and facet
 
 Use `list_collections` before search when you need to inspect cache boundaries.
 
-Use `llm_search` for cached collection search.
+Use `llm_search` for high-level Bluesky search.
 
-Always choose an explicit scope for `llm_search`: either `actor_did` or `collection_ids`.
-
-Do not call `llm_search` with neither.
-
-When you write the `prompt` for `llm_search`, preserve the user's actual intent.
+When you write the `query` for `llm_search`, preserve the user's actual intent.
 
 Do not rewrite a broad semantic question into a checklist of literal keywords or named words to hunt for unless the user explicitly asked for exact-word matching.
 
-If you use `collection_ids`, they must be exact cached IDs, not bare collection kinds.
-
-When the question is about interaction patterns, mentions, replies, frequency counts, or who the actor talks to, use explicit conversational `collection_ids` and avoid unrelated collection kinds.
+Do not add low-level search-scope details like collection IDs or actor DIDs unless the user explicitly asked for them in the wording of the search itself.
 
 For structured list records, prefer exact fields like `list_name` and `list_description` as evidence.
 

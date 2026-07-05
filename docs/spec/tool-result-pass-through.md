@@ -14,7 +14,7 @@ The relevant prompt and projection layers currently live in these files:
   - root persona and top-level answering style
 - [src/harness/prompts/tool_prompt.md](/home/rei/_/shock_absorber/src/harness/prompts/tool_prompt.md)
   - root-agent tool protocol and post-tool instructions
-- [src/harness/prompts/agents/llm_search.md](/home/rei/_/shock_absorber/src/harness/prompts/agents/llm_search.md)
+- [src/harness/prompts/agents/collection_search.md](/home/rei/_/shock_absorber/src/harness/prompts/agents/collection_search.md)
   - per-collection child-search instructions
 - [src/harness/tools.rs](/home/rei/_/shock_absorber/src/harness/tools.rs)
   - child result parsing

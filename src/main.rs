@@ -517,7 +517,7 @@ impl App {
         self.deferred_detail = None;
         self.current_root_task = Some(query.clone());
         let root_context_window = {
-            let tools = BlueskyTools::new(&self.store);
+            let tools = BlueskyTools::new();
             build_tool_aware_query_context_window(
                 self.selected_actor_did(),
                 self.selected_actor_summary(),
@@ -787,7 +787,8 @@ impl App {
                     )),
                 );
             }
-            let tools = BlueskyTools::new(&self.store);
+            let tools = BlueskyTools::new();
+            let opened_notification = self.opened_notification().cloned();
             let tool_output = if let Some(collection_id) =
                 duplicate_search_after_failed_read.as_deref()
             {
@@ -802,7 +803,9 @@ impl App {
                 match tools
                     .execute_prompt_tool_call(
                         &tool_call,
-                        self.opened_notification(),
+                        opened_notification.as_ref(),
+                        agent,
+                        &mut self.store,
                         &evil_gemma.client,
                     )
                     .await
@@ -1098,7 +1101,7 @@ impl App {
             return data.clone();
         }
 
-        let tools = BlueskyTools::new(&self.store);
+        let tools = BlueskyTools::new();
         let root_window = build_tool_aware_query_context_window(
             self.selected_actor_did(),
             self.selected_actor_summary(),
@@ -1270,6 +1273,7 @@ fn planned_tool_call_refresh_targets(
     selected_actor_did: Option<bsky_sdk::api::types::string::Did>,
     tool_call: &crate::harness::tools::PromptToolCall,
 ) -> Vec<bsky_sdk::api::types::string::Did> {
+    let _ = selected_actor_did;
     let mut actor_dids = Vec::new();
 
     match tool_call.name.as_str() {
@@ -1285,30 +1289,7 @@ fn planned_tool_call_refresh_targets(
                 }
             }
         }
-        "llm_search" => {
-            if let Some(collection_ids) = tool_call.args.get("collection_ids").and_then(|value| value.as_array()) {
-                for collection_id in collection_ids.iter().filter_map(|value| value.as_str()) {
-                    if collection_needs_initial_refresh(store, collection_id) {
-                        if let Some(did) = actor_did_from_collection_id(collection_id) {
-                            actor_dids.push(did);
-                        }
-                    }
-                }
-            } else if let Some(did) = tool_call
-                .args
-                .get("actor_did")
-                .and_then(|value| value.as_str())
-                .and_then(|value| value.parse().ok())
-            {
-                if actor_needs_initial_refresh(store, &did) {
-                    actor_dids.push(did);
-                }
-            } else if let Some(did) = selected_actor_did {
-                if actor_needs_initial_refresh(store, &did) {
-                    actor_dids.push(did);
-                }
-            }
-        }
+        "llm_search" => {}
         "read_collection_item" => {
             if let Some(collection_id) = tool_call.args.get("collection_id").and_then(|value| value.as_str()) {
                 if collection_needs_initial_refresh(store, collection_id) {
@@ -1587,22 +1568,9 @@ fn repeated_llm_search_after_failed_read(
     tool_call: &crate::harness::tools::PromptToolCall,
     last_failed_read_collection_id: Option<&str>,
 ) -> Option<String> {
-    if tool_call.name != "llm_search" {
-        return None;
-    }
-
-    let failed_collection_id = last_failed_read_collection_id?;
-    let collection_ids = tool_call.args.get("collection_ids")?.as_array()?;
-    if collection_ids.len() != 1 {
-        return None;
-    }
-
-    let collection_id = collection_ids.first()?.as_str()?;
-    if collection_id == failed_collection_id {
-        Some(collection_id.to_string())
-    } else {
-        None
-    }
+    let _ = tool_call;
+    let _ = last_failed_read_collection_id;
+    None
 }
 
 fn build_tool_entry(
@@ -1728,7 +1696,7 @@ fn actor_did_from_collection_id(collection_id: &str) -> Option<bsky_sdk::api::ty
 fn build_tool_aware_query_context_window(
     selected_actor_did: Option<&bsky_sdk::api::types::string::Did>,
     selected_actor_summary: Option<String>,
-    tools: &BlueskyTools<'_>,
+    tools: &BlueskyTools,
     root_conversation: &[ConversationTurn],
     query: &str,
     llm_client: &LlmApiClient,
@@ -1741,7 +1709,7 @@ fn build_tool_aware_query_context_window(
         selected_actor_did
             .map(search_hints_for_actor_did)
             .unwrap_or_else(|| {
-                "If you need cached search, use `list_collections` to inspect available collections, then `llm_search` with a `prompt` plus either explicit `collection_ids` or an `actor_did`. For interaction or frequency questions, pass explicit conversational `collection_ids` like `recent_replies_sent`, `recent_posts_unaddressed`, `pinned_posts`, or `replies_to_actor` instead of broad actor-wide search. Likes are not currently available as a searchable collection.".to_string()
+                "Use `llm_search` with a natural-language `query` when you need Bluesky-grounded evidence about a handle/user or about a broader topic. The harness will decide whether to look up actors, hydrate actor collections, or search Bluesky posts globally.".to_string()
             }),
     );
 
@@ -1775,7 +1743,7 @@ fn build_tool_aware_query_context_window(
 fn search_hints_for_actor_did(did: &bsky_sdk::api::types::string::Did) -> String {
     let did = did.as_str();
     format!(
-        "The selected actor is {did}. Use `list_collections` to see cached collections for this actor, then `llm_search` with either `collection_ids` or an `actor_did`. For interaction/frequency questions, prefer explicit conversational `collection_ids` instead of broad actor-wide search. Likes are not currently available as a searchable collection. Provide another actor DID only if a mentioned actor becomes relevant."
+        "The selected actor is {did}. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed."
     )
 }
 

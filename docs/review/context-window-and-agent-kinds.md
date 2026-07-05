@@ -4,8 +4,8 @@
 
 - Internal agent prompts now come from `AgentKind` instead of mixing `AgentKind` with ad hoc string constants.
 - `llm_search` now has two explicit internal agent kinds:
+  - `CollectionSearch`
   - `LlmSearch`
-  - `LlmSearchParent`
 - `LLMContext` now stores rendered header and section text plus estimated token counts at insertion time.
 - `BuiltContextSection` now keeps both:
   - `estimated_tokens`: the full section estimate before truncation

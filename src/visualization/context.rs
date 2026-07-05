@@ -145,7 +145,7 @@ fn snapshot_from_tool_agent_window(
 
     for section in &window.sections {
         let category = match section.title.as_str() {
-            "Original Search Prompt" => ContextCategory::CurrentTask,
+            "Original Search Query" => ContextCategory::CurrentTask,
             "Per-Collection Results" => ContextCategory::ToolResults,
             _ => ContextCategory::UiContext,
         };

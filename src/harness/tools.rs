@@ -8,8 +8,11 @@ use crate::harness::llm_api::{ChatMessage, LlmApiClient};
 use crate::harness::prompts::{AgentKind, tool_prompt};
 use crate::model::{LabeledPostCollection, PostRecord};
 use crate::net_backend::{
-    NotificationStore, PostDetails, extract_post_details, extract_reply_node,
+    NotificationStore, PostDetails, cache_global_search_posts, ensure_actor_profile_cached,
+    ensure_clearsky_lists_cached, ensure_pinned_posts_cached, ensure_recent_posts_cached,
+    extract_post_details, extract_reply_node,
 };
+use bsky_sdk::BskyAgent;
 use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use bsky_sdk::api::types::string::Did;
 use serde_json::Value;
@@ -95,44 +98,21 @@ impl ToolRegistry {
             },
             ToolSpec {
                 name: "llm_search".to_string(),
-                description: "Run a narrower LLM pass over cached collections and return grounded evidence anchored to one real record.".to_string(),
+                description: "Search Bluesky at a high level, including looking up handles/users or searching posts by topic, then return grounded evidence anchored to real records.".to_string(),
                 arguments: vec![
                     ToolArgumentSpec {
-                        name: "actor_did".to_string(),
+                        name: "query".to_string(),
                         value_type: "string".to_string(),
-                        description: "Optional target actor DID. If provided and `collection_ids` is omitted, search all cached collections related to that actor.".to_string(),
-                        required: false,
-                    },
-                    ToolArgumentSpec {
-                        name: "collection_ids".to_string(),
-                        value_type: "array<string>".to_string(),
-                        description: "Optional explicit collection IDs to search. If provided, these take precedence over `actor_did`.".to_string(),
-                        required: false,
-                    },
-                    ToolArgumentSpec {
-                        name: "label".to_string(),
-                        value_type: "string".to_string(),
-                        description: "Optional label for the synthesized search space.".to_string(),
-                        required: false,
-                    },
-                    ToolArgumentSpec {
-                        name: "prompt".to_string(),
-                        value_type: "string".to_string(),
-                        description: "A compact search instruction describing what makes a post relevant.".to_string(),
+                        description: "The user's search request in natural language, such as who a handle is or what Bluesky posts say about a topic.".to_string(),
                         required: true,
                     },
                 ],
-                when_to_use: "Use when semantic relevance matters more than the compact UI preview and you need the model to inspect a cached collection.".to_string(),
+                when_to_use: "Use when you need Bluesky-grounded evidence about one or more handles/users, or about a broader topic that requires searching posts.".to_string(),
                 notes: vec![
-                    "The calling agent must write the search prompt.".to_string(),
-                    "The search prompt is fully dynamic per call, but the tool contract, examples, and result format are hardcoded in this binary.".to_string(),
-                    "You must provide either `collection_ids` or `actor_did`; do not call this tool with neither.".to_string(),
-                    "If `collection_ids` is provided, the tool searches exactly those collections.".to_string(),
-                    "If `collection_ids` is omitted and `actor_did` is provided, the tool searches all collections related to that actor.".to_string(),
-                    "Collection IDs must be exact cached IDs such as `recent_posts_unaddressed:did:plc:...` or `clearsky_lists:did:plc:...`; a bare collection kind like `clearsky_lists` is not enough by itself.".to_string(),
-                    "For interaction or frequency questions like who this actor replies to, mentions, or interacts with most, prefer explicit conversational `collection_ids` such as `recent_replies_sent`, `recent_posts_unaddressed`, `pinned_posts`, or `replies_to_actor` instead of searching all actor collections.".to_string(),
+                    "The root agent only supplies the high-level query; the harness decides whether to do handle lookup, actor-centric collection search, or broader Bluesky post search.".to_string(),
+                    "If the query names a handle or user, the search should anchor on that actor's profile and may inspect posts for grounding.".to_string(),
+                    "If the query is topical rather than person-centric, the search may use Bluesky-wide post search and normalize the results into a collection before running narrower LLM search.".to_string(),
                     "When a collection contains structured fields such as `list_name` or `list_description`, use those exact fields as evidence instead of inventing new labels or categories.".to_string(),
-                    "Authored likes are not currently exposed as a searchable collection, so do not assume a likes collection exists yet.".to_string(),
                     "Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated themes from the matching items.".to_string(),
                 ],
             },
@@ -243,7 +223,7 @@ impl<'a> LlmSearchComparator<'a> {
             });
         }
 
-        let mut context = LLMContext::new(AgentKind::LlmSearch.system_prompt());
+        let mut context = LLMContext::new(AgentKind::CollectionSearch.system_prompt());
         context.push_section("Collection", serialize_collection(collection));
         context.push_section("Search Prompt", self.prompt);
 
@@ -273,13 +253,11 @@ impl<'a> LlmSearchComparator<'a> {
     }
 }
 
-pub struct BlueskyTools<'a> {
-    store: &'a NotificationStore,
-}
+pub struct BlueskyTools;
 
-impl<'a> BlueskyTools<'a> {
-    pub fn new(store: &'a NotificationStore) -> Self {
-        Self { store }
+impl BlueskyTools {
+    pub fn new() -> Self {
+        Self
     }
 
     pub async fn llm_search(
@@ -348,6 +326,8 @@ impl<'a> BlueskyTools<'a> {
         &self,
         tool_call: &PromptToolCall,
         selected_notification: Option<&Notification>,
+        agent: &BskyAgent,
+        store: &mut NotificationStore,
         llm_client: &LlmApiClient,
     ) -> Result<ToolExecutionOutput, Box<dyn std::error::Error>> {
         match tool_call.name.as_str() {
@@ -359,7 +339,7 @@ impl<'a> BlueskyTools<'a> {
             "list_collections" => {
                 let actor_did = optional_did_arg(&tool_call.args, "actor_did")?;
                 Ok(ToolExecutionOutput {
-                    rendered: self.list_collections(actor_did.as_ref()),
+                    rendered: self.list_collections(store, actor_did.as_ref()),
                     context_windows: Vec::new(),
                     agent_node: None,
                 })
@@ -368,19 +348,20 @@ impl<'a> BlueskyTools<'a> {
                 let collection_id = require_string_arg(&tool_call.args, "collection_id")?;
                 let item_uri = require_string_arg(&tool_call.args, "item_uri")?;
                 Ok(ToolExecutionOutput {
-                    rendered: self.read_collection_item(&collection_id, &item_uri)?,
+                    rendered: self.read_collection_item(store, &collection_id, &item_uri)?,
                     context_windows: Vec::new(),
                     agent_node: None,
                 })
             }
             "llm_search" => {
-                let prompt = require_string_arg(&tool_call.args, "prompt")?;
-                let collections =
-                    self.resolve_search_collections(&tool_call.args, selected_notification)?;
+                let query = require_string_arg(&tool_call.args, "query")?;
+                let collections = self
+                    .resolve_search_collections(agent, store, &query, selected_notification)
+                    .await?;
                 let outcomes = self
-                    .run_collection_searches(&collections, &prompt, llm_client)
+                    .run_collection_searches(&collections, &query, llm_client)
                     .await;
-                let rendered = synthesize_llm_search_results(&prompt, &outcomes, llm_client).await;
+                let rendered = synthesize_llm_search_results(&query, &outcomes, llm_client).await;
                 Ok(ToolExecutionOutput {
                     rendered,
                     context_windows: outcomes
@@ -397,7 +378,7 @@ impl<'a> BlueskyTools<'a> {
                         })
                         .collect(),
                     agent_node: Some(build_llm_search_agent_node(
-                        &prompt,
+                        &query,
                         &outcomes,
                         llm_client,
                     )),
@@ -407,10 +388,10 @@ impl<'a> BlueskyTools<'a> {
         }
     }
 
-    pub fn list_collections(&self, actor_did: Option<&Did>) -> String {
+    pub fn list_collections(&self, store: &NotificationStore, actor_did: Option<&Did>) -> String {
         let collections = match actor_did {
-            Some(actor_did) => self.collections_for_actor(actor_did),
-            None => self.all_collections(),
+            Some(actor_did) => self.collections_for_actor(store, actor_did),
+            None => self.all_collections(store),
         };
 
         if collections.is_empty() {
@@ -431,12 +412,13 @@ impl<'a> BlueskyTools<'a> {
 
     pub fn read_collection_item(
         &self,
+        store: &NotificationStore,
         collection_id: &str,
         item_uri: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let collection = self
-            .resolve_collection_by_id(collection_id)
-            .or_else(|| self.find_collection_for_item_uri(item_uri))
+            .resolve_collection_by_id(store, collection_id)
+            .or_else(|| self.find_collection_for_item_uri(store, item_uri))
             .ok_or_else(|| format!("unknown collection `{collection_id}`"))?;
         let post = collection
             .posts
@@ -530,43 +512,34 @@ impl<'a> BlueskyTools<'a> {
         outcomes
     }
 
-    fn resolve_search_collections(
+    async fn resolve_search_collections(
         &self,
-        args: &Value,
+        agent: &BskyAgent,
+        store: &mut NotificationStore,
+        query: &str,
         _selected_notification: Option<&Notification>,
     ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
-        let collection_ids = optional_string_array_arg(args, "collection_ids")?;
-        let mut collections = if !collection_ids.is_empty() {
-            self.collections_from_ids(&collection_ids)?
-        } else if let Some(actor_did) = optional_did_arg(args, "actor_did")? {
-            self.collections_for_actor(&actor_did)
+        let mut collections = if let Some(actor_refs) = detect_actor_refs(query) {
+            self.collections_for_actor_refs(agent, store, &actor_refs).await?
         } else {
-            return Err(
-                "llm_search requires either `collection_ids` or `actor_did`"
-                    .to_string()
-                    .into(),
-            );
+            vec![cache_global_search_posts(agent, store, query, 25).await?]
         };
-
         if collections.is_empty() {
-            return Err(
-                "no cached collections matched the requested search scope".to_string().into(),
-            );
+            return Err("no search collections were available for this query".into());
         }
 
         collections.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(collections)
     }
 
-    fn all_collections(&self) -> Vec<LabeledPostCollection> {
-        let mut collections = self
-            .store
+    fn all_collections(&self, store: &NotificationStore) -> Vec<LabeledPostCollection> {
+        let mut collections = store
             .post_collections()
             .into_iter()
             .cloned()
             .collect::<Vec<_>>();
-        for actor_did in self.store.cached_actor_dids() {
-            if let Some(collection) = self.build_replies_to_actor_collection(&actor_did) {
+        for actor_did in store.cached_actor_dids() {
+            if let Some(collection) = self.build_replies_to_actor_collection(store, &actor_did) {
                 collections.push(collection);
             }
         }
@@ -574,28 +547,51 @@ impl<'a> BlueskyTools<'a> {
         collections
     }
 
-    fn collections_for_actor(&self, actor_did: &Did) -> Vec<LabeledPostCollection> {
-        let mut collections = self
-            .store
+    fn collections_for_actor(&self, store: &NotificationStore, actor_did: &Did) -> Vec<LabeledPostCollection> {
+        let mut collections = store
             .actor_post_collections(actor_did)
             .into_iter()
             .cloned()
             .collect::<Vec<_>>();
-        if let Some(collection) = self.build_replies_to_actor_collection(actor_did) {
+        if let Some(collection) = self.build_replies_to_actor_collection(store, actor_did) {
             collections.push(collection);
         }
         collections.sort_by(|left, right| left.id.cmp(&right.id));
         collections
     }
 
+    async fn collections_for_actor_refs(
+        &self,
+        agent: &BskyAgent,
+        store: &mut NotificationStore,
+        actor_refs: &[String],
+    ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
+        let mut collections = Vec::new();
+
+        for actor_ref in actor_refs {
+            let profile = ensure_actor_profile_cached(agent, store, actor_ref).await?;
+            ensure_recent_posts_cached(agent, store, &profile.did, 20).await?;
+            ensure_pinned_posts_cached(agent, store, &profile.did).await?;
+            let _ = ensure_clearsky_lists_cached(store, &profile.did).await;
+            collections.extend(self.collections_for_actor(store, &profile.did));
+        }
+
+        if collections.is_empty() {
+            return Err("no actor-backed collections were available for this query".into());
+        }
+
+        Ok(collections)
+    }
+
     fn collections_from_ids(
         &self,
+        store: &NotificationStore,
         collection_ids: &[String],
     ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
         let mut collections = Vec::new();
 
         for collection_id in collection_ids {
-            match self.resolve_collection_by_id(collection_id) {
+            match self.resolve_collection_by_id(store, collection_id) {
                 Some(collection) => collections.push(collection),
                 None if collection_id.starts_with("replies_to_actor:") => {}
                 None => return Err(format!("unknown collection `{collection_id}`").into()),
@@ -609,20 +605,20 @@ impl<'a> BlueskyTools<'a> {
         Ok(collections)
     }
 
-    fn resolve_collection_by_id(&self, collection_id: &str) -> Option<LabeledPostCollection> {
-        if let Some(collection) = self.store.get_post_collection(collection_id) {
+    fn resolve_collection_by_id(&self, store: &NotificationStore, collection_id: &str) -> Option<LabeledPostCollection> {
+        if let Some(collection) = store.get_post_collection(collection_id) {
             return Some(collection.clone());
         }
 
         let did = collection_id
             .strip_prefix("replies_to_actor:")
             .and_then(|value| value.parse::<Did>().ok())?;
-        self.build_replies_to_actor_collection(&did)
+        self.build_replies_to_actor_collection(store, &did)
     }
 
-    fn find_collection_for_item_uri(&self, item_uri: &str) -> Option<LabeledPostCollection> {
+    fn find_collection_for_item_uri(&self, store: &NotificationStore, item_uri: &str) -> Option<LabeledPostCollection> {
         let mut matches = self
-            .all_collections()
+            .all_collections(store)
             .into_iter()
             .filter(|collection| collection.posts.iter().any(|post| post.uri == item_uri));
         let first = matches.next()?;
@@ -632,13 +628,12 @@ impl<'a> BlueskyTools<'a> {
         Some(first)
     }
 
-    fn build_replies_to_actor_collection(&self, actor_did: &Did) -> Option<LabeledPostCollection> {
-        let posts = self
-            .store
+    fn build_replies_to_actor_collection(&self, store: &NotificationStore, actor_did: &Did) -> Option<LabeledPostCollection> {
+        let posts = store
             .get_pinned_posts(actor_did)?
             .iter()
             .flat_map(|post| {
-                self.store
+                store
                     .get_pinned_post_replies(&post.uri)
                     .unwrap_or(&[])
                     .iter()
@@ -668,6 +663,39 @@ impl<'a> BlueskyTools<'a> {
             .with_refresh_state(0, Some(15 * 60))
             .with_metadata(metadata),
         )
+    }
+}
+
+fn detect_actor_refs(query: &str) -> Option<Vec<String>> {
+    let mut actor_refs = Vec::new();
+
+    for raw in query.split_whitespace() {
+        let trimmed = raw.trim_matches(|ch: char| {
+            matches!(ch, ',' | '.' | '!' | '?' | ':' | ';' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '"' | '\'')
+        });
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let candidate = trimmed.strip_prefix('@').unwrap_or(trimmed);
+        let looks_like_did = candidate.starts_with("did:");
+        let looks_like_handle = candidate.contains('.')
+            && candidate
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'));
+        if !looks_like_did && !looks_like_handle {
+            continue;
+        }
+
+        if !actor_refs.iter().any(|existing| existing == candidate) {
+            actor_refs.push(candidate.to_string());
+        }
+    }
+
+    if actor_refs.is_empty() {
+        None
+    } else {
+        Some(actor_refs)
     }
 }
 
@@ -1206,7 +1234,7 @@ fn build_llm_search_agent_node(
 ) -> AgentNodeTemplate {
     AgentNodeTemplate {
         agent_type: AgentNodeKind::ToolAgent,
-        agent_kind: Some(AgentKind::LlmSearchParent),
+        agent_kind: Some(AgentKind::LlmSearch),
         label: "llm_search tool agent".to_string(),
         status: if outcomes
             .iter()
@@ -1249,7 +1277,7 @@ fn build_collection_search_agent_node(
 
     AgentNodeTemplate {
         agent_type: AgentNodeKind::CollectionSearchAgent,
-        agent_kind: Some(AgentKind::LlmSearch),
+        agent_kind: Some(AgentKind::CollectionSearch),
         label: format!("collection search: {}", outcome.collection_label),
         status,
         tool_name: None,
@@ -1273,8 +1301,8 @@ fn build_llm_search_parent_context(
     prompt: &str,
     outcomes: &[CollectionSearchOutcome],
 ) -> LLMContext {
-    let mut context = LLMContext::new(AgentKind::LlmSearchParent.system_prompt());
-    context.push_section("Original Search Prompt", prompt);
+    let mut context = LLMContext::new(AgentKind::LlmSearch.system_prompt());
+    context.push_section("Original Search Query", prompt);
     context.push_section(
         "Per-Collection Results",
         outcomes
@@ -1892,17 +1920,12 @@ mod tests {
     #[test]
     fn parses_prompt_tool_call_block() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: llm_search\nargs: {\"actor_did\":\"did:plc:testactor\",\"collection_ids\":[\"recent_posts_unaddressed:did:plc:testactor\",\"clearsky_lists:did:plc:testactor\"],\"prompt\":\"find mentions of cats\"}",
+            "TOOL_CALL\nname: llm_search\nargs: {\"query\":\"who is rei-cast.xyz?\"}",
         )
         .expect("expected tool call");
 
         assert_eq!(tool_call.name, "llm_search");
-        assert_eq!(tool_call.args["actor_did"], "did:plc:testactor");
-        assert_eq!(
-            tool_call.args["collection_ids"][0],
-            "recent_posts_unaddressed:did:plc:testactor"
-        );
-        assert_eq!(tool_call.args["prompt"], "find mentions of cats");
+        assert_eq!(tool_call.args["query"], "who is rei-cast.xyz?");
     }
 
     #[test]
@@ -1919,26 +1942,18 @@ mod tests {
     #[test]
     fn parses_prompt_tool_call_block_with_repaired_args_json() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: llm_search\nargs:\n{collection_ids:[<|\"|>clearsky_lists:did:plc:testactor<|\"|>,<|\"|>recent_posts_unaddressed:did:plc:testactor<|\"|>],\nprompt:<|\"|>cluster the sentiment<|\"|>}",
+            "TOOL_CALL\nname: llm_search\nargs:\n{query:<|\"|>what are people on Bluesky saying about topic x<|\"|>}",
         )
         .expect("expected tool call");
 
         assert_eq!(tool_call.name, "llm_search");
-        assert_eq!(
-            tool_call.args["collection_ids"][0],
-            "clearsky_lists:did:plc:testactor"
-        );
-        assert_eq!(
-            tool_call.args["collection_ids"][1],
-            "recent_posts_unaddressed:did:plc:testactor"
-        );
-        assert_eq!(tool_call.args["prompt"], "cluster the sentiment");
+        assert_eq!(tool_call.args["query"], "what are people on Bluesky saying about topic x");
     }
 
     #[test]
     fn parses_first_tool_call_when_trailing_thought_continues() {
-        let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: list_collections\nargs: {actor_did: \"did:plc:testactor\"}\n\n<|channel>thought\nextra commentary\n<channel|>TOOL_CALL\nname: llm_search\nargs: {collection_ids:[\"recent_replies_sent:did:plc:testactor\"], prompt:\"who do they talk to most\"}",
+                let tool_call = parse_prompt_tool_call(
+            "TOOL_CALL\nname: list_collections\nargs: {actor_did: \"did:plc:testactor\"}\n\n<|channel>thought\nextra commentary\n<channel|>TOOL_CALL\nname: llm_search\nargs: {query:\"who is rei-cast.xyz?\"}",
         )
         .expect("expected first tool call");
 
@@ -1994,10 +2009,10 @@ mod tests {
             LabeledPostCollection::new("recent:test", "Recent", vec![])
                 .with_collection_kind("recent_posts_unaddressed"),
         );
-        let tools = BlueskyTools::new(&store);
+        let tools = BlueskyTools::new();
 
         let collections = tools
-            .collections_from_ids(&[
+            .collections_from_ids(&store, &[
                 "recent:test".to_string(),
                 "replies_to_actor:did:plc:testactor".to_string(),
             ])
