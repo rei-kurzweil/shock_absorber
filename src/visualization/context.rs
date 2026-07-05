@@ -9,6 +9,8 @@ use ratatui::Frame;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextCategory {
     SystemPrompt,
+    ToolInstructions,
+    RootInstructions,
     ToolDefinitions,
     UiContext,
     CurrentTask,
@@ -255,7 +257,7 @@ fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
 }
 
 fn category_totals_summary(window: &PromptContextSnapshot) -> String {
-    let mut totals = [0usize; 6];
+    let mut totals = [0usize; 8];
     let mut order = Vec::new();
     for segment in &window.segments {
         let index = category_index(&segment.category);
@@ -275,11 +277,13 @@ fn category_totals_summary(window: &PromptContextSnapshot) -> String {
 fn category_label(index: usize) -> &'static str {
     match index {
         0 => "System Prompt",
-        1 => "Tools",
-        2 => "UI",
-        3 => "Task",
-        4 => "Chat",
-        5 => "Tool Results",
+        1 => "Tool Instructions",
+        2 => "Root Instructions",
+        3 => "Tools",
+        4 => "UI",
+        5 => "Task",
+        6 => "Chat",
+        7 => "Tool Results",
         _ => "Unknown",
     }
 }
@@ -344,6 +348,8 @@ fn style_for_cell(
 fn color_for_category(category: &ContextCategory) -> Color {
     match category {
         ContextCategory::SystemPrompt => Color::Magenta,
+        ContextCategory::ToolInstructions => Color::Rgb(70, 130, 180),
+        ContextCategory::RootInstructions => Color::Rgb(255, 140, 0),
         ContextCategory::ToolDefinitions => Color::Blue,
         ContextCategory::UiContext => Color::Green,
         ContextCategory::CurrentTask => Color::Cyan,
@@ -355,17 +361,21 @@ fn color_for_category(category: &ContextCategory) -> Color {
 fn category_index(category: &ContextCategory) -> usize {
     match category {
         ContextCategory::SystemPrompt => 0,
-        ContextCategory::ToolDefinitions => 1,
-        ContextCategory::UiContext => 2,
-        ContextCategory::CurrentTask => 3,
-        ContextCategory::UserAiChat => 4,
-        ContextCategory::ToolResults => 5,
+        ContextCategory::ToolInstructions => 1,
+        ContextCategory::RootInstructions => 2,
+        ContextCategory::ToolDefinitions => 3,
+        ContextCategory::UiContext => 4,
+        ContextCategory::CurrentTask => 5,
+        ContextCategory::UserAiChat => 6,
+        ContextCategory::ToolResults => 7,
     }
 }
 
 fn legend_line() -> Line<'static> {
     let items = [
         ("  ", Color::Magenta, " system "),
+        ("  ", Color::Rgb(70, 130, 180), " tool instructions "),
+        ("  ", Color::Rgb(255, 140, 0), " root instructions "),
         ("  ", Color::Blue, " tools "),
         ("  ", Color::Green, " ui "),
         ("  ", Color::Cyan, " task "),

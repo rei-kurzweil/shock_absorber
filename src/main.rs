@@ -1376,7 +1376,7 @@ fn build_root_context_snapshot(
     if tool_instruction_tokens > 0 {
         segments.push(ContextSegment {
             label: "Tool Instructions".to_string(),
-            category: ContextCategory::ToolDefinitions,
+            category: ContextCategory::ToolInstructions,
             tokens: tool_instruction_tokens,
             truncated: false,
         });
@@ -1385,7 +1385,7 @@ fn build_root_context_snapshot(
     if root_context_window.header_tokens > 0 {
         segments.push(ContextSegment {
             label: "Root Instructions".to_string(),
-            category: ContextCategory::CurrentTask,
+            category: ContextCategory::RootInstructions,
             tokens: root_context_window.header_tokens,
             truncated: false,
         });
@@ -2136,8 +2136,8 @@ mod tests {
         assert_eq!(snapshot.segments[0].label, "System Prompt");
         assert_eq!(snapshot.segments[0].category, ContextCategory::SystemPrompt);
         assert_eq!(snapshot.segments[1].label, "Tool Instructions");
-        assert_eq!(snapshot.segments[1].category, ContextCategory::ToolDefinitions);
+        assert_eq!(snapshot.segments[1].category, ContextCategory::ToolInstructions);
         assert_eq!(snapshot.segments[2].label, "Root Instructions");
-        assert_eq!(snapshot.segments[2].category, ContextCategory::CurrentTask);
+        assert_eq!(snapshot.segments[2].category, ContextCategory::RootInstructions);
     }
 }
