@@ -35,6 +35,10 @@ use crate::harness::context_window::{
     BuiltContextWindow, LLMContext, ProviderContextLimits, approximate_tokens,
     build_context_window_report,
 };
+use crate::harness::context_window_logger::{
+    log_agent_graph, log_chat_transcript, log_current_task, log_root_prompt_snapshot,
+    reset_debug_dir,
+};
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
 use crate::harness::tools::{
     BlueskyTools, parse_prompt_tool_call, prompt_tool_protocol_instructions,
@@ -84,6 +88,7 @@ struct App {
     detail_scroll: u16,
     detail: DetailView,
     root_conversation: Vec<ConversationTurn>,
+    current_root_task: Option<String>,
     agent_graph: Option<AgentGraph>,
     context_visualization: Option<ContextVisualizationData>,
     deferred_detail: Option<DetailView>,
@@ -135,6 +140,7 @@ impl App {
                 lines: help_lines(),
             },
             root_conversation: Vec::new(),
+            current_root_task: None,
             agent_graph: None,
             context_visualization: None,
             deferred_detail: None,
@@ -466,6 +472,7 @@ impl App {
             }
             "clear" | "/clear" => {
                 self.clear_root_conversation();
+                self.current_root_task = None;
                 self.agent_graph = None;
                 self.context_visualization = None;
                 self.set_command_output(
@@ -483,6 +490,10 @@ impl App {
                     self.build_context_visualization(evil_gemma),
                 );
                 self.status = "context visualization loaded".to_string();
+            }
+            "task" | "/task" => {
+                self.set_command_output("/task", self.task_lines());
+                self.status = "task loaded".to_string();
             }
             "help" | "/help" => {
                 self.set_command_output("/help", help_lines());
@@ -504,6 +515,7 @@ impl App {
     ) -> Result<(), Box<dyn Error>> {
         let keep_context_overlay = matches!(self.detail, DetailView::ContextVisualization(_));
         self.deferred_detail = None;
+        self.current_root_task = Some(query.clone());
         let root_context_window = {
             let tools = BlueskyTools::new(&self.store);
             build_tool_aware_query_context_window(
@@ -533,6 +545,7 @@ impl App {
         let mut tool_transcript = Vec::new();
         let mut response = String::new();
         let mut hit_tool_round_limit = false;
+        let mut last_failed_read_collection_id: Option<String> = None;
         let mut agent_graph = AgentGraph::new_root("Root Agent");
         agent_graph.set_context_window(agent_graph.root_agent_id(), root_context_window.clone());
         agent_graph.set_result_summary(agent_graph.root_agent_id(), query.clone());
@@ -558,13 +571,26 @@ impl App {
 
             let tool_name = tool_call.name.clone();
             let tool_args = serde_json::to_string(&tool_call.args)?;
+            let duplicate_search_after_failed_read = repeated_llm_search_after_failed_read(
+                &tool_call,
+                last_failed_read_collection_id.as_deref(),
+            );
             let selected_actor_did = self.selected_actor_did().cloned();
             let mut prep_log = vec![format!(
                 "[tool_prep] inspecting tool `{}` for possible initial collection refresh",
                 tool_call.name
             )];
+            if let Some(collection_id) = duplicate_search_after_failed_read.as_deref() {
+                prep_log.push(format!(
+                    "[tool_prep] prevented immediate re-search of `{collection_id}` after a failed `read_collection_item`"
+                ));
+            }
             let actor_dids =
-                planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call);
+                if duplicate_search_after_failed_read.is_some() {
+                    Vec::new()
+                } else {
+                    planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call)
+                };
             if keep_context_overlay {
                 self.set_ai_chat_output(
                     format!("evil_gemma: {query}"),
@@ -762,20 +788,32 @@ impl App {
                 );
             }
             let tools = BlueskyTools::new(&self.store);
-            let tool_output = match tools
-                .execute_prompt_tool_call(
-                    &tool_call,
-                    self.opened_notification(),
-                    &evil_gemma.client,
-                )
-                .await
+            let tool_output = if let Some(collection_id) =
+                duplicate_search_after_failed_read.as_deref()
             {
-                Ok(output) => output,
-                Err(err) => crate::harness::tools::ToolExecutionOutput {
-                    rendered: format!("Tool execution failed: {err}"),
+                crate::harness::tools::ToolExecutionOutput {
+                    rendered: format!(
+                        "Tool execution prevented: the previous `read_collection_item` failed for `{collection_id}` because the requested item URI was not one of the returned search results.\n\nReuse one of the existing `search_result_*_uri` values from the prior `llm_search` result, or answer directly from that grounded summary. Do not rerun the same collection search unchanged."
+                    ),
                     context_windows: Vec::new(),
                     agent_node: None,
-                },
+                }
+            } else {
+                match tools
+                    .execute_prompt_tool_call(
+                        &tool_call,
+                        self.opened_notification(),
+                        &evil_gemma.client,
+                    )
+                    .await
+                {
+                    Ok(output) => output,
+                    Err(err) => crate::harness::tools::ToolExecutionOutput {
+                        rendered: format!("Tool execution failed: {err}"),
+                        context_windows: Vec::new(),
+                        agent_node: None,
+                    },
+                }
             };
             if let Some(agent_node) = tool_output.agent_node.clone() {
                 agent_graph.attach_template(agent_graph.root_agent_id(), agent_node);
@@ -789,6 +827,22 @@ impl App {
                     tool_output.rendered
                 )
             };
+            let hard_tool_failure_answer =
+                deterministic_tool_failure_answer(&tool_name, &tool_output);
+
+            if tool_name == "read_collection_item" {
+                if tool_output.contains("Tool execution failed:") {
+                    last_failed_read_collection_id = tool_call
+                        .args
+                        .get("collection_id")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string);
+                } else {
+                    last_failed_read_collection_id = None;
+                }
+            } else if duplicate_search_after_failed_read.is_none() {
+                last_failed_read_collection_id = None;
+            }
 
             tool_transcript.push(build_tool_entry(
                 &tool_name,
@@ -812,6 +866,10 @@ impl App {
                     }
                 ),
             });
+            if let Some(failure_answer) = hard_tool_failure_answer {
+                response = failure_answer;
+                break;
+            }
             hit_tool_round_limit = round + 1 == MAX_TOOL_CALL_ROUNDS;
             self.context_visualization = Some(build_live_context_visualization(
                 "/context",
@@ -887,17 +945,53 @@ impl App {
 
         let output_lines = build_evil_gemma_output_lines(&tool_transcript, None, Some(&response));
         if keep_context_overlay {
-            self.set_ai_chat_output(format!("evil_gemma: {query}"), output_lines, false);
+            self.set_ai_chat_output(
+                format!("evil_gemma: {query}"),
+                output_lines.clone(),
+                false,
+            );
             self.status = "evil_gemma response ready; dismiss /context to view output".to_string();
         } else {
-            self.set_ai_chat_output(format!("evil_gemma: {query}"), output_lines, true);
+            self.set_ai_chat_output(
+                format!("evil_gemma: {query}"),
+                output_lines.clone(),
+                true,
+            );
             self.status = "evil_gemma response loaded".to_string();
         }
         self.root_conversation.push(ConversationTurn {
             user: query,
-            assistant: response,
+            assistant: response.clone(),
         });
         agent_graph.set_status(agent_graph.root_agent_id(), AgentNodeStatus::Completed);
+        if let Some(last_turn) = self.root_conversation.last() {
+            agent_graph.set_result_summary(
+                agent_graph.root_agent_id(),
+                last_turn.assistant.clone(),
+            );
+        }
+        let mut final_messages = messages.clone();
+        final_messages.push(ChatMessage {
+            role: "assistant".to_string(),
+            content: response.clone(),
+        });
+        let final_context_visualization = build_live_context_visualization(
+            "/context",
+            &final_messages,
+            evil_gemma.system_prompt.trim(),
+            prompt_tool_protocol_instructions(),
+            &root_context_window,
+            &agent_graph,
+            &evil_gemma.client.context_limits(),
+        );
+        self.context_visualization = Some(final_context_visualization.clone());
+        let debug_base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let _ = log_agent_graph(&debug_base_dir, &agent_graph);
+        let _ = log_chat_transcript(&debug_base_dir, &output_lines);
+        let _ = log_current_task(&debug_base_dir, &agent_graph, self.current_root_task.as_deref());
+        if let Some(root_snapshot) = final_context_visualization.windows.first() {
+            let _ = log_root_prompt_snapshot(&debug_base_dir, root_snapshot);
+        }
         self.agent_graph = Some(agent_graph);
         Ok(())
     }
@@ -975,6 +1069,27 @@ impl App {
         self.root_conversation.clear();
     }
 
+    fn task_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if let Some(graph) = self.agent_graph.as_ref() {
+            if let Some(root) = graph.node(graph.root_agent_id()) {
+                lines.push(format!("root_agent_id: {}", root.agent_id.0));
+                lines.push(format!("status: {}", root.status.as_str()));
+                if let Some(summary) = root.result_summary.as_deref() {
+                    lines.push(format!("result_summary: {}", summary));
+                }
+            }
+        }
+        lines.push(String::new());
+        lines.push("current_task:".to_string());
+        lines.push(
+            self.current_root_task
+                .clone()
+                .unwrap_or_else(|| "<none>".to_string()),
+        );
+        lines
+    }
+
     fn build_context_visualization(
         &self,
         evil_gemma: &EvilGemmaConfig,
@@ -1022,6 +1137,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new(handle);
     restore_store_from_db(&mut app.store, &db)?;
     app.status = format!("{} | db {}", app.status, db.path().display());
+    let debug_base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let _ = reset_debug_dir(&debug_base_dir);
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -1255,20 +1372,20 @@ fn build_root_context_snapshot(
         });
     }
 
-    let tool_protocol_tokens = approximate_tokens(tool_protocol.trim());
-    if tool_protocol_tokens > 0 {
+    let tool_instruction_tokens = approximate_tokens(tool_protocol.trim());
+    if tool_instruction_tokens > 0 {
         segments.push(ContextSegment {
-            label: "Tool Protocol".to_string(),
+            label: "Tool Instructions".to_string(),
             category: ContextCategory::ToolDefinitions,
-            tokens: tool_protocol_tokens,
+            tokens: tool_instruction_tokens,
             truncated: false,
         });
     }
 
     if root_context_window.header_tokens > 0 {
         segments.push(ContextSegment {
-            label: "Context Header".to_string(),
-            category: ContextCategory::UiContext,
+            label: "Root Instructions".to_string(),
+            category: ContextCategory::CurrentTask,
             tokens: root_context_window.header_tokens,
             truncated: false,
         });
@@ -1395,9 +1512,11 @@ fn compact_llm_search_result_for_root_context(tool_output: &str) -> String {
             kept.push(trimmed.to_string());
             continue;
         }
-        if trimmed.starts_with("anchor_uri:")
-            || trimmed.starts_with("anchor_collection_id:")
-            || trimmed.starts_with("anchor_collection_label:")
+        if trimmed.starts_with("summary:")
+            || trimmed.starts_with("selected_result_uri:")
+            || trimmed.starts_with("selected_result_source_collection_id:")
+            || trimmed.starts_with("selected_result_collection_id:")
+            || trimmed.starts_with("selected_result_collection_label:")
             || trimmed.starts_with("collection_id:")
             || trimmed.starts_with("collection_label:")
             || trimmed.starts_with("status:")
@@ -1418,6 +1537,72 @@ fn truncate_for_root_context(text: &str, max_lines: usize) -> String {
         lines.push("...".to_string());
     }
     lines.join("\n")
+}
+
+fn deterministic_tool_failure_answer(tool_name: &str, tool_output: &str) -> Option<String> {
+    if tool_name != "llm_search" {
+        return None;
+    }
+
+    if tool_output.contains("Tool execution failed:") {
+        let failure_line = tool_output
+            .lines()
+            .find(|line| line.trim_start().starts_with("Tool execution failed:"))
+            .map(str::trim)
+            .unwrap_or("Tool execution failed.");
+        let prep_warning = tool_output
+            .lines()
+            .find(|line| line.contains("Profile not found"))
+            .map(str::trim);
+
+        let mut lines = vec![
+            "I couldn't inspect the requested cached collections, so I can't ground a sentiment answer."
+                .to_string(),
+            failure_line.to_string(),
+        ];
+
+        if let Some(prep_warning) = prep_warning {
+            lines.push(prep_warning.to_string());
+        }
+
+        lines.push(
+            "No list contents or reply evidence were successfully loaded for this search, so any sentiment summary would be speculative."
+                .to_string(),
+        );
+
+        return Some(lines.join("\n\n"));
+    }
+
+    if tool_output.trim() == "No matching cached posts." {
+        return Some(
+            "The latest `llm_search` returned no grounded search results for that scope.\n\nI can't safely expand that into a sentiment or list-by-list analysis without inventing evidence."
+                .to_string(),
+        );
+    }
+
+    None
+}
+
+fn repeated_llm_search_after_failed_read(
+    tool_call: &crate::harness::tools::PromptToolCall,
+    last_failed_read_collection_id: Option<&str>,
+) -> Option<String> {
+    if tool_call.name != "llm_search" {
+        return None;
+    }
+
+    let failed_collection_id = last_failed_read_collection_id?;
+    let collection_ids = tool_call.args.get("collection_ids")?.as_array()?;
+    if collection_ids.len() != 1 {
+        return None;
+    }
+
+    let collection_id = collection_ids.first()?.as_str()?;
+    if collection_id == failed_collection_id {
+        Some(collection_id.to_string())
+    } else {
+        None
+    }
 }
 
 fn build_tool_entry(
@@ -1739,6 +1924,7 @@ fn help_lines() -> Vec<String> {
         "  /replies_from handle.bsky.social".to_string(),
         "  /pins handle.bsky.social".to_string(),
         "  /context".to_string(),
+        "  /task".to_string(),
         "  /clear".to_string(),
         "  /help".to_string(),
         "  /quit".to_string(),
@@ -1758,6 +1944,7 @@ fn is_local_command(verb: &str) -> bool {
             | "/replies_from"
             | "/pins"
             | "/context"
+            | "/task"
             | "/clear"
             | "/help"
             | "/q"
@@ -1767,6 +1954,7 @@ fn is_local_command(verb: &str) -> bool {
             | "replies_from"
             | "pins"
             | "context"
+            | "task"
             | "clear"
             | "help"
             | "q"
@@ -1886,4 +2074,70 @@ fn draw_ui(frame: &mut Frame, app: &App) {
         .min(chunks[1].x + chunks[1].width.saturating_sub(2));
     let cursor_y = chunks[1].y + 1;
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_root_context_snapshot, compact_llm_search_result_for_root_context};
+    use crate::harness::context_window::{
+        BuiltContextSection, BuiltContextWindow, ProviderContextLimits,
+    };
+    use crate::harness::llm_api::ChatMessage;
+    use crate::visualization::context::ContextCategory;
+
+    #[test]
+    fn compact_llm_search_keeps_summary_and_selected_result_fields() {
+        let tool_output = "llm_search searched collections independently and combined the grounded results below.\nsummary: grounded answer\nselected_result_uri: at://one\nselected_result_source_collection_id: clearsky:test\nselected_result_collection_id: clearsky:test\nselected_result_collection_label: Clearsky test\n\ncollection_id: clearsky:test\ncollection_label: Clearsky test\nstatus: ok\npost: picked\nsummary: child details";
+
+        let compact = compact_llm_search_result_for_root_context(tool_output);
+
+        assert!(compact.contains("summary: grounded answer"));
+        assert!(compact.contains("selected_result_uri: at://one"));
+        assert!(compact.contains("selected_result_collection_id: clearsky:test"));
+    }
+
+    #[test]
+    fn root_snapshot_splits_system_tool_and_root_instructions() {
+        let window = BuiltContextWindow {
+            rendered: String::new(),
+            header_tokens: 30,
+            used_input_tokens: 50,
+            truncated: false,
+            limits: ProviderContextLimits {
+                provider_name: "test".to_string(),
+                model_name: "test".to_string(),
+                max_context_tokens: 1000,
+                reserved_output_tokens: 100,
+            },
+            sections: vec![BuiltContextSection {
+                title: "Current Task".to_string(),
+                used_tokens: 20,
+                truncated: false,
+            }],
+        };
+
+        let snapshot = build_root_context_snapshot(
+            &[
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "system".to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: "context".to_string(),
+                },
+            ],
+            "short system prompt",
+            "tool protocol text",
+            &window,
+            &window.limits,
+        );
+
+        assert_eq!(snapshot.segments[0].label, "System Prompt");
+        assert_eq!(snapshot.segments[0].category, ContextCategory::SystemPrompt);
+        assert_eq!(snapshot.segments[1].label, "Tool Instructions");
+        assert_eq!(snapshot.segments[1].category, ContextCategory::ToolDefinitions);
+        assert_eq!(snapshot.segments[2].label, "Root Instructions");
+        assert_eq!(snapshot.segments[2].category, ContextCategory::CurrentTask);
+    }
 }

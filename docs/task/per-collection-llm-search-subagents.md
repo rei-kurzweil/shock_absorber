@@ -72,6 +72,66 @@ So today:
 - ownership and hierarchy are implicit in control flow
 - introspection is partial and reconstructive rather than authoritative
 
+## Status Update
+
+The core refactor is now partly in place.
+
+Implemented:
+
+- `llm_search` now creates a parent tool-agent node plus one collection-search child node per searched collection
+- `/context` can render those child windows as distinct nodes instead of flattening them into one anonymous search
+- child collection-search agents now emit:
+  - `summary`
+  - up to four concrete search-result item identifiers
+- the parent `llm_search` tool agent now emits its own synthesized summary across the child results
+- `.debug/` now records:
+  - the user-visible chat transcript
+  - the current task
+  - one debug file per agent node
+
+What is still wrong or incomplete:
+
+- the root `/context` visualization is still heavier than it should be and has been confusing to read
+- the root agent can still make a poor follow-up decision after a valid `llm_search`, especially after a failed `read_collection_item`
+- chat-token usage is not clearly surfaced in `/context`
+- the final root prompt state is not yet logged as a first-class debug artifact
+- the root model can still re-search the same collection immediately after a failed read step
+
+## Latest Observed Failure Mode
+
+The latest captured root exchange showed this sequence:
+
+1. the root agent ran a broad `llm_search` over all actor collections
+2. the `llm_search` tool agent returned a usable per-collection synthesis, including Clearsky-list evidence
+3. the root agent then called `read_collection_item` with an invented placeholder string instead of reusing one of the returned search-result URIs
+4. that tool call failed
+5. the root agent then ran a second `llm_search` over `clearsky_lists` again
+
+Important interpretation:
+
+- the duplicate `clearsky_lists` search did not come from the `llm_search` fanout implementation itself
+- it came from a second root-level tool call after the failed read step
+
+## Current Implementation Slice
+
+This next patch should tighten the harness around that observed behavior.
+
+Near-term goals:
+
+- make the root `/context` visualization better match the real prompt structure
+- surface category totals in `/context`, including chat tokens
+- log the final root prompt snapshot to `.debug/`
+- prevent the root agent from immediately re-running `llm_search` over the same collection after a failed `read_collection_item` when the scope has not changed
+
+## Snapshot Preservation
+
+Because `.debug/` is reset on startup, useful comparison snapshots should be copied into:
+
+- `docs/task/assets/`
+
+These copied snapshots are intentionally static reference artifacts for this task.
+They do not need to stay in sync with later runs.
+
 ## Desired Runtime Model
 
 This task should move the system toward a real agent graph, not just more nested helper calls.
@@ -212,7 +272,7 @@ This does not need to be the final schema, but the system should stop relying on
 Per-collection search agents should answer only:
 
 - what evidence in this collection matches the prompt
-- what one anchor item best represents that collection hit
+- what one chosen item best represents that collection hit
 - what repeated themes appear inside that collection
 
 They should not be responsible for the final cross-collection conclusion.
@@ -226,19 +286,19 @@ The final outward-facing `llm_search` tool result can still remain a single tool
 But internally it should preserve:
 
 - one result per collection searched
-- one anchor item per collection when available
+- one chosen item per collection when available
 - one context-window report per collection search agent
 - one synthesis step across those collection-local results
 
 Near-term acceptable final shape:
 
 - a combined result block that includes compact per-collection evidence sections
-- plus one selected anchor URI that the main agent can inspect further
+- plus one selected item URI/DID that the main agent can inspect further
 
 Longer-term better shape:
 
 - explicit structured sub-results
-- explicit collection-local anchor items
+- explicit collection-local chosen items
 - explicit final synthesized summary
 
 ## `/context` Expectations
@@ -285,7 +345,34 @@ This parent synthesis step should be able to:
 - compare evidence across collection kinds
 - note when one collection has no meaningful matches
 - keep moderation-list evidence distinct from authored-post evidence
-- prefer a more representative anchor item if one collection result is clearly stronger
+- prefer a more representative chosen item if one collection result is clearly stronger
+
+## Search Result Model
+
+For this task, chosen items are the search results.
+
+That means:
+
+- a per-collection search agent should choose one or more concrete items from that collection
+- each chosen item must have a stable inspectable identifier such as a `uri` or `did`
+- those item identifiers are the search result identities
+- we do not need a separate abstract citation layer detached from the chosen items
+
+Near-term preferred shape:
+
+- each collection-search result includes:
+  - `summary`
+  - `search_results`
+- each chosen item includes:
+  - `uri` or `did`
+  - optional `source_collection_id` when needed
+
+The parent `llm_search` tool agent should synthesize from:
+
+- child summaries
+- child search results
+
+not from free-floating citation strings with no item identity.
 
 ## Prompt Construction Requirements
 

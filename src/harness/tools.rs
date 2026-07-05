@@ -185,7 +185,7 @@ pub struct PromptToolCall {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LlmSearchCitation {
+pub struct LlmSearchResultItem {
     pub uri: String,
     pub source_collection_id: Option<String>,
 }
@@ -194,7 +194,7 @@ pub struct LlmSearchCitation {
 pub struct LlmSearchResult {
     pub title: String,
     pub summary: String,
-    pub citations: Vec<LlmSearchCitation>,
+    pub search_results: Vec<LlmSearchResultItem>,
 }
 
 pub struct LlmSearchExecution {
@@ -218,6 +218,9 @@ struct CollectionSearchOutcome {
     collection_label: String,
     execution: Result<LlmSearchExecution, String>,
 }
+
+const LLM_SEARCH_PARENT_SYSTEM_PROMPT: &str =
+    "Synthesize grounded per-collection search results. Keep collection boundaries explicit, compare what each collection supports, and retain failures as diagnostics. Return a compact combined result block with a cross-collection `summary:` plus the strongest real `selected_result_*` anchor when available. Do not invent evidence beyond the provided child results.";
 
 pub struct LlmSearchComparator<'a> {
     pub prompt: &'a str,
@@ -380,8 +383,9 @@ impl<'a> BlueskyTools<'a> {
                 let outcomes = self
                     .run_collection_searches(&collections, &prompt, llm_client)
                     .await;
+                let rendered = synthesize_llm_search_results(&prompt, &outcomes, llm_client).await;
                 Ok(ToolExecutionOutput {
-                    rendered: render_combined_llm_search_results(&outcomes),
+                    rendered,
                     context_windows: outcomes
                         .iter()
                         .filter_map(|outcome| match outcome.execution.as_ref() {
@@ -487,11 +491,11 @@ impl<'a> BlueskyTools<'a> {
                     format!("post: {}", result.title),
                     format!("summary: {}", result.summary),
                 ];
-                for (index, citation) in result.citations.iter().enumerate() {
-                    lines.push(format!("citation_uri_{}: {}", index + 1, citation.uri));
-                    if let Some(source_collection_id) = citation.source_collection_id.as_deref() {
+                for (index, search_result) in result.search_results.iter().enumerate() {
+                    lines.push(format!("search_result_{}_uri: {}", index + 1, search_result.uri));
+                    if let Some(source_collection_id) = search_result.source_collection_id.as_deref() {
                         lines.push(format!(
-                            "citation_source_collection_id_{}: {}",
+                            "search_result_{}_source_collection_id: {}",
                             index + 1,
                             source_collection_id
                         ));
@@ -735,9 +739,9 @@ fn parse_llm_search_result(
     collection: &LabeledPostCollection,
     response: &str,
 ) -> Option<LlmSearchResult> {
-    let citations = find_matching_uris_from_response(collection, response)
+    let search_results = find_matching_uris_from_response(collection, response)
         .into_iter()
-        .map(|uri| LlmSearchCitation {
+        .map(|uri| LlmSearchResultItem {
             source_collection_id: collection
                 .posts
                 .iter()
@@ -747,7 +751,7 @@ fn parse_llm_search_result(
             uri,
         })
         .collect::<Vec<_>>();
-    if citations.is_empty() {
+    if search_results.is_empty() {
         return None;
     }
 
@@ -758,27 +762,14 @@ fn parse_llm_search_result(
         .map(str::to_owned)
         .unwrap_or_else(|| format!("LLM-selected post in {}", collection.label));
 
-    let summary = response
-        .lines()
-        .find_map(|line| line.strip_prefix("summary:").map(str::trim))
+    let summary = extract_llm_search_summary(response)
         .filter(|summary| !summary.is_empty())
-        .map(str::to_owned)
-        .or_else(|| {
-            let analysis = response
-                .lines()
-                .skip_while(|line| !line.starts_with("analysis:"))
-                .collect::<Vec<_>>()
-                .join("\n")
-                .trim()
-                .to_string();
-            (!analysis.is_empty()).then_some(analysis)
-        })
-        .unwrap_or_else(|| response.trim().to_string());
+        .unwrap_or_else(|| fallback_llm_search_summary(collection, &search_results));
 
     Some(LlmSearchResult {
         title,
         summary,
-        citations,
+        search_results,
     })
 }
 
@@ -790,26 +781,21 @@ fn find_matching_uris_from_response(
 
     for line in response.lines() {
         let trimmed = line.trim();
-        if let Some(uri) = trimmed
-            .strip_prefix("uri:")
-            .or_else(|| trimmed.strip_prefix("citation_uri_1:"))
-            .or_else(|| trimmed.strip_prefix("citation_uri_2:"))
-            .or_else(|| trimmed.strip_prefix("citation_uri_3:"))
-        {
-            push_search_uri(collection, &mut uris, uri.trim(), 3);
+        if let Some(uri) = trimmed.strip_prefix("uri:") {
+            push_search_uri(collection, &mut uris, uri.trim(), 4);
         }
     }
 
     for post in &collection.posts {
-        if uris.len() >= 3 {
+        if uris.len() >= 4 {
             break;
         }
         if response.contains(&post.uri) {
-            push_search_uri(collection, &mut uris, &post.uri, 3);
+            push_search_uri(collection, &mut uris, &post.uri, 4);
         }
     }
 
-    if uris.len() >= 3 {
+    if uris.len() >= 4 {
         return uris;
     }
 
@@ -823,13 +809,83 @@ fn find_matching_uris_from_response(
     scored.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
 
     for (_, uri) in scored {
-        if uris.len() >= 3 {
+        if uris.len() >= 4 {
             break;
         }
-        push_search_uri(collection, &mut uris, &uri, 3);
+        push_search_uri(collection, &mut uris, &uri, 4);
     }
 
     uris
+}
+
+fn extract_llm_search_summary(response: &str) -> Option<String> {
+    response
+        .lines()
+        .find_map(summary_line_value)
+        .filter(|summary| is_valid_llm_search_summary(summary))
+        .map(str::to_owned)
+        .or_else(|| {
+            let analysis = response
+                .lines()
+                .skip_while(|line| !line.starts_with("analysis:"))
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string();
+            is_valid_llm_search_summary(&analysis).then_some(analysis)
+        })
+}
+
+fn summary_line_value(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    trimmed
+        .strip_prefix("summary:")
+        .or_else(|| trimmed.strip_prefix("\"summary\":"))
+        .map(str::trim)
+        .map(|value| value.trim_matches(',').trim_matches('"'))
+}
+
+fn is_valid_llm_search_summary(summary: &str) -> bool {
+    let trimmed = summary.trim();
+    !trimmed.is_empty()
+        && !trimmed.starts_with("## ")
+        && !trimmed.starts_with("collection_id:")
+        && !trimmed.starts_with("item[")
+        && !trimmed.starts_with("{")
+}
+
+fn fallback_llm_search_summary(
+    collection: &LabeledPostCollection,
+    search_results: &[LlmSearchResultItem],
+) -> String {
+    let mut hints = Vec::new();
+    for search_result in search_results {
+        let Some(post) = collection.posts.iter().find(|post| post.uri == search_result.uri) else {
+            continue;
+        };
+        for hint in candidate_hints(post) {
+            let hint = hint.trim();
+            if hint.len() < 3 || hints.iter().any(|seen| seen == hint) {
+                continue;
+            }
+            hints.push(hint.to_string());
+            if hints.len() >= 3 {
+                break;
+            }
+        }
+        if hints.len() >= 3 {
+            break;
+        }
+    }
+
+    if hints.is_empty() {
+        format!(
+            "Grounded evidence was found in {} selected search result(s).",
+            search_results.len()
+        )
+    } else {
+        format!("Grounded evidence centers on: {}.", hints.join("; "))
+    }
 }
 
 fn push_search_uri(
@@ -1074,11 +1130,11 @@ fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
                 format!("post: {}", result.title),
                 format!("summary: {}", result.summary),
             ];
-            for (index, citation) in result.citations.iter().enumerate() {
-                lines.push(format!("citation_uri_{}: {}", index + 1, citation.uri));
-                if let Some(source_collection_id) = citation.source_collection_id.as_deref() {
+            for (index, search_result) in result.search_results.iter().enumerate() {
+                lines.push(format!("search_result_{}_uri: {}", index + 1, search_result.uri));
+                if let Some(source_collection_id) = search_result.source_collection_id.as_deref() {
                     lines.push(format!(
-                        "citation_source_collection_id_{}: {}",
+                        "search_result_{}_source_collection_id: {}",
                         index + 1,
                         source_collection_id
                     ));
@@ -1087,6 +1143,62 @@ fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
             lines.join("\n")
         }
         None => "No matching cached posts.".to_string(),
+    }
+}
+
+fn render_llm_result_compact(result: Option<&LlmSearchResult>) -> String {
+    match result {
+        Some(result) => {
+            let mut lines = vec![
+                format!("post: {}", result.title),
+                format!("summary: {}", result.summary),
+            ];
+            for (index, search_result) in result.search_results.iter().enumerate() {
+                lines.push(format!("search_result_{}_uri: {}", index + 1, search_result.uri));
+                if let Some(source_collection_id) = search_result.source_collection_id.as_deref() {
+                    lines.push(format!(
+                        "search_result_{}_source_collection_id: {}",
+                        index + 1,
+                        source_collection_id
+                    ));
+                }
+            }
+            lines.join("\n")
+        }
+        None => "No matching cached posts.".to_string(),
+    }
+}
+
+async fn synthesize_llm_search_results(
+    prompt: &str,
+    outcomes: &[CollectionSearchOutcome],
+    llm_client: &LlmApiClient,
+) -> String {
+    if outcomes.len() <= 1 {
+        return render_combined_llm_search_results(outcomes);
+    }
+
+    let context = build_llm_search_parent_context(prompt, outcomes);
+    let context_window = build_context_window_report(&context, &llm_client.context_limits());
+    let rendered_context = context_window.rendered.clone();
+    match llm_client
+        .complete_chat(
+            vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: context.header().to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: rendered_context,
+                },
+            ],
+            768,
+        )
+        .await
+    {
+        Ok(summary) => render_combined_llm_search_results_with_summary(outcomes, Some(summary.trim())),
+        Err(_) => render_combined_llm_search_results_with_summary(outcomes, None),
     }
 }
 
@@ -1154,9 +1266,15 @@ fn build_llm_search_tool_context_window(
     outcomes: &[CollectionSearchOutcome],
     llm_client: &LlmApiClient,
 ) -> BuiltContextWindow {
-    let mut context = LLMContext::new(
-        "Synthesize grounded per-collection search results. Keep collection boundaries explicit and retain failures as diagnostics.",
-    );
+    let context = build_llm_search_parent_context(prompt, outcomes);
+    build_context_window_report(&context, &llm_client.context_limits())
+}
+
+fn build_llm_search_parent_context(
+    prompt: &str,
+    outcomes: &[CollectionSearchOutcome],
+) -> LLMContext {
+    let mut context = LLMContext::new(LLM_SEARCH_PARENT_SYSTEM_PROMPT);
     context.push_section("Original Search Prompt", prompt);
     context.push_section(
         "Per-Collection Results",
@@ -1170,7 +1288,7 @@ fn build_llm_search_tool_context_window(
                 match outcome.execution.as_ref() {
                     Ok(execution) => {
                         lines.push("status: ok".to_string());
-                        lines.push(render_llm_result(execution.result.as_ref()));
+                        lines.push(render_llm_result_compact(execution.result.as_ref()));
                     }
                     Err(err) => {
                         lines.push("status: failed".to_string());
@@ -1182,10 +1300,17 @@ fn build_llm_search_tool_context_window(
             .collect::<Vec<_>>()
             .join("\n\n"),
     );
-    build_context_window_report(&context, &llm_client.context_limits())
+    context
 }
 
 fn render_combined_llm_search_results(outcomes: &[CollectionSearchOutcome]) -> String {
+    render_combined_llm_search_results_with_summary(outcomes, None)
+}
+
+fn render_combined_llm_search_results_with_summary(
+    outcomes: &[CollectionSearchOutcome],
+    parent_summary: Option<&str>,
+) -> String {
     if outcomes.len() == 1 {
         return match outcomes.first() {
             Some(outcome) => match outcome.execution.as_ref() {
@@ -1203,20 +1328,25 @@ fn render_combined_llm_search_results(outcomes: &[CollectionSearchOutcome]) -> S
         "llm_search searched collections independently and combined the grounded results below."
             .to_string(),
     ];
+    if let Some(summary) = normalize_parent_summary(parent_summary) {
+        lines.push(format!("summary: {summary}"));
+    } else if let Some(summary) = fallback_parent_summary(outcomes) {
+        lines.push(format!("summary: {summary}"));
+    }
 
     if let Some((outcome, result)) = outcomes.iter().find_map(|outcome| match outcome.execution.as_ref() {
         Ok(execution) => execution.result.as_ref().map(|result| (outcome, result)),
         Err(_) => None,
     }) {
-        if let Some(citation) = result.citations.first() {
-            lines.push(format!("anchor_uri: {}", citation.uri));
-            if let Some(source_collection_id) = citation.source_collection_id.as_deref() {
-                lines.push(format!("anchor_source_collection_id: {source_collection_id}"));
+        if let Some(search_result) = result.search_results.first() {
+            lines.push(format!("selected_result_uri: {}", search_result.uri));
+            if let Some(source_collection_id) = search_result.source_collection_id.as_deref() {
+                lines.push(format!("selected_result_source_collection_id: {source_collection_id}"));
             }
         }
-        lines.push(format!("anchor_collection_id: {}", outcome.collection_id));
+        lines.push(format!("selected_result_collection_id: {}", outcome.collection_id));
         lines.push(format!(
-            "anchor_collection_label: {}",
+            "selected_result_collection_label: {}",
             outcome.collection_label
         ));
     }
@@ -1228,7 +1358,7 @@ fn render_combined_llm_search_results(outcomes: &[CollectionSearchOutcome]) -> S
         match outcome.execution.as_ref() {
             Ok(execution) => {
                 lines.push("status: ok".to_string());
-                lines.push(render_llm_result(execution.result.as_ref()));
+                lines.push(render_llm_result_compact(execution.result.as_ref()));
             }
             Err(err) => {
                 lines.push("status: failed".to_string());
@@ -1238,6 +1368,57 @@ fn render_combined_llm_search_results(outcomes: &[CollectionSearchOutcome]) -> S
     }
 
     lines.join("\n")
+}
+
+fn normalize_parent_summary(summary: Option<&str>) -> Option<String> {
+    let summary = summary?.trim();
+    if summary.is_empty() {
+        return None;
+    }
+
+    let mut kept = Vec::new();
+    for line in summary.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("summary:") {
+            kept.push(value.trim().to_string());
+            continue;
+        }
+        if trimmed.starts_with("selected_result_")
+            || trimmed.starts_with("collection_id:")
+            || trimmed.starts_with("collection_label:")
+            || trimmed.starts_with("status:")
+            || trimmed.starts_with("error:")
+        {
+            continue;
+        }
+        kept.push(trimmed.to_string());
+    }
+
+    if kept.is_empty() {
+        None
+    } else {
+        Some(kept.join(" "))
+    }
+}
+
+fn fallback_parent_summary(outcomes: &[CollectionSearchOutcome]) -> Option<String> {
+    let summaries = outcomes
+        .iter()
+        .filter_map(|outcome| {
+            let execution = outcome.execution.as_ref().ok()?;
+            let result = execution.result.as_ref()?;
+            Some(format!("{}: {}", outcome.collection_label, result.summary))
+        })
+        .collect::<Vec<_>>();
+
+    if summaries.is_empty() {
+        None
+    } else {
+        Some(summaries.join(" | "))
+    }
 }
 
 fn source_collection_id_from_post(post: &PostRecord) -> Option<String> {
@@ -1577,7 +1758,7 @@ mod tests {
         )
         .expect("expected parsed result");
 
-        assert_eq!(result.citations[0].uri, "at://one");
+        assert_eq!(result.search_results[0].uri, "at://one");
         assert_eq!(result.title, "picked post");
     }
 
@@ -1607,11 +1788,11 @@ mod tests {
         )
         .expect("expected parsed result");
 
-        assert_eq!(result.citations[0].uri, "https://example.com/list-a");
+        assert_eq!(result.search_results[0].uri, "https://example.com/list-a");
     }
 
     #[test]
-    fn llm_search_result_collects_up_to_three_citations() {
+    fn llm_search_result_collects_up_to_four_search_results() {
         let collection = LabeledPostCollection::new(
             "recent:test",
             "Recent test posts",
@@ -1641,17 +1822,17 @@ mod tests {
 
         let result = parse_llm_search_result(
             &collection,
-            "title: cited posts\nsummary: repeated cat references\ncitation_uri_1: at://one\ncitation_uri_2: at://two\ncitation_uri_3: at://three\ncitation_uri_4: at://four",
+            "title: cited posts\nsummary: repeated cat references\nuri: at://one\nuri: at://two\nuri: at://three\nuri: at://four",
         )
         .expect("expected parsed result");
 
-        assert_eq!(result.citations.len(), 3);
-        assert_eq!(result.citations[0].uri, "at://one");
-        assert_eq!(result.citations[2].uri, "at://three");
+        assert_eq!(result.search_results.len(), 4);
+        assert_eq!(result.search_results[0].uri, "at://one");
+        assert_eq!(result.search_results[3].uri, "at://four");
     }
 
     #[test]
-    fn render_llm_result_includes_summary_and_citations() {
+    fn render_llm_result_includes_summary_and_search_results() {
         let collection = LabeledPostCollection::new(
             "recent:test",
             "Recent test posts",
@@ -1663,14 +1844,44 @@ mod tests {
         );
         let result = parse_llm_search_result(
             &collection,
-            "title: picked post\nsummary: quote and context\ncitation_uri_1: at://one",
+            "title: picked post\nsummary: quote and context\nuri: at://one",
         )
         .expect("expected parsed result");
 
         let rendered = render_llm_result(Some(&result));
         assert!(rendered.contains("summary: quote and context"));
-        assert!(rendered.contains("citation_uri_1: at://one"));
-        assert!(rendered.contains("citation_source_collection_id_1: recent:test"));
+        assert!(rendered.contains("search_result_1_uri: at://one"));
+        assert!(rendered.contains("search_result_1_source_collection_id: recent:test"));
+    }
+
+    #[test]
+    fn llm_search_result_falls_back_to_grounded_summary_instead_of_raw_dump() {
+        let collection = LabeledPostCollection::new(
+            "clearsky:test",
+            "Clearsky test lists",
+            vec![
+                PostRecord {
+                    uri: "https://example.com/list-a".to_string(),
+                    author_handle: "clearsky".to_string(),
+                    body: "list_name: AI Fanatics\nlist_description: magical thinking".to_string(),
+                },
+                PostRecord {
+                    uri: "https://example.com/list-b".to_string(),
+                    author_handle: "clearsky".to_string(),
+                    body: "list_name: Please stop\nlist_description: people who should stop"
+                        .to_string(),
+                },
+            ],
+        );
+
+        let result = parse_llm_search_result(
+            &collection,
+            "## Collection\ncollection_id: clearsky:test\nitem[0]\nuri: https://example.com/list-a\nuri: https://example.com/list-b",
+        )
+        .expect("expected parsed result");
+
+        assert!(!result.summary.contains("## Collection"));
+        assert!(result.summary.contains("AI Fanatics") || result.summary.contains("Please stop"));
     }
 
     #[test]

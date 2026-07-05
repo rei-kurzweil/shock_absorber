@@ -201,6 +201,8 @@ pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData, sc
             lines.push(context_bar_line(window, bar_width));
         }
 
+        lines.push(Line::from(category_totals_summary(window)));
+
         if index == 0 {
             for segment in &window.segments {
                 let pct = if window.input_budget_tokens == 0 {
@@ -250,6 +252,36 @@ fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
         })
         .collect::<Vec<_>>()
         .join(" | ")
+}
+
+fn category_totals_summary(window: &PromptContextSnapshot) -> String {
+    let mut totals = [0usize; 6];
+    let mut order = Vec::new();
+    for segment in &window.segments {
+        let index = category_index(&segment.category);
+        totals[index] += segment.tokens;
+        if !order.contains(&index) {
+            order.push(index);
+        }
+    }
+
+    order
+        .into_iter()
+        .map(|index| format!("{} {}", category_label(index), totals[index]))
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn category_label(index: usize) -> &'static str {
+    match index {
+        0 => "System Prompt",
+        1 => "Tools",
+        2 => "UI",
+        3 => "Task",
+        4 => "Chat",
+        5 => "Tool Results",
+        _ => "Unknown",
+    }
 }
 
 fn context_bar_line(window: &PromptContextSnapshot, width: u16) -> Line<'static> {
@@ -320,6 +352,17 @@ fn color_for_category(category: &ContextCategory) -> Color {
     }
 }
 
+fn category_index(category: &ContextCategory) -> usize {
+    match category {
+        ContextCategory::SystemPrompt => 0,
+        ContextCategory::ToolDefinitions => 1,
+        ContextCategory::UiContext => 2,
+        ContextCategory::CurrentTask => 3,
+        ContextCategory::UserAiChat => 4,
+        ContextCategory::ToolResults => 5,
+    }
+}
+
 fn legend_line() -> Line<'static> {
     let items = [
         ("  ", Color::Magenta, " system "),
@@ -362,5 +405,49 @@ fn category_for_root_section(title: &str) -> ContextCategory {
                 ContextCategory::UiContext
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{category_totals_summary, ContextCategory, ContextSegment, PromptContextSnapshot};
+
+    #[test]
+    fn category_totals_follow_first_segment_order() {
+        let window = PromptContextSnapshot {
+            title: "Root Agent".to_string(),
+            provider_name: "test".to_string(),
+            model_name: "test".to_string(),
+            max_context_tokens: 1000,
+            reserved_output_tokens: 100,
+            input_budget_tokens: 900,
+            used_input_tokens: 60,
+            truncated: false,
+            segments: vec![
+                ContextSegment {
+                    label: "System Prompt".to_string(),
+                    category: ContextCategory::SystemPrompt,
+                    tokens: 10,
+                    truncated: false,
+                },
+                ContextSegment {
+                    label: "Tool Result #1".to_string(),
+                    category: ContextCategory::ToolResults,
+                    tokens: 20,
+                    truncated: false,
+                },
+                ContextSegment {
+                    label: "Assistant Reply".to_string(),
+                    category: ContextCategory::UserAiChat,
+                    tokens: 30,
+                    truncated: false,
+                },
+            ],
+        };
+
+        assert_eq!(
+            category_totals_summary(&window),
+            "System Prompt 10 | Tool Results 20 | Chat 30"
+        );
     }
 }

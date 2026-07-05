@@ -76,6 +76,7 @@ Near-term files:
 
 - `.debug/chat_transcript.md`
 - `.debug/current_task.txt`
+- `.debug/root_prompt_snapshot.md`
 - `.debug/agents/root_agent.md`
 - `.debug/agents/tool_agent_llm_search_<n>.md`
 - `.debug/agents/collection_search_agent_<n>.md`
@@ -165,6 +166,28 @@ Near-term acceptable behavior:
 We should also mirror the same data to:
 
 - `.debug/current_task.txt`
+
+## Root Prompt Snapshot
+
+The agent-node files are useful, but they do not by themselves answer:
+
+- what exactly did the root model see by the end of the tool loop
+- how many tokens were actually being spent on system/tool/ui/task/chat/tool-result categories
+
+We should therefore also write:
+
+- `.debug/root_prompt_snapshot.md`
+
+This file should reflect the final root prompt snapshot used for `/context`, including:
+
+- token budget
+- used input tokens
+- per-category totals
+- ordered segment list
+
+This is intentionally separate from the root agent's own context window file.
+The root agent file describes the root node's built context window.
+The root prompt snapshot should describe the final assembled prompt state shown in `/context`.
 
 Suggested shape:
 
