@@ -40,6 +40,7 @@ use crate::harness::context_window_logger::{
     reset_debug_dir,
 };
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
+use crate::harness::runtime::{RootRunState, RootRunStatus, TranscriptEntryKind};
 use crate::harness::tools::{
     BlueskyTools, parse_prompt_tool_call, prompt_tool_protocol_instructions,
 };
@@ -88,9 +89,7 @@ struct App {
     detail_scroll: u16,
     detail: DetailView,
     root_conversation: Vec<ConversationTurn>,
-    current_root_task: Option<String>,
-    agent_graph: Option<AgentGraph>,
-    context_visualization: Option<ContextVisualizationData>,
+    root_run: Option<RootRunState>,
     deferred_detail: Option<DetailView>,
     ai_chat_detail: Option<DetailView>,
     status: String,
@@ -140,9 +139,7 @@ impl App {
                 lines: help_lines(),
             },
             root_conversation: Vec::new(),
-            current_root_task: None,
-            agent_graph: None,
-            context_visualization: None,
+            root_run: None,
             deferred_detail: None,
             ai_chat_detail: None,
             status: format!("logged in as {handle}"),
@@ -472,9 +469,7 @@ impl App {
             }
             "clear" | "/clear" => {
                 self.clear_root_conversation();
-                self.current_root_task = None;
-                self.agent_graph = None;
-                self.context_visualization = None;
+                self.root_run = None;
                 self.set_command_output(
                     "/clear",
                     vec![
@@ -515,7 +510,6 @@ impl App {
     ) -> Result<(), Box<dyn Error>> {
         let keep_context_overlay = matches!(self.detail, DetailView::ContextVisualization(_));
         self.deferred_detail = None;
-        self.current_root_task = Some(query.clone());
         let root_context_window = {
             let tools = BlueskyTools::new();
             build_tool_aware_query_context_window(
@@ -528,7 +522,7 @@ impl App {
             )
         };
         let initial_context = root_context_window.rendered.clone();
-        let mut messages = vec![
+        let messages = vec![
             ChatMessage {
                 role: "system".to_string(),
                 content: format!(
@@ -542,32 +536,41 @@ impl App {
                 content: initial_context,
             },
         ];
-        let mut tool_transcript = Vec::new();
         let mut response = String::new();
         let mut hit_tool_round_limit = false;
         let mut last_failed_read_collection_id: Option<String> = None;
         let mut agent_graph = AgentGraph::new_root("Root Agent");
         agent_graph.set_context_window(agent_graph.root_agent_id(), root_context_window.clone());
         agent_graph.set_result_summary(agent_graph.root_agent_id(), query.clone());
-        self.context_visualization = Some(build_live_context_visualization(
+        let mut root_run = RootRunState::new(
+            query.clone(),
+            root_context_window.clone(),
+            messages,
+            agent_graph,
+        );
+        let initial_visualization = build_live_context_visualization(
             "/context",
-            &messages,
+            root_run.messages(),
             evil_gemma.system_prompt.trim(),
             prompt_tool_protocol_instructions(),
-            &root_context_window,
-            &agent_graph,
+            root_run.root_context_window(),
+            root_run.agent_graph(),
             &evil_gemma.client.context_limits(),
-        ));
+        );
+        root_run.set_context_visualization(initial_visualization);
+        self.root_run = Some(root_run.clone());
 
         for round in 0..MAX_TOOL_CALL_ROUNDS {
             response = evil_gemma
                 .client
-                .complete_chat(messages.clone(), 1024)
+                .complete_chat(root_run.messages().to_vec(), 1024)
                 .await?;
 
             let Some(tool_call) = parse_prompt_tool_call(&response) else {
+                root_run.record_round(round + 1, response.clone(), None, false, None);
                 break;
             };
+            root_run.record_tool_call(round + 1, &tool_call, true)?;
 
             let tool_name = tool_call.name.clone();
             let tool_args = serde_json::to_string(&tool_call.args)?;
@@ -590,36 +593,38 @@ impl App {
                     Vec::new()
                 } else {
                     planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call)
-                };
+            };
             if keep_context_overlay {
-                self.set_ai_chat_output(
-                    format!("evil_gemma: {query}"),
-                    build_evil_gemma_output_lines(
-                        &tool_transcript,
-                        Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)).as_deref(),
-                        None,
-                    ),
-                    false,
-                );
-            } else {
-                self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
+                root_run.set_active_tool_entry(Some(build_tool_entry(
                     &tool_name,
                     &tool_args,
                     &prep_log,
                     None,
                 )));
+                self.root_run = Some(root_run.clone());
+                self.set_ai_chat_output(
+                    format!("evil_gemma: {query}"),
+                    root_run.render_output_lines(),
+                    false,
+                );
+            } else {
+                root_run.set_active_tool_entry(Some(build_tool_entry(
+                    &tool_name,
+                    &tool_args,
+                    &prep_log,
+                    None,
+                )));
+                self.set_evil_gemma_progress(&query, &root_run);
             }
 
             let mut prep_warnings = Vec::new();
             if actor_dids.is_empty() {
                 prep_log.push("[tool_prep] no initial refresh needed".to_string());
                 if !keep_context_overlay {
-                    self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                        &tool_name,
-                        &tool_args,
-                        &prep_log,
-                        None,
+                    root_run.set_active_tool_entry(Some(build_tool_entry(
+                        &tool_name, &tool_args, &prep_log, None,
                     )));
+                    self.set_evil_gemma_progress(&query, &root_run);
                 }
             } else {
                 for did in actor_dids {
@@ -629,12 +634,10 @@ impl App {
                         tool_call.name
                     ));
                     if !keep_context_overlay {
-                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                            &tool_name,
-                            &tool_args,
-                            &prep_log,
-                            None,
+                        root_run.set_active_tool_entry(Some(build_tool_entry(
+                            &tool_name, &tool_args, &prep_log, None,
                         )));
+                        self.set_evil_gemma_progress(&query, &root_run);
                     }
 
                     prep_log.push(format!(
@@ -642,12 +645,10 @@ impl App {
                         did.as_str()
                     ));
                     if !keep_context_overlay {
-                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                            &tool_name,
-                            &tool_args,
-                            &prep_log,
-                            None,
+                        root_run.set_active_tool_entry(Some(build_tool_entry(
+                            &tool_name, &tool_args, &prep_log, None,
                         )));
+                        self.set_evil_gemma_progress(&query, &root_run);
                     }
                     if let Err(message) = run_tool_prep_step(
                         INITIAL_COLLECTION_REFRESH_TIMEOUT,
@@ -664,11 +665,10 @@ impl App {
                             "[tool_prep] continuing with already cached collections".to_string(),
                         );
                         if !keep_context_overlay {
-                            self.set_evil_gemma_progress(
-                                &query,
-                                &tool_transcript,
-                                Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
-                            );
+                            root_run.set_active_tool_entry(Some(build_tool_entry(
+                                &tool_name, &tool_args, &prep_log, None,
+                            )));
+                            self.set_evil_gemma_progress(&query, &root_run);
                         }
                         prep_warnings.push(format!(
                             "initial refresh for {} failed during recent-post fetch: {}",
@@ -683,12 +683,10 @@ impl App {
                         did.as_str()
                     ));
                     if !keep_context_overlay {
-                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                            &tool_name,
-                            &tool_args,
-                            &prep_log,
-                            None,
+                        root_run.set_active_tool_entry(Some(build_tool_entry(
+                            &tool_name, &tool_args, &prep_log, None,
                         )));
+                        self.set_evil_gemma_progress(&query, &root_run);
                     }
                     if let Err(message) = run_tool_prep_step(
                         INITIAL_COLLECTION_REFRESH_TIMEOUT,
@@ -705,11 +703,10 @@ impl App {
                             "[tool_prep] continuing with already cached collections".to_string(),
                         );
                         if !keep_context_overlay {
-                            self.set_evil_gemma_progress(
-                                &query,
-                                &tool_transcript,
-                                Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
-                            );
+                            root_run.set_active_tool_entry(Some(build_tool_entry(
+                                &tool_name, &tool_args, &prep_log, None,
+                            )));
+                            self.set_evil_gemma_progress(&query, &root_run);
                         }
                         prep_warnings.push(format!(
                             "initial refresh for {} failed during pinned-post fetch: {}",
@@ -724,12 +721,10 @@ impl App {
                         did.as_str()
                     ));
                     if !keep_context_overlay {
-                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                            &tool_name,
-                            &tool_args,
-                            &prep_log,
-                            None,
+                        root_run.set_active_tool_entry(Some(build_tool_entry(
+                            &tool_name, &tool_args, &prep_log, None,
                         )));
+                        self.set_evil_gemma_progress(&query, &root_run);
                     }
                     if let Err(message) = run_tool_prep_step(
                         INITIAL_COLLECTION_REFRESH_TIMEOUT,
@@ -746,11 +741,10 @@ impl App {
                             "[tool_prep] continuing with already cached collections".to_string(),
                         );
                         if !keep_context_overlay {
-                            self.set_evil_gemma_progress(
-                                &query,
-                                &tool_transcript,
-                                Some(build_tool_entry(&tool_name, &tool_args, &prep_log, None)),
-                            );
+                            root_run.set_active_tool_entry(Some(build_tool_entry(
+                                &tool_name, &tool_args, &prep_log, None,
+                            )));
+                            self.set_evil_gemma_progress(&query, &root_run);
                         }
                         prep_warnings.push(format!(
                             "initial refresh for {} failed during Clearsky list fetch: {}",
@@ -765,27 +759,22 @@ impl App {
                         did.as_str()
                     ));
                     if !keep_context_overlay {
-                        self.set_evil_gemma_progress(&query, &tool_transcript, Some(build_tool_entry(
-                            &tool_name,
-                            &tool_args,
-                            &prep_log,
-                            None,
+                        root_run.set_active_tool_entry(Some(build_tool_entry(
+                            &tool_name, &tool_args, &prep_log, None,
                         )));
+                        self.set_evil_gemma_progress(&query, &root_run);
                     }
                 }
             }
 
             if !keep_context_overlay {
-                self.set_evil_gemma_progress(
-                    &query,
-                    &tool_transcript,
-                    Some(build_tool_entry(
-                        &tool_name,
-                        &tool_args,
-                        &prep_log,
-                        Some("<running tool...>"),
-                    )),
-                );
+                root_run.set_active_tool_entry(Some(build_tool_entry(
+                    &tool_name,
+                    &tool_args,
+                    &prep_log,
+                    Some("<running tool...>"),
+                )));
+                self.set_evil_gemma_progress(&query, &root_run);
             }
             let tools = BlueskyTools::new();
             let opened_notification = self.opened_notification().cloned();
@@ -819,7 +808,8 @@ impl App {
                 }
             };
             if let Some(agent_node) = tool_output.agent_node.clone() {
-                agent_graph.attach_template(agent_graph.root_agent_id(), agent_node);
+                let root_agent_id = root_run.agent_graph().root_agent_id();
+                root_run.agent_graph_mut().attach_template(root_agent_id, agent_node);
             }
             let tool_output = if prep_warnings.is_empty() {
                 tool_output.rendered
@@ -847,21 +837,25 @@ impl App {
                 last_failed_read_collection_id = None;
             }
 
-            tool_transcript.push(build_tool_entry(
-                &tool_name,
-                &tool_args,
-                &prep_log,
-                Some(&tool_output),
-            ));
-            let tool_context_result = compact_tool_result_for_root_context(&tool_name, &tool_output);
-            messages.push(ChatMessage {
+            root_run.push_transcript_entry(
+                TranscriptEntryKind::ToolCall,
+                build_tool_entry(
+                    &tool_name,
+                    &tool_args,
+                    &prep_log,
+                    Some(&tool_output),
+                ),
+            );
+            root_run.set_active_tool_entry(None);
+            let tool_result_summary = compact_tool_result_for_root_context(&tool_name, &tool_output);
+            root_run.messages_mut().push(ChatMessage {
                 role: "assistant".to_string(),
                 content: response.clone(),
             });
-            messages.push(ChatMessage {
+            root_run.messages_mut().push(ChatMessage {
                 role: "user".to_string(),
                 content: format!(
-                    "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_context_result}\n\n{}",
+                    "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_result_summary}\n\n{}",
                     if round + 1 == MAX_TOOL_CALL_ROUNDS {
                         "This was the final allowed tool round. Answer the original query directly now. Do not request another tool or emit a TOOL_CALL block."
                     } else {
@@ -869,84 +863,96 @@ impl App {
                     }
                 ),
             });
+            root_run.record_round(
+                round + 1,
+                response.clone(),
+                Some(tool_call.clone()),
+                duplicate_search_after_failed_read.is_none(),
+                Some(tool_output.clone()),
+            );
             if let Some(failure_answer) = hard_tool_failure_answer {
                 response = failure_answer;
                 break;
             }
             hit_tool_round_limit = round + 1 == MAX_TOOL_CALL_ROUNDS;
-            self.context_visualization = Some(build_live_context_visualization(
+            let live_visualization = build_live_context_visualization(
                 "/context",
-                &messages,
+                root_run.messages(),
                 evil_gemma.system_prompt.trim(),
                 prompt_tool_protocol_instructions(),
-                &root_context_window,
-                &agent_graph,
+                root_run.root_context_window(),
+                root_run.agent_graph(),
                 &evil_gemma.client.context_limits(),
-            ));
+            );
+            root_run.set_context_visualization(live_visualization);
+            self.root_run = Some(root_run.clone());
             if keep_context_overlay {
                 self.set_ai_chat_output(
                     format!("evil_gemma: {query}"),
-                    build_evil_gemma_output_lines(&tool_transcript, None, None),
+                    root_run.render_output_lines(),
                     false,
                 );
             } else {
-                self.set_evil_gemma_progress(&query, &tool_transcript, None);
+                self.set_evil_gemma_progress(&query, &root_run);
             }
         }
 
         if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
-            messages.push(ChatMessage {
+            root_run.messages_mut().push(ChatMessage {
                 role: "assistant".to_string(),
                 content: response.clone(),
             });
-            messages.push(ChatMessage {
+            root_run.messages_mut().push(ChatMessage {
                 role: "user".to_string(),
                 content: "You have already used the maximum number of tool rounds. Answer the original query directly using the tool results already provided. Do not emit TOOL_CALL.".to_string(),
             });
             response = evil_gemma
                 .client
-                .complete_chat(messages.clone(), 1024)
+                .complete_chat(root_run.messages().to_vec(), 1024)
                 .await
                 .unwrap_or_else(|_| {
                     "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
                 });
-            self.context_visualization = Some(build_live_context_visualization(
+            let live_visualization = build_live_context_visualization(
                 "/context",
-                &messages,
+                root_run.messages(),
                 evil_gemma.system_prompt.trim(),
                 prompt_tool_protocol_instructions(),
-                &root_context_window,
-                &agent_graph,
+                root_run.root_context_window(),
+                root_run.agent_graph(),
                 &evil_gemma.client.context_limits(),
-            ));
+            );
+            root_run.set_context_visualization(live_visualization);
         }
 
         if parse_prompt_tool_call(&response).is_none() && response_looks_incomplete(&response) {
-            messages.push(ChatMessage {
+            root_run.messages_mut().push(ChatMessage {
                 role: "assistant".to_string(),
                 content: response.clone(),
             });
-            messages.push(ChatMessage {
+            root_run.messages_mut().push(ChatMessage {
                 role: "user".to_string(),
                 content: "Your previous answer appears cut off. Finish the answer directly in at most one short paragraph plus up to 3 bullets. Start with a bottom-line conclusion sentence. Do not emit TOOL_CALL.".to_string(),
             });
             response = evil_gemma
                 .client
-                .complete_chat(messages.clone(), 320)
+                .complete_chat(root_run.messages().to_vec(), 320)
                 .await
                 .unwrap_or(response);
-            self.context_visualization = Some(build_live_context_visualization(
+            let live_visualization = build_live_context_visualization(
                 "/context",
-                &messages,
+                root_run.messages(),
                 evil_gemma.system_prompt.trim(),
                 prompt_tool_protocol_instructions(),
-                &root_context_window,
-                &agent_graph,
+                root_run.root_context_window(),
+                root_run.agent_graph(),
                 &evil_gemma.client.context_limits(),
-            ));
+            );
+            root_run.set_context_visualization(live_visualization);
         }
 
-        let output_lines = build_evil_gemma_output_lines(&tool_transcript, None, Some(&response));
+        root_run.set_final_response(response.clone());
+        let output_lines = root_run.render_output_lines();
         if keep_context_overlay {
             self.set_ai_chat_output(
                 format!("evil_gemma: {query}"),
@@ -966,14 +972,17 @@ impl App {
             user: query,
             assistant: response.clone(),
         });
-        agent_graph.set_status(agent_graph.root_agent_id(), AgentNodeStatus::Completed);
+        let root_agent_id = root_run.agent_graph().root_agent_id();
+        root_run
+            .agent_graph_mut()
+            .set_status(root_agent_id, AgentNodeStatus::Completed);
         if let Some(last_turn) = self.root_conversation.last() {
-            agent_graph.set_result_summary(
-                agent_graph.root_agent_id(),
-                last_turn.assistant.clone(),
-            );
+            root_run
+                .agent_graph_mut()
+                .set_result_summary(root_agent_id, last_turn.assistant.clone());
         }
-        let mut final_messages = messages.clone();
+        root_run.set_status(RootRunStatus::Completed);
+        let mut final_messages = root_run.messages().to_vec();
         final_messages.push(ChatMessage {
             role: "assistant".to_string(),
             content: response.clone(),
@@ -983,31 +992,31 @@ impl App {
             &final_messages,
             evil_gemma.system_prompt.trim(),
             prompt_tool_protocol_instructions(),
-            &root_context_window,
-            &agent_graph,
+            root_run.root_context_window(),
+            root_run.agent_graph(),
             &evil_gemma.client.context_limits(),
         );
-        self.context_visualization = Some(final_context_visualization.clone());
+        root_run.set_context_visualization(final_context_visualization.clone());
         let debug_base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let _ = log_agent_graph(&debug_base_dir, &agent_graph);
+        let _ = log_agent_graph(&debug_base_dir, root_run.agent_graph());
         let _ = log_chat_transcript(&debug_base_dir, &output_lines);
-        let _ = log_current_task(&debug_base_dir, &agent_graph, self.current_root_task.as_deref());
+        let _ = log_current_task(
+            &debug_base_dir,
+            root_run.agent_graph(),
+            Some(root_run.query()),
+        );
         if let Some(root_snapshot) = final_context_visualization.windows.first() {
             let _ = log_root_prompt_snapshot(&debug_base_dir, root_snapshot);
         }
-        self.agent_graph = Some(agent_graph);
+        self.root_run = Some(root_run);
         Ok(())
     }
 
-    fn set_evil_gemma_progress(
-        &mut self,
-        query: &str,
-        tool_transcript: &[String],
-        active_entry: Option<String>,
-    ) {
+    fn set_evil_gemma_progress(&mut self, query: &str, run: &RootRunState) {
+        self.root_run = Some(run.clone());
         self.set_ai_chat_output(
             format!("evil_gemma: {query}"),
-            build_evil_gemma_output_lines(tool_transcript, active_entry.as_deref(), None),
+            run.render_output_lines(),
             true,
         );
     }
@@ -1074,8 +1083,13 @@ impl App {
 
     fn task_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
-        if let Some(graph) = self.agent_graph.as_ref() {
-            if let Some(root) = graph.node(graph.root_agent_id()) {
+        if let Some(run) = self.root_run.as_ref() {
+            lines.push(format!("run_id: {}", run.run_id()));
+            lines.push(format!("run_status: {}", run.status().as_str()));
+            lines.push(format!("cancel_requested: {}", run.cancel_requested()));
+            lines.push(format!("rounds: {}", run.rounds().len()));
+            lines.push(format!("tool_calls: {}", run.tool_call_history().len()));
+            if let Some(root) = run.agent_graph().node(run.agent_graph().root_agent_id()) {
                 lines.push(format!("root_agent_id: {}", root.agent_id.0));
                 lines.push(format!("status: {}", root.status.as_str()));
                 if let Some(summary) = root.result_summary.as_deref() {
@@ -1086,8 +1100,9 @@ impl App {
         lines.push(String::new());
         lines.push("current_task:".to_string());
         lines.push(
-            self.current_root_task
-                .clone()
+            self.root_run
+                .as_ref()
+                .map(|run| run.query().to_string())
                 .unwrap_or_else(|| "<none>".to_string()),
         );
         lines
@@ -1097,7 +1112,11 @@ impl App {
         &self,
         evil_gemma: &EvilGemmaConfig,
     ) -> ContextVisualizationData {
-        if let Some(data) = &self.context_visualization {
+        if let Some(data) = self
+            .root_run
+            .as_ref()
+            .and_then(|run| run.context_visualization())
+        {
             return data.clone();
         }
 
@@ -1590,44 +1609,6 @@ fn build_tool_entry(
         entry.push_str(tool_result);
     }
     entry
-}
-
-fn build_evil_gemma_output_lines(
-    tool_transcript: &[String],
-    active_entry: Option<&str>,
-    response: Option<&str>,
-) -> Vec<String> {
-    let mut lines = Vec::new();
-    if !tool_transcript.is_empty() || active_entry.is_some() {
-        lines.push("Tool Transcript:".to_string());
-        lines.push(String::new());
-        for entry in tool_transcript {
-            lines.extend(entry.lines().map(str::to_owned));
-            lines.push(String::new());
-        }
-        if let Some(active_entry) = active_entry {
-            lines.extend(active_entry.lines().map(str::to_owned));
-            lines.push(String::new());
-        }
-    }
-
-    if let Some(response) = response {
-        if !tool_transcript.is_empty() || active_entry.is_some() {
-            lines.push("Final Answer:".to_string());
-            lines.push(String::new());
-        }
-        if response.trim().is_empty() {
-            lines.push("<empty response>".to_string());
-        } else {
-            lines.extend(response.lines().map(str::to_owned));
-        }
-    }
-
-    if lines.is_empty() {
-        lines.push("Waiting for evil_gemma...".to_string());
-    }
-
-    lines
 }
 
 fn response_looks_incomplete(response: &str) -> bool {
