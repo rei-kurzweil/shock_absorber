@@ -219,9 +219,6 @@ struct CollectionSearchOutcome {
     execution: Result<LlmSearchExecution, String>,
 }
 
-const LLM_SEARCH_PARENT_SYSTEM_PROMPT: &str =
-    "Synthesize grounded per-collection search results. Keep collection boundaries explicit, compare what each collection supports, and retain failures as diagnostics. Return a compact combined result block with a cross-collection `summary:` plus the strongest real `selected_result_*` anchor when available. Do not invent evidence beyond the provided child results.";
-
 pub struct LlmSearchComparator<'a> {
     pub prompt: &'a str,
     pub llm_client: &'a LlmApiClient,
@@ -1209,6 +1206,7 @@ fn build_llm_search_agent_node(
 ) -> AgentNodeTemplate {
     AgentNodeTemplate {
         agent_type: AgentNodeKind::ToolAgent,
+        agent_kind: Some(AgentKind::LlmSearchParent),
         label: "llm_search tool agent".to_string(),
         status: if outcomes
             .iter()
@@ -1251,6 +1249,7 @@ fn build_collection_search_agent_node(
 
     AgentNodeTemplate {
         agent_type: AgentNodeKind::CollectionSearchAgent,
+        agent_kind: Some(AgentKind::LlmSearch),
         label: format!("collection search: {}", outcome.collection_label),
         status,
         tool_name: None,
@@ -1274,7 +1273,7 @@ fn build_llm_search_parent_context(
     prompt: &str,
     outcomes: &[CollectionSearchOutcome],
 ) -> LLMContext {
-    let mut context = LLMContext::new(LLM_SEARCH_PARENT_SYSTEM_PROMPT);
+    let mut context = LLMContext::new(AgentKind::LlmSearchParent.system_prompt());
     context.push_section("Original Search Prompt", prompt);
     context.push_section(
         "Per-Collection Results",

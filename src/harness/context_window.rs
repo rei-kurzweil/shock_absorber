@@ -18,6 +18,7 @@ impl ProviderContextLimits {
 #[derive(Clone, Debug)]
 pub struct BuiltContextSection {
     pub title: String,
+    pub estimated_tokens: usize,
     pub used_tokens: usize,
     pub truncated: bool,
 }
@@ -33,21 +34,43 @@ pub struct BuiltContextWindow {
 }
 
 #[derive(Clone, Debug)]
+pub struct ContextHeader {
+    body: String,
+    rendered: String,
+    estimated_tokens: usize,
+}
+
+impl ContextHeader {
+    fn new(body: impl Into<String>) -> Self {
+        let body = body.into();
+        let rendered = render_header(&body);
+        let estimated_tokens = approximate_tokens(&rendered);
+        Self {
+            body,
+            rendered,
+            estimated_tokens,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ContextSection {
     pub title: String,
     pub body: String,
+    pub rendered: String,
+    pub estimated_tokens: usize,
 }
 
 #[derive(Clone, Debug)]
 pub struct LLMContext {
-    header: String,
+    header: ContextHeader,
     sections: Vec<ContextSection>,
 }
 
 impl LLMContext {
     pub fn new(header: impl Into<String>) -> Self {
         Self {
-            header: header.into(),
+            header: ContextHeader::new(header),
             sections: Vec::new(),
         }
     }
@@ -57,14 +80,28 @@ impl LLMContext {
     }
 
     pub fn push_section(&mut self, title: impl Into<String>, body: impl Into<String>) {
+        let title = title.into();
+        let body = body.into();
+        let rendered = render_section_title_and_body(&title, &body);
+        let estimated_tokens = approximate_tokens(&rendered);
         self.sections.push(ContextSection {
-            title: title.into(),
-            body: body.into(),
+            title,
+            body,
+            rendered,
+            estimated_tokens,
         });
     }
 
     pub fn header(&self) -> &str {
-        &self.header
+        &self.header.body
+    }
+
+    pub fn header_rendered(&self) -> &str {
+        &self.header.rendered
+    }
+
+    pub fn header_tokens(&self) -> usize {
+        self.header.estimated_tokens
     }
 
     pub fn sections(&self) -> &[ContextSection] {
@@ -80,21 +117,22 @@ pub fn build_context_window_report(
     context: &LLMContext,
     limits: &ProviderContextLimits,
 ) -> BuiltContextWindow {
-    let mut rendered = render_header(context.header());
-    let header_tokens = approximate_tokens(&rendered);
+    let mut rendered = context.header_rendered().to_string();
+    let header_tokens = context.header_tokens();
     let mut used_tokens = header_tokens;
     let token_budget = limits.available_input_tokens();
     let mut sections = Vec::new();
     let mut was_truncated = false;
 
     for section in context.sections() {
-        let candidate = render_section(section);
-        let section_tokens = approximate_tokens(&candidate);
+        let candidate = &section.rendered;
+        let section_tokens = section.estimated_tokens;
         if used_tokens + section_tokens <= token_budget {
-            rendered.push_str(&candidate);
+            rendered.push_str(candidate);
             used_tokens += section_tokens;
             sections.push(BuiltContextSection {
                 title: section.title.clone(),
+                estimated_tokens: section_tokens,
                 used_tokens: section_tokens,
                 truncated: false,
             });
@@ -107,13 +145,14 @@ pub fn build_context_window_report(
             break;
         }
 
-        let truncated_text = truncate_text_to_tokens(&candidate, remaining_tokens);
+        let truncated_text = truncate_text_to_tokens(candidate, remaining_tokens);
         if !truncated_text.trim().is_empty() {
             let truncated_tokens = approximate_tokens(&truncated_text);
             rendered.push_str(&truncated_text);
             used_tokens += truncated_tokens;
             sections.push(BuiltContextSection {
                 title: section.title.clone(),
+                estimated_tokens: section_tokens,
                 used_tokens: truncated_tokens,
                 truncated: true,
             });
@@ -137,7 +176,11 @@ pub fn render_header(header: &str) -> String {
 }
 
 pub fn render_section(section: &ContextSection) -> String {
-    format!("\n## {}\n{}\n", section.title, section.body)
+    render_section_title_and_body(&section.title, &section.body)
+}
+
+fn render_section_title_and_body(title: &str, body: &str) -> String {
+    format!("\n## {title}\n{body}\n")
 }
 
 pub fn approximate_tokens(text: &str) -> usize {

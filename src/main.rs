@@ -2111,6 +2111,7 @@ mod tests {
             },
             sections: vec![BuiltContextSection {
                 title: "Current Task".to_string(),
+                estimated_tokens: 20,
                 used_tokens: 20,
                 truncated: false,
             }],

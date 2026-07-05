@@ -117,6 +117,9 @@ fn render_agent_node(node: &crate::harness::agents::AgentNode) -> String {
     let mut out = String::from("# Agent Debug\n\n");
     out.push_str(&format!("- agent_id: {}\n", node.agent_id.0));
     out.push_str(&format!("- agent_type: {:?}\n", node.agent_type));
+    if let Some(agent_kind) = node.agent_kind {
+        out.push_str(&format!("- agent_kind: {:?}\n", agent_kind));
+    }
     out.push_str(&format!("- label: {}\n", node.label));
     out.push_str(&format!("- status: {}\n", node.status.as_str()));
     out.push_str(&format!(
@@ -198,13 +201,11 @@ fn render_prompt_context_snapshot(snapshot: &PromptContextSnapshot) -> String {
     out.push_str("## Category Totals\n\n");
     let totals = category_totals(snapshot);
     out.push_str(&format!("- system_prompt: {}\n", totals[0]));
-    out.push_str(&format!("- tool_instructions: {}\n", totals[1]));
-    out.push_str(&format!("- root_instructions: {}\n", totals[2]));
-    out.push_str(&format!("- tools: {}\n", totals[3]));
-    out.push_str(&format!("- ui: {}\n", totals[4]));
-    out.push_str(&format!("- task: {}\n", totals[5]));
-    out.push_str(&format!("- chat: {}\n", totals[6]));
-    out.push_str(&format!("- tool_results: {}\n\n", totals[7]));
+    out.push_str(&format!("- tools: {}\n", totals[1]));
+    out.push_str(&format!("- ui: {}\n", totals[2]));
+    out.push_str(&format!("- task: {}\n", totals[3]));
+    out.push_str(&format!("- chat: {}\n", totals[4]));
+    out.push_str(&format!("- tool_output: {}\n\n", totals[5]));
 
     out.push_str("## Segments\n\n");
     for segment in &snapshot.segments {
@@ -219,18 +220,18 @@ fn render_prompt_context_snapshot(snapshot: &PromptContextSnapshot) -> String {
     out
 }
 
-fn category_totals(snapshot: &PromptContextSnapshot) -> [usize; 8] {
-    let mut totals = [0usize; 8];
+fn category_totals(snapshot: &PromptContextSnapshot) -> [usize; 6] {
+    let mut totals = [0usize; 6];
     for segment in &snapshot.segments {
         totals[match segment.category {
             ContextCategory::SystemPrompt => 0,
-            ContextCategory::ToolInstructions => 1,
-            ContextCategory::RootInstructions => 2,
-            ContextCategory::ToolDefinitions => 3,
-            ContextCategory::UiContext => 4,
-            ContextCategory::CurrentTask => 5,
-            ContextCategory::UserAiChat => 6,
-            ContextCategory::ToolResults => 7,
+            ContextCategory::ToolInstructions
+            | ContextCategory::RootInstructions
+            | ContextCategory::ToolDefinitions => 1,
+            ContextCategory::UiContext => 2,
+            ContextCategory::CurrentTask => 3,
+            ContextCategory::UserAiChat => 4,
+            ContextCategory::ToolResults => 5,
         }] += segment.tokens;
     }
     totals

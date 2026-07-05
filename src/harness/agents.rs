@@ -1,4 +1,5 @@
 use crate::harness::context_window::BuiltContextWindow;
+use crate::harness::prompts::AgentKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AgentNodeId(pub usize);
@@ -33,6 +34,7 @@ impl AgentNodeStatus {
 pub struct AgentNode {
     pub agent_id: AgentNodeId,
     pub agent_type: AgentNodeKind,
+    pub agent_kind: Option<AgentKind>,
     pub parent_agent_id: Option<AgentNodeId>,
     pub child_agent_ids: Vec<AgentNodeId>,
     pub label: String,
@@ -46,6 +48,7 @@ pub struct AgentNode {
 #[derive(Clone, Debug)]
 pub struct AgentNodeTemplate {
     pub agent_type: AgentNodeKind,
+    pub agent_kind: Option<AgentKind>,
     pub label: String,
     pub status: AgentNodeStatus,
     pub tool_name: Option<String>,
@@ -69,6 +72,7 @@ impl AgentGraph {
             nodes: vec![AgentNode {
                 agent_id: root_agent_id,
                 agent_type: AgentNodeKind::RootAgent,
+                agent_kind: None,
                 parent_agent_id: None,
                 child_agent_ids: Vec::new(),
                 label: label.into(),
@@ -140,6 +144,7 @@ impl AgentGraph {
         self.nodes.push(AgentNode {
             agent_id,
             agent_type: template.agent_type.clone(),
+            agent_kind: template.agent_kind,
             parent_agent_id: Some(parent_id),
             child_agent_ids: Vec::new(),
             label: template.label.clone(),

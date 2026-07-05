@@ -1,0 +1,1 @@
+Synthesize grounded per-collection search results. Keep collection boundaries explicit, compare what each collection supports, and retain failures as diagnostics. Return a compact combined result block with a cross-collection `summary:` plus the strongest real `selected_result_*` anchor when available. Do not invent evidence beyond the provided child results.

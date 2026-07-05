@@ -257,10 +257,10 @@ fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
 }
 
 fn category_totals_summary(window: &PromptContextSnapshot) -> String {
-    let mut totals = [0usize; 8];
+    let mut totals = [0usize; 6];
     let mut order = Vec::new();
     for segment in &window.segments {
-        let index = category_index(&segment.category);
+        let index = display_category_index(&segment.category);
         totals[index] += segment.tokens;
         if !order.contains(&index) {
             order.push(index);
@@ -277,13 +277,11 @@ fn category_totals_summary(window: &PromptContextSnapshot) -> String {
 fn category_label(index: usize) -> &'static str {
     match index {
         0 => "System Prompt",
-        1 => "Tool Instructions",
-        2 => "Root Instructions",
-        3 => "Tools",
-        4 => "UI",
-        5 => "Task",
-        6 => "Chat",
-        7 => "Tool Results",
+        1 => "Tools",
+        2 => "UI",
+        3 => "Task",
+        4 => "Chat",
+        5 => "Tool Output",
         _ => "Unknown",
     }
 }
@@ -348,39 +346,37 @@ fn style_for_cell(
 fn color_for_category(category: &ContextCategory) -> Color {
     match category {
         ContextCategory::SystemPrompt => Color::Magenta,
-        ContextCategory::ToolInstructions => Color::Rgb(70, 130, 180),
-        ContextCategory::RootInstructions => Color::Rgb(255, 140, 0),
-        ContextCategory::ToolDefinitions => Color::Blue,
+        ContextCategory::ToolInstructions
+        | ContextCategory::RootInstructions
+        | ContextCategory::ToolDefinitions => Color::Blue,
         ContextCategory::UiContext => Color::Green,
         ContextCategory::CurrentTask => Color::Cyan,
         ContextCategory::UserAiChat => Color::Yellow,
-        ContextCategory::ToolResults => Color::Rgb(255, 165, 0),
+        ContextCategory::ToolResults => Color::Rgb(240, 210, 170),
     }
 }
 
-fn category_index(category: &ContextCategory) -> usize {
+fn display_category_index(category: &ContextCategory) -> usize {
     match category {
         ContextCategory::SystemPrompt => 0,
-        ContextCategory::ToolInstructions => 1,
-        ContextCategory::RootInstructions => 2,
-        ContextCategory::ToolDefinitions => 3,
-        ContextCategory::UiContext => 4,
-        ContextCategory::CurrentTask => 5,
-        ContextCategory::UserAiChat => 6,
-        ContextCategory::ToolResults => 7,
+        ContextCategory::ToolInstructions
+        | ContextCategory::RootInstructions
+        | ContextCategory::ToolDefinitions => 1,
+        ContextCategory::UiContext => 2,
+        ContextCategory::CurrentTask => 3,
+        ContextCategory::UserAiChat => 4,
+        ContextCategory::ToolResults => 5,
     }
 }
 
 fn legend_line() -> Line<'static> {
     let items = [
         ("  ", Color::Magenta, " system "),
-        ("  ", Color::Rgb(70, 130, 180), " tool instructions "),
-        ("  ", Color::Rgb(255, 140, 0), " root instructions "),
         ("  ", Color::Blue, " tools "),
         ("  ", Color::Green, " ui "),
         ("  ", Color::Cyan, " task "),
         ("  ", Color::Yellow, " chat "),
-        ("  ", Color::Rgb(255, 165, 0), " tool results "),
+        ("  ", Color::Rgb(240, 210, 170), " tool output "),
         ("  ", Color::Red, " final 25% "),
         ("  ", Color::DarkGray, " unused "),
     ];
@@ -457,7 +453,7 @@ mod tests {
 
         assert_eq!(
             category_totals_summary(&window),
-            "System Prompt 10 | Tool Results 20 | Chat 30"
+            "System Prompt 10 | Tool Output 20 | Chat 30"
         );
     }
 }
