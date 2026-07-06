@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 const DEFAULT_COLLECTION_REFRESH_TTL_SECONDS: u64 = 15 * 60;
 
+#[derive(Clone)]
 pub struct NotificationStore {
     pub notifications: Vec<Notification>,
     notification_keys: HashSet<String>,

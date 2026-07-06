@@ -257,7 +257,7 @@ fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
 }
 
 fn category_totals_summary(window: &PromptContextSnapshot) -> String {
-    let mut totals = [0usize; 6];
+    let mut totals = [0usize; 7];
     let mut order = Vec::new();
     for segment in &window.segments {
         let index = display_category_index(&segment.category);
@@ -277,11 +277,12 @@ fn category_totals_summary(window: &PromptContextSnapshot) -> String {
 fn category_label(index: usize) -> &'static str {
     match index {
         0 => "System Prompt",
-        1 => "Tools",
-        2 => "UI",
-        3 => "Task",
-        4 => "Chat",
-        5 => "Tool Output",
+        1 => "Tool Protocol",
+        2 => "Tool Definitions",
+        3 => "UI",
+        4 => "Task",
+        5 => "Chat",
+        6 => "Tool Output",
         _ => "Unknown",
     }
 }
@@ -346,12 +347,11 @@ fn style_for_cell(
 fn color_for_category(category: &ContextCategory) -> Color {
     match category {
         ContextCategory::SystemPrompt => Color::Magenta,
-        ContextCategory::ToolInstructions
-        | ContextCategory::RootInstructions
-        | ContextCategory::ToolDefinitions => Color::Blue,
+        ContextCategory::ToolInstructions | ContextCategory::RootInstructions => Color::Blue,
+        ContextCategory::ToolDefinitions => Color::LightBlue,
         ContextCategory::UiContext => Color::Green,
         ContextCategory::CurrentTask => Color::Cyan,
-        ContextCategory::UserAiChat => Color::Yellow,
+        ContextCategory::UserAiChat => Color::Rgb(245, 215, 95),
         ContextCategory::ToolResults => Color::Rgb(240, 210, 170),
     }
 }
@@ -359,23 +359,23 @@ fn color_for_category(category: &ContextCategory) -> Color {
 fn display_category_index(category: &ContextCategory) -> usize {
     match category {
         ContextCategory::SystemPrompt => 0,
-        ContextCategory::ToolInstructions
-        | ContextCategory::RootInstructions
-        | ContextCategory::ToolDefinitions => 1,
-        ContextCategory::UiContext => 2,
-        ContextCategory::CurrentTask => 3,
-        ContextCategory::UserAiChat => 4,
-        ContextCategory::ToolResults => 5,
+        ContextCategory::ToolInstructions | ContextCategory::RootInstructions => 1,
+        ContextCategory::ToolDefinitions => 2,
+        ContextCategory::UiContext => 3,
+        ContextCategory::CurrentTask => 4,
+        ContextCategory::UserAiChat => 5,
+        ContextCategory::ToolResults => 6,
     }
 }
 
 fn legend_line() -> Line<'static> {
     let items = [
         ("  ", Color::Magenta, " system "),
-        ("  ", Color::Blue, " tools "),
+        ("  ", Color::Blue, " tool protocol "),
+        ("  ", Color::LightBlue, " tool defs "),
         ("  ", Color::Green, " ui "),
         ("  ", Color::Cyan, " task "),
-        ("  ", Color::Yellow, " chat "),
+        ("  ", Color::Rgb(245, 215, 95), " chat "),
         ("  ", Color::Rgb(240, 210, 170), " tool output "),
         ("  ", Color::Red, " final 25% "),
         ("  ", Color::DarkGray, " unused "),
@@ -417,6 +417,45 @@ fn category_for_root_section(title: &str) -> ContextCategory {
 #[cfg(test)]
 mod tests {
     use super::{category_totals_summary, ContextCategory, ContextSegment, PromptContextSnapshot};
+
+    #[test]
+    fn category_totals_separate_tool_protocol_from_tool_definitions() {
+        let window = PromptContextSnapshot {
+            title: "Root Agent".to_string(),
+            provider_name: "test".to_string(),
+            model_name: "test".to_string(),
+            max_context_tokens: 1000,
+            reserved_output_tokens: 100,
+            input_budget_tokens: 900,
+            used_input_tokens: 54,
+            truncated: false,
+            segments: vec![
+                ContextSegment {
+                    label: "Tool Instructions".to_string(),
+                    category: ContextCategory::ToolInstructions,
+                    tokens: 20,
+                    truncated: false,
+                },
+                ContextSegment {
+                    label: "Tools".to_string(),
+                    category: ContextCategory::ToolDefinitions,
+                    tokens: 12,
+                    truncated: false,
+                },
+                ContextSegment {
+                    label: "Tool Result #1".to_string(),
+                    category: ContextCategory::ToolResults,
+                    tokens: 22,
+                    truncated: false,
+                },
+            ],
+        };
+
+        assert_eq!(
+            category_totals_summary(&window),
+            "Tool Protocol 20 | Tool Definitions 12 | Tool Output 22"
+        );
+    }
 
     #[test]
     fn category_totals_follow_first_segment_order() {

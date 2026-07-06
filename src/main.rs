@@ -17,7 +17,10 @@ use std::future::Future;
 use std::fs;
 use std::io::{self, Stdout};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 mod clearsky_v1;
@@ -90,12 +93,34 @@ struct App {
     detail: DetailView,
     root_conversation: Vec<ConversationTurn>,
     root_run: Option<RootRunState>,
+    active_root_run: Option<ActiveRootRunTask>,
     deferred_detail: Option<DetailView>,
     ai_chat_detail: Option<DetailView>,
     status: String,
     should_quit: bool,
 }
 
+struct ActiveRootRunTask {
+    query: String,
+    keep_context_overlay: bool,
+    receiver: UnboundedReceiver<RootRunEvent>,
+    handle: JoinHandle<()>,
+}
+
+enum RootRunEvent {
+    Progress(RootRunState),
+    Completed {
+        root_run: RootRunState,
+        store: NotificationStore,
+        response: String,
+    },
+    Failed {
+        root_run: Option<RootRunState>,
+        error: String,
+    },
+}
+
+#[derive(Clone)]
 struct ConversationTurn {
     user: String,
     assistant: String,
@@ -140,6 +165,7 @@ impl App {
             },
             root_conversation: Vec::new(),
             root_run: None,
+            active_root_run: None,
             deferred_detail: None,
             ai_chat_detail: None,
             status: format!("logged in as {handle}"),
@@ -398,8 +424,8 @@ impl App {
 
     async fn execute_command(
         &mut self,
-        agent: &BskyAgent,
-        evil_gemma: &EvilGemmaConfig,
+        agent: &Arc<BskyAgent>,
+        evil_gemma: &Arc<EvilGemmaConfig>,
     ) -> Result<(), Box<dyn Error>> {
         let command = self.input.trim().to_owned();
         self.input.clear();
@@ -412,7 +438,8 @@ impl App {
         let verb = parts.next().unwrap_or_default();
 
         if !is_local_command(verb) {
-            return self.run_evil_gemma_query(agent, evil_gemma, command).await;
+            self.start_root_run(agent.clone(), evil_gemma.clone(), command)?;
+            return Ok(());
         }
 
         match verb {
@@ -486,6 +513,9 @@ impl App {
                 );
                 self.status = "context visualization loaded".to_string();
             }
+            "stop" | "/stop" => {
+                self.stop_active_root_run();
+            }
             "task" | "/task" => {
                 self.set_command_output("/task", self.task_lines());
                 self.status = "task loaded".to_string();
@@ -502,6 +532,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn run_evil_gemma_query(
         &mut self,
         agent: &BskyAgent,
@@ -1132,6 +1163,226 @@ impl App {
         ContextVisualizationData::from_root_window("/context", &root_window)
     }
 
+    fn start_root_run(
+        &mut self,
+        agent: Arc<BskyAgent>,
+        evil_gemma: Arc<EvilGemmaConfig>,
+        query: String,
+    ) -> Result<(), Box<dyn Error>> {
+        if self.active_root_run.is_some() {
+            self.status = "a root run is already active; use /stop first".to_string();
+            self.set_command_output(
+                "/stop",
+                vec![
+                    "A root run is already active.".to_string(),
+                    "Use `/stop` to cancel it before starting another query.".to_string(),
+                ],
+            );
+            return Ok(());
+        }
+
+        let keep_context_overlay = matches!(self.detail, DetailView::ContextVisualization(_));
+        self.deferred_detail = None;
+
+        let selected_actor_did = self.selected_actor_did().cloned();
+        let selected_actor_summary = self.selected_actor_summary();
+        let root_conversation = self.root_conversation.clone();
+        let selected_notification = self.opened_notification().cloned();
+        let store = self.store.clone();
+
+        let root_context_window = {
+            let tools = BlueskyTools::new();
+            build_tool_aware_query_context_window(
+                selected_actor_did.as_ref(),
+                selected_actor_summary.clone(),
+                &tools,
+                &root_conversation,
+                &query,
+                &evil_gemma.client,
+            )
+        };
+        let initial_context = root_context_window.rendered.clone();
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: format!(
+                    "{}\n\n{}",
+                    evil_gemma.system_prompt.trim(),
+                    prompt_tool_protocol_instructions()
+                ),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: initial_context,
+            },
+        ];
+        let mut agent_graph = AgentGraph::new_root("Root Agent");
+        agent_graph.set_context_window(agent_graph.root_agent_id(), root_context_window.clone());
+        agent_graph.set_result_summary(agent_graph.root_agent_id(), query.clone());
+        let mut root_run = RootRunState::new(query.clone(), root_context_window, messages, agent_graph);
+        let initial_visualization = build_live_context_visualization(
+            "/context",
+            root_run.messages(),
+            evil_gemma.system_prompt.trim(),
+            prompt_tool_protocol_instructions(),
+            root_run.root_context_window(),
+            root_run.agent_graph(),
+            &evil_gemma.client.context_limits(),
+        );
+        root_run.set_context_visualization(initial_visualization);
+        self.root_run = Some(root_run.clone());
+        if keep_context_overlay {
+            self.set_ai_chat_output(
+                format!("evil_gemma: {query}"),
+                root_run.render_output_lines(),
+                false,
+            );
+            self.status = "evil_gemma run started; dismiss /context to view output".to_string();
+        } else {
+            self.set_evil_gemma_progress(&query, &root_run);
+            self.status = "evil_gemma run started".to_string();
+        }
+
+        let (sender, receiver) = unbounded_channel();
+        let task_query = query.clone();
+        let runtime = tokio::runtime::Handle::current();
+        let handle = tokio::task::spawn_blocking(move || {
+            runtime.block_on(async move {
+                run_root_query_task(
+                    agent,
+                    evil_gemma,
+                    store,
+                    selected_notification,
+                    selected_actor_did,
+                    selected_actor_summary,
+                    root_conversation,
+                    task_query,
+                    root_run,
+                    sender,
+                )
+                .await;
+            });
+        });
+
+        self.active_root_run = Some(ActiveRootRunTask {
+            query,
+            keep_context_overlay,
+            receiver,
+            handle,
+        });
+        Ok(())
+    }
+
+    fn stop_active_root_run(&mut self) {
+        let Some(active) = self.active_root_run.take() else {
+            self.status = "no active root run to stop".to_string();
+            self.set_command_output("/stop", vec!["No active root run.".to_string()]);
+            return;
+        };
+
+        active.handle.abort();
+        if let Some(root_run) = self.root_run.as_mut() {
+            root_run.request_cancel();
+            root_run.set_status(RootRunStatus::Cancelled);
+            root_run.push_transcript_entry(
+                TranscriptEntryKind::Notice,
+                "Runtime Notice\nrun cancelled by user with `/stop`",
+            );
+        }
+        if let Some(root_run) = self.root_run.as_ref() {
+            self.set_ai_chat_output(
+                format!("evil_gemma: {}", active.query),
+                root_run.render_output_lines(),
+                !active.keep_context_overlay,
+            );
+        }
+        self.status = "active root run cancelled".to_string();
+    }
+
+    fn process_background_events(&mut self, db: &AppDb) {
+        let mut completed = false;
+        let mut save_store = false;
+        loop {
+            let event = {
+                let Some(active) = self.active_root_run.as_mut() else {
+                    break;
+                };
+                match active.receiver.try_recv() {
+                    Ok(event) => event,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                        completed = true;
+                        break;
+                    }
+                }
+            };
+
+            let keep_context_overlay = self
+                .active_root_run
+                .as_ref()
+                .map(|active| active.keep_context_overlay)
+                .unwrap_or(false);
+            match event {
+                RootRunEvent::Progress(root_run) => {
+                    let query = root_run.query().to_string();
+                    self.root_run = Some(root_run.clone());
+                    self.set_ai_chat_output(
+                        format!("evil_gemma: {query}"),
+                        root_run.render_output_lines(),
+                        !keep_context_overlay,
+                    );
+                    self.status = format!("evil_gemma running: {}", root_run.status().as_str());
+                }
+                RootRunEvent::Completed {
+                    root_run,
+                    store,
+                    response,
+                } => {
+                    let query = root_run.query().to_string();
+                    self.store = store;
+                    self.root_conversation.push(ConversationTurn {
+                        user: query.clone(),
+                        assistant: response,
+                    });
+                    self.root_run = Some(root_run.clone());
+                    self.set_ai_chat_output(
+                        format!("evil_gemma: {query}"),
+                        root_run.render_output_lines(),
+                        !keep_context_overlay,
+                    );
+                    self.status = if keep_context_overlay {
+                        "evil_gemma response ready; dismiss /context to view output".to_string()
+                    } else {
+                        "evil_gemma response loaded".to_string()
+                    };
+                    completed = true;
+                    save_store = true;
+                }
+                RootRunEvent::Failed { root_run, error } => {
+                    if let Some(root_run) = root_run {
+                        let query = root_run.query().to_string();
+                        self.root_run = Some(root_run.clone());
+                        self.set_ai_chat_output(
+                            format!("evil_gemma: {query}"),
+                            root_run.render_output_lines(),
+                            !keep_context_overlay,
+                        );
+                    }
+                    self.status = format!("root run failed: {error}");
+                    self.set_command_output("error", vec![format!("root run failed: {error}")]);
+                    completed = true;
+                }
+            }
+        }
+
+        if completed {
+            self.active_root_run = None;
+        }
+        if save_store {
+            let _ = db.save_store(&self.store);
+        }
+    }
+
     fn open_selected_notification(&mut self) {
         if self.store.notifications.is_empty() {
             return;
@@ -1150,9 +1401,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handle = env::var("BSKY_HANDLE")?;
     let password = env::var("BSKY_APP_PASSWORD")?;
 
-    let agent = BskyAgent::builder().build().await?;
+    let agent = Arc::new(BskyAgent::builder().build().await?);
     agent.login(&handle, &password).await?;
-    let evil_gemma = EvilGemmaConfig::from_env()?;
+    let evil_gemma = Arc::new(EvilGemmaConfig::from_env()?);
     let db_path =
         env::var("SHOCK_ABSORBER_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
     let db = AppDb::new(resolve_db_path(db_path))?;
@@ -1168,7 +1419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, &agent, &evil_gemma, app, &db).await;
+    let result = run_app(&mut terminal, agent, evil_gemma, app, &db).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -1179,16 +1430,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    agent: &BskyAgent,
-    evil_gemma: &EvilGemmaConfig,
+    agent: Arc<BskyAgent>,
+    evil_gemma: Arc<EvilGemmaConfig>,
     mut app: App,
     db: &AppDb,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut last_poll = Instant::now() - POLL_INTERVAL;
 
     loop {
-        if last_poll.elapsed() >= POLL_INTERVAL {
-            match poll_notifications(agent, &mut app.store).await {
+        if app.active_root_run.is_none() && last_poll.elapsed() >= POLL_INTERVAL {
+            match poll_notifications(&agent, &mut app.store).await {
                 Ok(count) => {
                     if count > 0 {
                         db.save_store(&app.store)?;
@@ -1207,6 +1458,7 @@ async fn run_app(
             last_poll = Instant::now();
         }
 
+        app.process_background_events(db);
         terminal.draw(|frame| draw_ui(frame, &app))?;
 
         if event::poll(UI_TICK)? {
@@ -1254,7 +1506,7 @@ async fn run_app(
                     KeyCode::Enter => {
                         if app.input.trim().is_empty() {
                             app.open_selected_notification();
-                        } else if let Err(err) = app.execute_command(agent, evil_gemma).await {
+                        } else if let Err(err) = app.execute_command(&agent, &evil_gemma).await {
                             app.status = format!("command failed: {err}");
                             app.set_command_output(
                                 "error",
@@ -1281,6 +1533,423 @@ async fn run_app(
     }
 
     Ok(())
+}
+
+async fn run_root_query_task(
+    agent: Arc<BskyAgent>,
+    evil_gemma: Arc<EvilGemmaConfig>,
+    mut store: NotificationStore,
+    selected_notification: Option<Notification>,
+    selected_actor_did: Option<bsky_sdk::api::types::string::Did>,
+    _selected_actor_summary: Option<String>,
+    _root_conversation: Vec<ConversationTurn>,
+    _query: String,
+    mut root_run: RootRunState,
+    sender: UnboundedSender<RootRunEvent>,
+) {
+    let result: Result<(RootRunState, NotificationStore, String), Box<dyn Error>> = async {
+        let mut response = String::new();
+        let mut hit_tool_round_limit = false;
+        let mut last_failed_read_collection_id: Option<String> = None;
+
+        let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+
+        for round in 0..MAX_TOOL_CALL_ROUNDS {
+            response = evil_gemma
+                .client
+                .complete_chat(root_run.messages().to_vec(), 1024)
+                .await?;
+
+            let Some(tool_call) = parse_prompt_tool_call(&response) else {
+                root_run.record_round(round + 1, response.clone(), None, false, None);
+                break;
+            };
+            root_run.record_tool_call(round + 1, &tool_call, true)?;
+
+            let tool_name = tool_call.name.clone();
+            let tool_args = serde_json::to_string(&tool_call.args)?;
+            let duplicate_search_after_failed_read = repeated_llm_search_after_failed_read(
+                &tool_call,
+                last_failed_read_collection_id.as_deref(),
+            );
+            let mut prep_log = vec![format!(
+                "[tool_prep] inspecting tool `{}` for possible initial collection refresh",
+                tool_call.name
+            )];
+            if let Some(collection_id) = duplicate_search_after_failed_read.as_deref() {
+                prep_log.push(format!(
+                    "[tool_prep] prevented immediate re-search of `{collection_id}` after a failed `read_collection_item`"
+                ));
+            }
+            let actor_dids = if duplicate_search_after_failed_read.is_some() {
+                Vec::new()
+            } else {
+                planned_tool_call_refresh_targets(&store, selected_actor_did.clone(), &tool_call)
+            };
+
+            root_run.set_active_tool_entry(Some(build_tool_entry(
+                &tool_name,
+                &tool_args,
+                &prep_log,
+                None,
+            )));
+            let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+
+            let mut prep_warnings = Vec::new();
+            if actor_dids.is_empty() {
+                prep_log.push("[tool_prep] no initial refresh needed".to_string());
+                root_run.set_active_tool_entry(Some(build_tool_entry(
+                    &tool_name,
+                    &tool_args,
+                    &prep_log,
+                    None,
+                )));
+                let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+            } else {
+                for did in actor_dids {
+                    prep_log.push(format!(
+                        "[tool_prep] initial refresh needed for actor {} before tool `{}`",
+                        did.as_str(),
+                        tool_call.name
+                    ));
+                    root_run.set_active_tool_entry(Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                    let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+
+                    prep_log.push(format!(
+                        "[tool_prep] -> ensure_recent_posts_cached {}",
+                        did.as_str()
+                    ));
+                    root_run.set_active_tool_entry(Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                    let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+                    if let Err(message) = run_tool_prep_step(
+                        INITIAL_COLLECTION_REFRESH_TIMEOUT,
+                        ensure_recent_posts_cached(&agent, &mut store, &did, 20),
+                        format!("ensure_recent_posts_cached {}", did.as_str()),
+                    )
+                    .await
+                    {
+                        prep_log.push(format!(
+                            "[tool_prep] initial refresh failed for {}: {message}",
+                            did.as_str()
+                        ));
+                        prep_log.push(
+                            "[tool_prep] continuing with already cached collections".to_string(),
+                        );
+                        prep_warnings.push(format!(
+                            "initial refresh for {} failed during recent-post fetch: {}",
+                            did.as_str(),
+                            message
+                        ));
+                        break;
+                    }
+
+                    prep_log.push(format!(
+                        "[tool_prep] -> ensure_pinned_posts_cached {}",
+                        did.as_str()
+                    ));
+                    root_run.set_active_tool_entry(Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                    let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+                    if let Err(message) = run_tool_prep_step(
+                        INITIAL_COLLECTION_REFRESH_TIMEOUT,
+                        ensure_pinned_posts_cached(&agent, &mut store, &did),
+                        format!("ensure_pinned_posts_cached {}", did.as_str()),
+                    )
+                    .await
+                    {
+                        prep_log.push(format!(
+                            "[tool_prep] initial refresh failed for {}: {message}",
+                            did.as_str()
+                        ));
+                        prep_log.push(
+                            "[tool_prep] continuing with already cached collections".to_string(),
+                        );
+                        prep_warnings.push(format!(
+                            "initial refresh for {} failed during pinned-post fetch: {}",
+                            did.as_str(),
+                            message
+                        ));
+                        break;
+                    }
+
+                    prep_log.push(format!(
+                        "[tool_prep] -> ensure_clearsky_lists_cached {}",
+                        did.as_str()
+                    ));
+                    root_run.set_active_tool_entry(Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                    let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+                    if let Err(message) = run_tool_prep_step(
+                        INITIAL_COLLECTION_REFRESH_TIMEOUT,
+                        ensure_clearsky_lists_cached(&mut store, &did),
+                        format!("ensure_clearsky_lists_cached {}", did.as_str()),
+                    )
+                    .await
+                    {
+                        prep_log.push(format!(
+                            "[tool_prep] initial refresh failed for {}: {message}",
+                            did.as_str()
+                        ));
+                        prep_log.push(
+                            "[tool_prep] continuing with already cached collections".to_string(),
+                        );
+                        prep_warnings.push(format!(
+                            "initial refresh for {} failed during Clearsky list fetch: {}",
+                            did.as_str(),
+                            message
+                        ));
+                        break;
+                    }
+
+                    prep_log.push(format!(
+                        "[tool_prep] initial refresh complete for {}",
+                        did.as_str()
+                    ));
+                    root_run.set_active_tool_entry(Some(build_tool_entry(
+                        &tool_name,
+                        &tool_args,
+                        &prep_log,
+                        None,
+                    )));
+                    let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+                }
+            }
+
+            root_run.set_active_tool_entry(Some(build_tool_entry(
+                &tool_name,
+                &tool_args,
+                &prep_log,
+                Some("<running tool...>"),
+            )));
+            let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+
+            let tools = BlueskyTools::new();
+            let tool_output = if let Some(collection_id) = duplicate_search_after_failed_read.as_deref() {
+                crate::harness::tools::ToolExecutionOutput {
+                    rendered: format!(
+                        "Tool execution prevented: the previous `read_collection_item` failed for `{collection_id}` because the requested item URI was not one of the returned search results.\n\nReuse one of the existing `search_result_*_uri` values from the prior `llm_search` result, or answer directly from that grounded summary. Do not rerun the same collection search unchanged."
+                    ),
+                    context_windows: Vec::new(),
+                    agent_node: None,
+                }
+            } else {
+                match tools
+                    .execute_prompt_tool_call(
+                        &tool_call,
+                        selected_notification.as_ref(),
+                        &agent,
+                        &mut store,
+                        &evil_gemma.client,
+                    )
+                    .await
+                {
+                    Ok(output) => output,
+                    Err(err) => crate::harness::tools::ToolExecutionOutput {
+                        rendered: format!("Tool execution failed: {err}"),
+                        context_windows: Vec::new(),
+                        agent_node: None,
+                    },
+                }
+            };
+            if let Some(agent_node) = tool_output.agent_node.clone() {
+                let root_agent_id = root_run.agent_graph().root_agent_id();
+                root_run.agent_graph_mut().attach_template(root_agent_id, agent_node);
+            }
+            let tool_output = if prep_warnings.is_empty() {
+                tool_output.rendered
+            } else {
+                format!(
+                    "Tool preparation warning:\n{}\n\n{}",
+                    prep_warnings.join("\n"),
+                    tool_output.rendered
+                )
+            };
+            let hard_tool_failure_answer =
+                deterministic_tool_failure_answer(&tool_name, &tool_output);
+
+            if tool_name == "read_collection_item" {
+                if tool_output.contains("Tool execution failed:") {
+                    last_failed_read_collection_id = tool_call
+                        .args
+                        .get("collection_id")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string);
+                } else {
+                    last_failed_read_collection_id = None;
+                }
+            } else if duplicate_search_after_failed_read.is_none() {
+                last_failed_read_collection_id = None;
+            }
+
+            root_run.push_transcript_entry(
+                TranscriptEntryKind::ToolCall,
+                build_tool_entry(&tool_name, &tool_args, &prep_log, Some(&tool_output)),
+            );
+            root_run.set_active_tool_entry(None);
+            let tool_result_summary = compact_tool_result_for_root_context(&tool_name, &tool_output);
+            root_run.messages_mut().push(ChatMessage {
+                role: "assistant".to_string(),
+                content: response.clone(),
+            });
+            root_run.messages_mut().push(ChatMessage {
+                role: "user".to_string(),
+                content: format!(
+                    "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_result_summary}\n\n{}",
+                    if round + 1 == MAX_TOOL_CALL_ROUNDS {
+                        "This was the final allowed tool round. Answer the original query directly now. Do not request another tool or emit a TOOL_CALL block."
+                    } else {
+                        "Use this result to answer the original query, or request exactly one more tool if needed."
+                    }
+                ),
+            });
+            root_run.record_round(
+                round + 1,
+                response.clone(),
+                Some(tool_call.clone()),
+                duplicate_search_after_failed_read.is_none(),
+                Some(tool_output.clone()),
+            );
+            if let Some(failure_answer) = hard_tool_failure_answer {
+                response = failure_answer;
+                break;
+            }
+            hit_tool_round_limit = round + 1 == MAX_TOOL_CALL_ROUNDS;
+            let live_visualization = build_live_context_visualization(
+                "/context",
+                root_run.messages(),
+                evil_gemma.system_prompt.trim(),
+                prompt_tool_protocol_instructions(),
+                root_run.root_context_window(),
+                root_run.agent_graph(),
+                &evil_gemma.client.context_limits(),
+            );
+            root_run.set_context_visualization(live_visualization);
+            let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+        }
+
+        if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
+            root_run.messages_mut().push(ChatMessage {
+                role: "assistant".to_string(),
+                content: response.clone(),
+            });
+            root_run.messages_mut().push(ChatMessage {
+                role: "user".to_string(),
+                content: "You have already used the maximum number of tool rounds. Answer the original query directly using the tool results already provided. Do not emit TOOL_CALL.".to_string(),
+            });
+            response = evil_gemma
+                .client
+                .complete_chat(root_run.messages().to_vec(), 1024)
+                .await
+                .unwrap_or_else(|_| {
+                    "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
+                });
+            let live_visualization = build_live_context_visualization(
+                "/context",
+                root_run.messages(),
+                evil_gemma.system_prompt.trim(),
+                prompt_tool_protocol_instructions(),
+                root_run.root_context_window(),
+                root_run.agent_graph(),
+                &evil_gemma.client.context_limits(),
+            );
+            root_run.set_context_visualization(live_visualization);
+            let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+        }
+
+        if parse_prompt_tool_call(&response).is_none() && response_looks_incomplete(&response) {
+            root_run.messages_mut().push(ChatMessage {
+                role: "assistant".to_string(),
+                content: response.clone(),
+            });
+            root_run.messages_mut().push(ChatMessage {
+                role: "user".to_string(),
+                content: "Your previous answer appears cut off. Finish the answer directly in at most one short paragraph plus up to 3 bullets. Start with a bottom-line conclusion sentence. Do not emit TOOL_CALL.".to_string(),
+            });
+            response = evil_gemma
+                .client
+                .complete_chat(root_run.messages().to_vec(), 320)
+                .await
+                .unwrap_or(response);
+            let live_visualization = build_live_context_visualization(
+                "/context",
+                root_run.messages(),
+                evil_gemma.system_prompt.trim(),
+                prompt_tool_protocol_instructions(),
+                root_run.root_context_window(),
+                root_run.agent_graph(),
+                &evil_gemma.client.context_limits(),
+            );
+            root_run.set_context_visualization(live_visualization);
+            let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+        }
+
+        root_run.set_final_response(response.clone());
+        let root_agent_id = root_run.agent_graph().root_agent_id();
+        root_run.agent_graph_mut().set_status(root_agent_id, AgentNodeStatus::Completed);
+        root_run
+            .agent_graph_mut()
+            .set_result_summary(root_agent_id, response.clone());
+        root_run.set_status(RootRunStatus::Completed);
+        let mut final_messages = root_run.messages().to_vec();
+        final_messages.push(ChatMessage {
+            role: "assistant".to_string(),
+            content: response.clone(),
+        });
+        let final_context_visualization = build_live_context_visualization(
+            "/context",
+            &final_messages,
+            evil_gemma.system_prompt.trim(),
+            prompt_tool_protocol_instructions(),
+            root_run.root_context_window(),
+            root_run.agent_graph(),
+            &evil_gemma.client.context_limits(),
+        );
+        root_run.set_context_visualization(final_context_visualization.clone());
+        let debug_base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let output_lines = root_run.render_output_lines();
+        let _ = log_agent_graph(&debug_base_dir, root_run.agent_graph());
+        let _ = log_chat_transcript(&debug_base_dir, &output_lines);
+        let _ = log_current_task(&debug_base_dir, root_run.agent_graph(), Some(root_run.query()));
+        if let Some(root_snapshot) = final_context_visualization.windows.first() {
+            let _ = log_root_prompt_snapshot(&debug_base_dir, root_snapshot);
+        }
+        Ok((root_run, store, response))
+    }
+    .await;
+
+    match result {
+        Ok((root_run, store, response)) => {
+            let _ = sender.send(RootRunEvent::Completed {
+                root_run,
+                store,
+                response,
+            });
+        }
+        Err(err) => {
+            let _ = sender.send(RootRunEvent::Failed {
+                root_run: None,
+                error: err.to_string(),
+            });
+        }
+    }
 }
 
 fn normalize_actor_ref(actor: &str) -> &str {
@@ -1873,6 +2542,7 @@ fn help_lines() -> Vec<String> {
         "  /replies_from handle.bsky.social".to_string(),
         "  /pins handle.bsky.social".to_string(),
         "  /context".to_string(),
+        "  /stop".to_string(),
         "  /task".to_string(),
         "  /clear".to_string(),
         "  /help".to_string(),
@@ -1893,6 +2563,7 @@ fn is_local_command(verb: &str) -> bool {
             | "/replies_from"
             | "/pins"
             | "/context"
+            | "/stop"
             | "/task"
             | "/clear"
             | "/help"
@@ -1903,6 +2574,7 @@ fn is_local_command(verb: &str) -> bool {
             | "replies_from"
             | "pins"
             | "context"
+            | "stop"
             | "task"
             | "clear"
             | "help"

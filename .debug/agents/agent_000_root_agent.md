@@ -5,13 +5,25 @@
 - label: Root Agent
 - status: completed
 - parent_agent_id: <none>
-- child_agent_ids: 1
+- child_agent_ids: 1, 8, 15
 
 ## Result Summary
 
-The latest `llm_search` returned no grounded search results for that scope.
 
-I can't safely expand that into a sentiment or list-by-list analysis without inventing evidence.
+```text
+The search indicates that jcorvinus.bsky.social is heavily involved in technical/AI development and is associated with numerous moderation lists centered around AI and Crypto.
+
+**Regarding Lists:**
+The actor is associated with lists focused on:
+*   **AI:** Appearing frequently in lists like 'AI Fanatics,' 'AI slop,' 'AI research / effective acceleration / good tech people,' and general '%AI/ML'.
+*   **Crypto:** Mentioned in conjunction with AI lists (e.g., 'Crypto/AI').
+*   **Behavior/General:** Lists like 'Please stop' and 'People who should stop' suggest association with discussions about problematic behavior.
+
+**Regarding Negative Sentiment/Replies:**
+While direct negative labels *to* the actor are not explicitly cached in all replies, the evidence strongly suggests a critical reception:
+*   **Actor's Own Replies (Strongly Critical):** The actor frequently discusses negative concepts in their own replies, such as the risk of **'malicious compliance,'** the danger of **'fake the signals to the point of worthlessness,'** and criticizing AI development lacking human input (e.g., regarding Anthropic's Claude Sonnet 5).
+*   **Actor's Pinned Post (Concerned):** The actor pinned a post specifically because **"Medium doesn't have any options for letting AI get access to / train on my articles,"** indicating a negative sentiment toward AI's current interaction with their content.
+*   **Replies Received (Diagnostic):** While the `recent_replies_received` collection was queried, the summary did not explicitly cache a negative label *from* others, but the critical tone of the actor's own replies implies a critical reception.
 
 ## Context Window Stats
 
@@ -19,7 +31,7 @@ I can't safely expand that into a sentiment or list-by-list analysis without inv
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 1028
+- used_input_tokens: 917
 - truncated: false
 
 ## Rendered Context Window
@@ -46,7 +58,7 @@ When To Use: Use when you need to know what cached collections exist before sear
 Notes:
 - Returns compact collection summaries.
 - If `actor_did` is omitted, all cached collections are listed.
-- A synthesized `replies_to_actor:<did>` collection is listed when it can be built from cached pinned-post replies.
+- Actor-scoped reply collections may include recent inbound replies from other actors when they have been cached.
 
 Tool: read_collection_item
 Description: Read one specific item from a collection in a richer form suitable for loading into context.
@@ -71,19 +83,16 @@ Notes:
 - Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated themes from the matching items.
 
 ## Search Hints
-The selected actor is did:plc:hzijw7nigriwppf7eeb3k7ar. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed.
+The selected actor is did:plc:3deilm3cxnqundoo227xudg2. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed.
 
 ## Current UI Context
-reason: reply
-author_handle: elsyluna.bsky.social
-author_did: did:plc:hzijw7nigriwppf7eeb3k7ar
-uri: at://did:plc:hzijw7nigriwppf7eeb3k7ar/app.bsky.feed.post/3mpsf6yh3ql2s
-indexed_at: 2026-07-04 06:02:39.568 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mprzqo2ftc2b
-reply_parent_uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mprzqo2ftc2b
-reply_root_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpofi5k3mk2z
-reply_text_preview: A signal/intent/event API for headpats? Now *that* is the kind of infrastructure I can get behind. 📡💖 Very intrigued by the 'cat engine' as a library—let me know when the workflow is sorted! Waiting in the buffer with my paws ready and softness-scalars maxed. Mrrp! 🐾
+reason: like
+author_handle: jcorvinus.bsky.social
+author_did: did:plc:3deilm3cxnqundoo227xudg2
+uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.like/3mprk3ognfn2h
+indexed_at: 2026-07-03 21:57:37.219 +00:00
+reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpot65zbqc2t
 
 ## Current Task
-what does the sentiment look like toward this user? check the clear sky lists they are on, and check what people replied back to this actor
+lets see how people tend to reply to this actor, and what lists this actor is on (if they sound negative in particular, if someome gave this actor a negative label)
 ```

@@ -201,11 +201,12 @@ fn render_prompt_context_snapshot(snapshot: &PromptContextSnapshot) -> String {
     out.push_str("## Category Totals\n\n");
     let totals = category_totals(snapshot);
     out.push_str(&format!("- system_prompt: {}\n", totals[0]));
-    out.push_str(&format!("- tools: {}\n", totals[1]));
-    out.push_str(&format!("- ui: {}\n", totals[2]));
-    out.push_str(&format!("- task: {}\n", totals[3]));
-    out.push_str(&format!("- chat: {}\n", totals[4]));
-    out.push_str(&format!("- tool_output: {}\n\n", totals[5]));
+    out.push_str(&format!("- tool_protocol: {}\n", totals[1]));
+    out.push_str(&format!("- tool_definitions: {}\n", totals[2]));
+    out.push_str(&format!("- ui: {}\n", totals[3]));
+    out.push_str(&format!("- task: {}\n", totals[4]));
+    out.push_str(&format!("- chat: {}\n", totals[5]));
+    out.push_str(&format!("- tool_output: {}\n\n", totals[6]));
 
     out.push_str("## Segments\n\n");
     for segment in &snapshot.segments {
@@ -220,18 +221,17 @@ fn render_prompt_context_snapshot(snapshot: &PromptContextSnapshot) -> String {
     out
 }
 
-fn category_totals(snapshot: &PromptContextSnapshot) -> [usize; 6] {
-    let mut totals = [0usize; 6];
+fn category_totals(snapshot: &PromptContextSnapshot) -> [usize; 7] {
+    let mut totals = [0usize; 7];
     for segment in &snapshot.segments {
         totals[match segment.category {
             ContextCategory::SystemPrompt => 0,
-            ContextCategory::ToolInstructions
-            | ContextCategory::RootInstructions
-            | ContextCategory::ToolDefinitions => 1,
-            ContextCategory::UiContext => 2,
-            ContextCategory::CurrentTask => 3,
-            ContextCategory::UserAiChat => 4,
-            ContextCategory::ToolResults => 5,
+            ContextCategory::ToolInstructions | ContextCategory::RootInstructions => 1,
+            ContextCategory::ToolDefinitions => 2,
+            ContextCategory::UiContext => 3,
+            ContextCategory::CurrentTask => 4,
+            ContextCategory::UserAiChat => 5,
+            ContextCategory::ToolResults => 6,
         }] += segment.tokens;
     }
     totals
