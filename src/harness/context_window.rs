@@ -18,6 +18,7 @@ impl ProviderContextLimits {
 #[derive(Clone, Debug)]
 pub struct BuiltContextSection {
     pub title: String,
+    pub kind: ContextSectionKind,
     pub estimated_tokens: usize,
     pub used_tokens: usize,
     pub truncated: bool,
@@ -56,9 +57,22 @@ impl ContextHeader {
 #[derive(Clone, Debug)]
 pub struct ContextSection {
     pub title: String,
+    pub kind: ContextSectionKind,
     pub body: String,
     pub rendered: String,
     pub estimated_tokens: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextSectionKind {
+    Generic,
+    ToolDefinitions,
+    UiContext,
+    CurrentTask,
+    UserAiChat,
+    CollectionEvidence,
+    ReviewEvidence,
+    ParentSearchResults,
 }
 
 #[derive(Clone, Debug)]
@@ -80,12 +94,22 @@ impl LLMContext {
     }
 
     pub fn push_section(&mut self, title: impl Into<String>, body: impl Into<String>) {
+        self.push_section_with_kind(title, ContextSectionKind::Generic, body);
+    }
+
+    pub fn push_section_with_kind(
+        &mut self,
+        title: impl Into<String>,
+        kind: ContextSectionKind,
+        body: impl Into<String>,
+    ) {
         let title = title.into();
         let body = body.into();
         let rendered = render_section_title_and_body(&title, &body);
         let estimated_tokens = approximate_tokens(&rendered);
         self.sections.push(ContextSection {
             title,
+            kind,
             body,
             rendered,
             estimated_tokens,
@@ -132,6 +156,7 @@ pub fn build_context_window_report(
             used_tokens += section_tokens;
             sections.push(BuiltContextSection {
                 title: section.title.clone(),
+                kind: section.kind,
                 estimated_tokens: section_tokens,
                 used_tokens: section_tokens,
                 truncated: false,
@@ -152,6 +177,7 @@ pub fn build_context_window_report(
             used_tokens += truncated_tokens;
             sections.push(BuiltContextSection {
                 title: section.title.clone(),
+                kind: section.kind,
                 estimated_tokens: section_tokens,
                 used_tokens: truncated_tokens,
                 truncated: true,

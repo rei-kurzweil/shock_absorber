@@ -1,24 +1,20 @@
 # Agent Debug
 
-- agent_id: 3
+- agent_id: 4
 - agent_type: CollectionSearchAgent
 - agent_kind: CollectionSearch
 - label: collection search: Recent replies received by did:plc:3deilm3cxnqundoo227xudg2
-- status: completed
+- status: failed
 - parent_agent_id: 1
-- child_agent_ids: <none>
+- child_agent_ids: 5
 - collection_id: recent_replies_received:did:plc:3deilm3cxnqundoo227xudg2
 
 ## Result Summary
 
-post: LLM-selected post in Recent replies received by did:plc:3deilm3cxnqundoo227xudg2
-summary: The strongest grounded evidence in this collection centers on 3 selected records, with repeated signals around source_post_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3mpjdhcnyns23, source_post_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3mplp23axos2j. The model did not return a fully structured summary paragraph, so this fallback is derived from the matched records themselves and should be treated as a compact evidence summary rather than a complete interpretation.
-search_result_1_uri: at://did:plc:uv76n3a4zrgxzo45cgpemkve/app.bsky.feed.post/3mpjds2bj422u
-search_result_1_source_collection_id: recent_replies_received:did:plc:3deilm3cxnqundoo227xudg2
-search_result_2_uri: at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mpjdhhqfx427
-search_result_2_source_collection_id: recent_replies_received:did:plc:3deilm3cxnqundoo227xudg2
-search_result_3_uri: at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mplp2bl4iu2s
-search_result_3_source_collection_id: recent_replies_received:did:plc:3deilm3cxnqundoo227xudg2
+review_status: fail
+review_reason: No usable `summary:` paragraph exists.
+review_repair_needed: false
+No matching cached posts.
 
 ## Context Window Stats
 
@@ -26,8 +22,13 @@ search_result_3_source_collection_id: recent_replies_received:did:plc:3deilm3cxn
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 2080
+- used_input_tokens: 2078
 - truncated: false
+
+## Included Sections
+
+- Collection [collection_evidence]: used 1689 / estimated 1689
+- Search Prompt [local_task]: used 41 / estimated 41
 
 ## Rendered Context Window
 
@@ -199,5 +200,5 @@ reply_text: I've never seen this avi before but I love her
 
 
 ## Search Prompt
-Summarize the general reputation of jcorvinus.bsky.social based on replies. Look for positive endorsements, negative pushbacks, or contrasting opinions.
+Analyze the sentiment of replies received from jcorvinus.bsky.social. Look for strong positive or negative indicators in the replies themselves.
 ```

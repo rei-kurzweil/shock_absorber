@@ -2182,7 +2182,7 @@ fn build_root_context_snapshot(
     for section in &root_context_window.sections {
         segments.push(ContextSegment {
             label: section.title.clone(),
-            category: root_category_for_section(&section.title),
+            category: root_category_for_section(section),
             tokens: section.used_tokens,
             truncated: section.truncated,
         });
@@ -2257,24 +2257,51 @@ fn classify_context_message(
         ),
         ContextMessageKind::RoundLimitPrompt => (
             "Round Limit Prompt".to_string(),
-            ContextCategory::CurrentTask,
+            ContextCategory::LocalTask,
             false,
         ),
         ContextMessageKind::RepairPrompt => (
             "Repair Prompt".to_string(),
-            ContextCategory::CurrentTask,
+            ContextCategory::LocalTask,
             false,
         ),
     }
 }
 
-fn root_category_for_section(title: &str) -> ContextCategory {
-    match title {
-        "Tools" => ContextCategory::ToolDefinitions,
-        "Search Hints" | "Current UI Context" => ContextCategory::UiContext,
-        "Current Task" => ContextCategory::CurrentTask,
-        "Recent Chat" => ContextCategory::UserAiChat,
-        _ => ContextCategory::UiContext,
+fn root_category_for_section(
+    section: &crate::harness::context_window::BuiltContextSection,
+) -> ContextCategory {
+    match section.kind {
+        crate::harness::context_window::ContextSectionKind::ToolDefinitions => {
+            ContextCategory::ToolDefinitions
+        }
+        crate::harness::context_window::ContextSectionKind::UiContext => {
+            ContextCategory::UiContext
+        }
+        crate::harness::context_window::ContextSectionKind::CurrentTask => {
+            ContextCategory::LocalTask
+        }
+        crate::harness::context_window::ContextSectionKind::UserAiChat => {
+            ContextCategory::UserAiChat
+        }
+        crate::harness::context_window::ContextSectionKind::CollectionEvidence => {
+            ContextCategory::CollectionEvidence
+        }
+        crate::harness::context_window::ContextSectionKind::ReviewEvidence => {
+            ContextCategory::ReviewEvidence
+        }
+        crate::harness::context_window::ContextSectionKind::ParentSearchResults => {
+            ContextCategory::ParentSearchResults
+        }
+        crate::harness::context_window::ContextSectionKind::Generic => {
+            match section.title.as_str() {
+                "Tools" => ContextCategory::ToolDefinitions,
+                "Search Hints" | "Current UI Context" => ContextCategory::UiContext,
+                "Current Task" => ContextCategory::LocalTask,
+                "Recent Chat" => ContextCategory::UserAiChat,
+                _ => ContextCategory::UiContext,
+            }
+        }
     }
 }
 
@@ -2287,6 +2314,9 @@ fn compact_tool_result_for_root_context(tool_name: &str, tool_output: &str) -> S
 
 fn compact_llm_search_result_for_root_context(tool_output: &str) -> String {
     let mut kept = Vec::new();
+    let mut failed_collections = Vec::new();
+    let mut current_collection_label: Option<String> = None;
+
     for line in tool_output.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -2301,14 +2331,32 @@ fn compact_llm_search_result_for_root_context(tool_output: &str) -> String {
             || trimmed.starts_with("selected_result_source_collection_id:")
             || trimmed.starts_with("selected_result_collection_id:")
             || trimmed.starts_with("selected_result_collection_label:")
-            || trimmed.starts_with("collection_id:")
-            || trimmed.starts_with("collection_label:")
-            || trimmed.starts_with("status:")
             || trimmed.starts_with("error:")
         {
             kept.push(trimmed.to_string());
         }
+
+        if let Some(label) = trimmed.strip_prefix("collection_label:") {
+            current_collection_label = Some(label.trim().to_string());
+            continue;
+        }
+
+        if trimmed == "status: failed" {
+            failed_collections.push(
+                current_collection_label
+                    .clone()
+                    .unwrap_or_else(|| "unknown collection".to_string()),
+            );
+        }
     }
+
+    if !failed_collections.is_empty() {
+        kept.push(format!(
+            "collection_failures: {}",
+            failed_collections.join(" | ")
+        ));
+    }
+
     if kept.is_empty() {
         return truncate_for_root_context(tool_output, 24);
     }
@@ -2648,9 +2696,14 @@ fn build_tool_aware_query_context_window(
 ) -> crate::harness::context_window::BuiltContextWindow {
     let mut context =
         LLMContext::new("Use the available tools only when they materially improve the answer.");
-    context.push_section("Tools", tools.render_tool_inventory());
-    context.push_section(
+    context.push_section_with_kind(
+        "Tools",
+        crate::harness::context_window::ContextSectionKind::ToolDefinitions,
+        tools.render_tool_inventory(),
+    );
+    context.push_section_with_kind(
         "Search Hints",
+        crate::harness::context_window::ContextSectionKind::UiContext,
         selected_actor_did
             .map(search_hints_for_actor_did)
             .unwrap_or_else(|| {
@@ -2658,16 +2711,22 @@ fn build_tool_aware_query_context_window(
             }),
     );
 
-    context.push_section(
+    context.push_section_with_kind(
         "Current UI Context",
+        crate::harness::context_window::ContextSectionKind::UiContext,
         selected_actor_summary
             .unwrap_or_else(|| "No actor is currently selected in the UI.".to_string()),
     );
-    context.push_section("Current Task", query);
+    context.push_section_with_kind(
+        "Current Task",
+        crate::harness::context_window::ContextSectionKind::CurrentTask,
+        query,
+    );
 
     if !root_conversation.is_empty() {
-        context.push_section(
+        context.push_section_with_kind(
             "Recent Chat",
+            crate::harness::context_window::ContextSectionKind::UserAiChat,
             root_conversation
                 .iter()
                 .map(|turn| {
@@ -3052,7 +3111,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 mod tests {
     use super::{build_root_context_snapshot, compact_llm_search_result_for_root_context};
     use crate::harness::context_window::{
-        BuiltContextSection, BuiltContextWindow, ProviderContextLimits,
+        BuiltContextSection, BuiltContextWindow, ContextSectionKind, ProviderContextLimits,
     };
     use crate::harness::llm_api::ChatMessage;
     use crate::harness::runtime::{ContextMessage, ContextMessageKind};
@@ -3067,6 +3126,17 @@ mod tests {
         assert!(compact.contains("summary: grounded answer"));
         assert!(compact.contains("selected_result_uri: at://one"));
         assert!(compact.contains("selected_result_collection_id: clearsky:test"));
+        assert!(!compact.contains("\ncollection_id: clearsky:test"));
+        assert!(!compact.contains("post: picked"));
+    }
+
+    #[test]
+    fn compact_llm_search_summarizes_failed_collections() {
+        let tool_output = "llm_search searched collections independently and combined the grounded results below.\nsummary: grounded answer\nselected_result_uri: at://one\nselected_result_source_collection_id: clearsky:test\nselected_result_collection_id: clearsky:test\nselected_result_collection_label: Clearsky test\n\ncollection_id: replies:test\ncollection_label: Recent replies\nstatus: failed\nreview_reason: No usable summary.\n\ncollection_id: profile:test\ncollection_label: Profile\nstatus: ok";
+
+        let compact = compact_llm_search_result_for_root_context(tool_output);
+
+        assert!(compact.contains("collection_failures: Recent replies"));
     }
 
     #[test]
@@ -3084,6 +3154,7 @@ mod tests {
             },
             sections: vec![BuiltContextSection {
                 title: "Current Task".to_string(),
+                kind: ContextSectionKind::CurrentTask,
                 estimated_tokens: 20,
                 used_tokens: 20,
                 truncated: false,

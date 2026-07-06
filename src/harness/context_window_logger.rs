@@ -174,6 +174,18 @@ fn render_agent_node(node: &crate::harness::agents::AgentNode) -> String {
             window.used_input_tokens
         ));
         out.push_str(&format!("- truncated: {}\n\n", window.truncated));
+        out.push_str("## Included Sections\n\n");
+        for section in &window.sections {
+            out.push_str(&format!(
+                "- {} [{}]: used {} / estimated {}{}\n",
+                section.title,
+                section_kind_label(section.kind),
+                section.used_tokens,
+                section.estimated_tokens,
+                if section.truncated { " (trimmed)" } else { "" }
+            ));
+        }
+        out.push('\n');
         out.push_str("## Rendered Context Window\n\n```text\n");
         out.push_str(&window.rendered);
         if !window.rendered.ends_with('\n') {
@@ -216,7 +228,10 @@ fn render_prompt_context_snapshot(snapshot: &PromptContextSnapshot) -> String {
     out.push_str(&format!("- ui: {}\n", totals[3]));
     out.push_str(&format!("- task: {}\n", totals[4]));
     out.push_str(&format!("- chat: {}\n", totals[5]));
-    out.push_str(&format!("- tool_output: {}\n\n", totals[6]));
+    out.push_str(&format!("- tool_output: {}\n", totals[6]));
+    out.push_str(&format!("- collection_evidence: {}\n", totals[7]));
+    out.push_str(&format!("- review_evidence: {}\n", totals[8]));
+    out.push_str(&format!("- parent_search_results: {}\n\n", totals[9]));
 
     out.push_str("## Segments\n\n");
     for segment in &snapshot.segments {
@@ -231,18 +246,40 @@ fn render_prompt_context_snapshot(snapshot: &PromptContextSnapshot) -> String {
     out
 }
 
-fn category_totals(snapshot: &PromptContextSnapshot) -> [usize; 7] {
-    let mut totals = [0usize; 7];
+fn category_totals(snapshot: &PromptContextSnapshot) -> [usize; 10] {
+    let mut totals = [0usize; 10];
     for segment in &snapshot.segments {
         totals[match segment.category {
             ContextCategory::SystemPrompt => 0,
             ContextCategory::ToolInstructions | ContextCategory::RootInstructions => 1,
             ContextCategory::ToolDefinitions => 2,
             ContextCategory::UiContext => 3,
-            ContextCategory::CurrentTask => 4,
+            ContextCategory::LocalTask => 4,
             ContextCategory::UserAiChat => 5,
             ContextCategory::ToolResults => 6,
+            ContextCategory::CollectionEvidence => 7,
+            ContextCategory::ReviewEvidence => 8,
+            ContextCategory::ParentSearchResults => 9,
         }] += segment.tokens;
     }
     totals
+}
+
+fn section_kind_label(kind: crate::harness::context_window::ContextSectionKind) -> &'static str {
+    match kind {
+        crate::harness::context_window::ContextSectionKind::Generic => "generic",
+        crate::harness::context_window::ContextSectionKind::ToolDefinitions => {
+            "tool_definitions"
+        }
+        crate::harness::context_window::ContextSectionKind::UiContext => "ui_context",
+        crate::harness::context_window::ContextSectionKind::CurrentTask => "local_task",
+        crate::harness::context_window::ContextSectionKind::UserAiChat => "chat",
+        crate::harness::context_window::ContextSectionKind::CollectionEvidence => {
+            "collection_evidence"
+        }
+        crate::harness::context_window::ContextSectionKind::ReviewEvidence => "review_evidence",
+        crate::harness::context_window::ContextSectionKind::ParentSearchResults => {
+            "parent_search_results"
+        }
+    }
 }

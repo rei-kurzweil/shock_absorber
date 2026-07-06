@@ -1,5 +1,5 @@
 use crate::harness::agents::{AgentNode, AgentNodeKind};
-use crate::harness::context_window::BuiltContextWindow;
+use crate::harness::context_window::{BuiltContextWindow, BuiltContextSection, ContextSectionKind};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
@@ -13,9 +13,12 @@ pub enum ContextCategory {
     RootInstructions,
     ToolDefinitions,
     UiContext,
-    CurrentTask,
+    LocalTask,
     UserAiChat,
     ToolResults,
+    CollectionEvidence,
+    ReviewEvidence,
+    ParentSearchResults,
 }
 
 #[derive(Clone, Debug)]
@@ -66,14 +69,9 @@ pub fn snapshot_from_llm_search_window(
     }];
 
     for section in &window.sections {
-        let category = match section.title.as_str() {
-            "Collection" => ContextCategory::ToolResults,
-            "Search Prompt" => ContextCategory::CurrentTask,
-            _ => ContextCategory::UiContext,
-        };
         segments.push(ContextSegment {
             label: section.title.clone(),
-            category,
+            category: category_for_built_section(section),
             tokens: section.used_tokens,
             truncated: section.truncated,
         });
@@ -118,20 +116,38 @@ fn snapshot_from_tool_agent_window(
     }];
 
     for section in &window.sections {
-        let category = match section.title.as_str() {
-            "Original Search Query" => ContextCategory::CurrentTask,
-            "Per-Collection Results" => ContextCategory::ToolResults,
-            _ => ContextCategory::UiContext,
-        };
         segments.push(ContextSegment {
             label: section.title.clone(),
-            category,
+            category: category_for_built_section(section),
             tokens: section.used_tokens,
             truncated: section.truncated,
         });
     }
 
     snapshot_from_window(title, window, segments)
+}
+
+fn category_for_built_section(section: &BuiltContextSection) -> ContextCategory {
+    match section.kind {
+        ContextSectionKind::Generic => match section.title.as_str() {
+            "Collection" => ContextCategory::CollectionEvidence,
+            "Search Prompt" | "Original Search Query" => ContextCategory::LocalTask,
+            "Collection Evidence" => ContextCategory::ReviewEvidence,
+            "Proposed Summary" | "Per-Collection Results" => ContextCategory::ParentSearchResults,
+            "Tools" => ContextCategory::ToolDefinitions,
+            "Search Hints" | "Current UI Context" => ContextCategory::UiContext,
+            "Current Task" => ContextCategory::LocalTask,
+            "Recent Chat" => ContextCategory::UserAiChat,
+            _ => ContextCategory::UiContext,
+        },
+        ContextSectionKind::ToolDefinitions => ContextCategory::ToolDefinitions,
+        ContextSectionKind::UiContext => ContextCategory::UiContext,
+        ContextSectionKind::CurrentTask => ContextCategory::LocalTask,
+        ContextSectionKind::UserAiChat => ContextCategory::UserAiChat,
+        ContextSectionKind::CollectionEvidence => ContextCategory::CollectionEvidence,
+        ContextSectionKind::ReviewEvidence => ContextCategory::ReviewEvidence,
+        ContextSectionKind::ParentSearchResults => ContextCategory::ParentSearchResults,
+    }
 }
 
 fn snapshot_from_window(
@@ -177,7 +193,14 @@ pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData, sc
         lines.push(Line::from(category_totals_summary(window)));
 
         if index == 0 {
+            lines.push(legend_line());
+            for summary in root_follow_up_summaries(window) {
+                lines.push(Line::from(summary));
+            }
             for segment in &window.segments {
+                if hide_detailed_segment(segment) {
+                    continue;
+                }
                 let pct = if window.input_budget_tokens == 0 {
                     0.0
                 } else {
@@ -205,10 +228,13 @@ pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData, sc
         }
     }
 
-    lines.push(Line::from(""));
-    lines.push(legend_line());
-
     frame.render_widget(Paragraph::new(Text::from(lines)).scroll((scroll, 0)), area);
+}
+
+fn hide_detailed_segment(segment: &ContextSegment) -> bool {
+    matches!(segment.category, ContextCategory::ToolResults)
+        && (segment.label.starts_with("Tool Request #")
+            || segment.label.starts_with("Tool Result #"))
 }
 
 fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
@@ -223,8 +249,43 @@ fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
         .join(" | ")
 }
 
+fn root_follow_up_summaries(window: &PromptContextSnapshot) -> Vec<String> {
+    let tool_segments = window
+        .segments
+        .iter()
+        .filter(|segment| {
+            matches!(segment.category, ContextCategory::ToolResults)
+                && segment.label.starts_with("Tool Result #")
+        })
+        .map(render_root_follow_up_segment)
+        .collect::<Vec<_>>();
+    let chat_segments = window
+        .segments
+        .iter()
+        .filter(|segment| matches!(segment.category, ContextCategory::UserAiChat))
+        .map(render_root_follow_up_segment)
+        .collect::<Vec<_>>();
+
+    let mut lines = Vec::new();
+    if !tool_segments.is_empty() {
+        lines.push(format!(
+            "Main-context tool output: {}",
+            tool_segments.join(" | ")
+        ));
+    }
+    if !chat_segments.is_empty() {
+        lines.push(format!("Main-context chat: {}", chat_segments.join(" | ")));
+    }
+    lines
+}
+
+fn render_root_follow_up_segment(segment: &ContextSegment) -> String {
+    let suffix = if segment.truncated { "*" } else { "" };
+    format!("{} {}{}", segment.label, segment.tokens, suffix)
+}
+
 fn category_totals_summary(window: &PromptContextSnapshot) -> String {
-    let mut totals = [0usize; 7];
+    let mut totals = [0usize; 10];
     let mut order = Vec::new();
     for segment in &window.segments {
         let index = display_category_index(&segment.category);
@@ -250,6 +311,9 @@ fn category_label(index: usize) -> &'static str {
         4 => "Task",
         5 => "Chat",
         6 => "Tool Output",
+        7 => "Collection Evidence",
+        8 => "Review Evidence",
+        9 => "Parent Search Results",
         _ => "Unknown",
     }
 }
@@ -317,9 +381,12 @@ fn color_for_category(category: &ContextCategory) -> Color {
         ContextCategory::ToolInstructions | ContextCategory::RootInstructions => Color::Blue,
         ContextCategory::ToolDefinitions => Color::LightBlue,
         ContextCategory::UiContext => Color::Green,
-        ContextCategory::CurrentTask => Color::Cyan,
+        ContextCategory::LocalTask => Color::Cyan,
         ContextCategory::UserAiChat => Color::Rgb(245, 215, 95),
         ContextCategory::ToolResults => Color::Rgb(240, 210, 170),
+        ContextCategory::CollectionEvidence => Color::Rgb(110, 170, 120),
+        ContextCategory::ReviewEvidence => Color::Rgb(180, 205, 120),
+        ContextCategory::ParentSearchResults => Color::Rgb(215, 170, 120),
     }
 }
 
@@ -329,9 +396,12 @@ fn display_category_index(category: &ContextCategory) -> usize {
         ContextCategory::ToolInstructions | ContextCategory::RootInstructions => 1,
         ContextCategory::ToolDefinitions => 2,
         ContextCategory::UiContext => 3,
-        ContextCategory::CurrentTask => 4,
+        ContextCategory::LocalTask => 4,
         ContextCategory::UserAiChat => 5,
         ContextCategory::ToolResults => 6,
+        ContextCategory::CollectionEvidence => 7,
+        ContextCategory::ReviewEvidence => 8,
+        ContextCategory::ParentSearchResults => 9,
     }
 }
 
@@ -344,6 +414,9 @@ fn legend_line() -> Line<'static> {
         ("  ", Color::Cyan, " task "),
         ("  ", Color::Rgb(245, 215, 95), " chat "),
         ("  ", Color::Rgb(240, 210, 170), " tool output "),
+        ("  ", Color::Rgb(110, 170, 120), " collection evidence "),
+        ("  ", Color::Rgb(180, 205, 120), " review evidence "),
+        ("  ", Color::Rgb(215, 170, 120), " parent search results "),
         ("  ", Color::Red, " final 25% "),
         ("  ", Color::DarkGray, " unused "),
     ];
@@ -359,7 +432,10 @@ fn legend_line() -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContextCategory, ContextSegment, PromptContextSnapshot, category_totals_summary};
+    use super::{
+        ContextCategory, ContextSegment, PromptContextSnapshot, category_totals_summary,
+        root_follow_up_summaries,
+    };
 
     #[test]
     fn category_totals_separate_tool_protocol_from_tool_definitions() {
@@ -436,6 +512,48 @@ mod tests {
         assert_eq!(
             category_totals_summary(&window),
             "System Prompt 10 | Tool Output 20 | Chat 30"
+        );
+    }
+
+    #[test]
+    fn root_follow_up_summaries_show_tool_output_and_chat_segments() {
+        let window = PromptContextSnapshot {
+            title: "Root Agent".to_string(),
+            provider_name: "test".to_string(),
+            model_name: "test".to_string(),
+            max_context_tokens: 1000,
+            reserved_output_tokens: 100,
+            input_budget_tokens: 900,
+            used_input_tokens: 140,
+            truncated: false,
+            segments: vec![
+                ContextSegment {
+                    label: "Tool Request #1".to_string(),
+                    category: ContextCategory::ToolResults,
+                    tokens: 10,
+                    truncated: false,
+                },
+                ContextSegment {
+                    label: "Tool Result #1".to_string(),
+                    category: ContextCategory::ToolResults,
+                    tokens: 90,
+                    truncated: false,
+                },
+                ContextSegment {
+                    label: "Assistant Reply".to_string(),
+                    category: ContextCategory::UserAiChat,
+                    tokens: 40,
+                    truncated: false,
+                },
+            ],
+        };
+
+        assert_eq!(
+            root_follow_up_summaries(&window),
+            vec![
+                "Main-context tool output: Tool Result #1 90".to_string(),
+                "Main-context chat: Assistant Reply 40".to_string()
+            ]
         );
     }
 }

@@ -1,5 +1,7 @@
 use crate::harness::agents::{AgentNodeKind, AgentNodeStatus, AgentNodeTemplate};
-use crate::harness::context_window::{BuiltContextWindow, LLMContext, build_context_window_report};
+use crate::harness::context_window::{
+    BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
+};
 use crate::harness::llm_api::{ChatMessage, LlmApiClient};
 use crate::harness::prompts::{AgentKind, tool_prompt};
 use crate::model::{LabeledPostCollection, PostRecord};
@@ -303,8 +305,16 @@ impl<'a> LlmSearchComparator<'a> {
         }
 
         let mut context = LLMContext::new(AgentKind::CollectionSearch.system_prompt());
-        context.push_section("Collection", serialize_collection(collection));
-        context.push_section("Search Prompt", self.prompt);
+        context.push_section_with_kind(
+            "Collection",
+            ContextSectionKind::CollectionEvidence,
+            serialize_collection(collection),
+        );
+        context.push_section_with_kind(
+            "Search Prompt",
+            ContextSectionKind::CurrentTask,
+            self.prompt,
+        );
 
         let context_window =
             build_context_window_report(&context, &self.llm_client.context_limits());
@@ -538,6 +548,7 @@ impl BlueskyTools {
         let mut searched_collection_ids = HashSet::new();
         let mut final_summary = None;
         let mut diagnostics = Vec::new();
+        let mut consecutive_invalid_tool_responses = 0usize;
 
         for round in 0..6usize {
             let response = llm_client.complete_chat(messages.clone(), 768).await?;
@@ -547,16 +558,28 @@ impl BlueskyTools {
                     break;
                 }
                 InternalToolResponse::Invalid(reason) => {
+                    consecutive_invalid_tool_responses += 1;
                     let diagnostic = format!(
-                        "status: invalid_tool_call\nreason: {reason}\ninstruction: re-emit exactly one valid internal TOOL_CALL block with no extra prose"
+                        "status: invalid_tool_call\nreason: {reason}\ninstruction: re-emit exactly one valid internal TOOL_CALL block with no extra prose\nraw_response:\n{}",
+                        truncate_diagnostic_block(&response, 1200)
                     );
-                    diagnostics.push(format!("internal planner validation failed: {reason}"));
+                    diagnostics.push(format!(
+                        "internal planner validation failed: {reason}\nraw_response:\n{}",
+                        truncate_diagnostic_block(&response, 500)
+                    ));
                     if let Some(observer) = observer.as_ref() {
                         let _ = observer.send(ToolProgressEvent::AgentUpdate {
                             label: "llm_search planner".to_string(),
                             depth: 2,
                             content: diagnostic.clone(),
                         });
+                    }
+                    if consecutive_invalid_tool_responses >= 2 {
+                        diagnostics.push(
+                            "internal planner produced repeated invalid tool-call formatting; falling back to harness-side collection resolution"
+                                .to_string(),
+                        );
+                        break;
                     }
                     messages.push(ChatMessage {
                         role: "assistant".to_string(),
@@ -573,15 +596,24 @@ impl BlueskyTools {
                 }
                 InternalToolResponse::ToolCall(tool_call) => tool_call,
             };
+            consecutive_invalid_tool_responses = 0;
 
             let tool_call = match validate_internal_llm_search_tool_call(&tool_call) {
                 Ok(tool_call) => tool_call,
                 Err(reason) => {
+                    let tool_args = serde_json::to_string_pretty(&tool_call.args)?;
                     let diagnostic = format!(
-                        "status: invalid_tool_call\nname: {}\nreason: {}\ninstruction: re-emit exactly one valid tool call with corrected arguments",
-                        tool_call.name, reason
+                        "status: invalid_tool_call\nname: {}\nreason: {}\ninstruction: re-emit exactly one valid tool call with corrected arguments\nraw_response:\n{}\nparsed_args:\n{}",
+                        tool_call.name,
+                        reason,
+                        truncate_diagnostic_block(&response, 800),
+                        tool_args
                     );
-                    diagnostics.push(format!("internal planner validation failed: {reason}"));
+                    diagnostics.push(format!(
+                        "internal planner validation failed: {reason}\nname: {}\nparsed_args: {}",
+                        tool_call.name,
+                        truncate_diagnostic_block(&tool_args, 300)
+                    ));
                     if let Some(observer) = observer.as_ref() {
                         let _ = observer.send(ToolProgressEvent::AgentUpdate {
                             label: format!("internal tool validation: {}", tool_call.name),
@@ -589,7 +621,6 @@ impl BlueskyTools {
                             content: diagnostic.clone(),
                         });
                     }
-                    let tool_args = serde_json::to_string(&tool_call.args)?;
                     messages.push(ChatMessage {
                         role: "assistant".to_string(),
                         content: response,
@@ -598,7 +629,9 @@ impl BlueskyTools {
                         role: "user".to_string(),
                         content: format!(
                             "Tool Result\nname: {}\nargs: {}\n\n{}\n\nRe-emit exactly one valid tool call.",
-                            tool_call.name, tool_args, diagnostic
+                            tool_call.name,
+                            serde_json::to_string(&tool_call.args)?,
+                            diagnostic
                         ),
                     });
                     continue;
@@ -1587,19 +1620,52 @@ fn validate_internal_tool_response(response: &str) -> InternalToolResponse {
         );
     };
 
-    let canonical = format!(
-        "TOOL_CALL\nname: {}\nargs: {}",
-        tool_call.name,
-        serde_json::to_string(&tool_call.args).unwrap_or_else(|_| "{}".to_string())
-    );
-    if trimmed != canonical {
+    let Some(strict_block) = extract_strict_tool_call_block(trimmed) else {
         return InternalToolResponse::Invalid(
             "strict internal mode requires exactly one TOOL_CALL block with no surrounding prose"
                 .to_string(),
         );
+    };
+
+    let Some(strict_tool_call) = parse_prompt_tool_call(strict_block) else {
+        return InternalToolResponse::Invalid(
+            "strict internal mode requires exactly one parseable TOOL_CALL block".to_string(),
+        );
+    };
+
+    if strict_tool_call.name != tool_call.name || strict_tool_call.args != tool_call.args {
+        return InternalToolResponse::Invalid(
+            "strict internal mode requires one unambiguous TOOL_CALL block".to_string(),
+        );
     }
 
     InternalToolResponse::ToolCall(tool_call)
+}
+
+fn extract_strict_tool_call_block(response: &str) -> Option<&str> {
+    let trimmed = response.trim();
+    let tool_call_start = trimmed.find("TOOL_CALL")?;
+    if !trimmed[..tool_call_start].trim().is_empty() {
+        return None;
+    }
+
+    let after = &trimmed[tool_call_start..];
+    let name_pos = after.find("\nname:")?;
+    let args_pos = after.find("\nargs:")?;
+    if args_pos <= name_pos {
+        return None;
+    }
+
+    let args_section = &after[args_pos + "\nargs:".len()..];
+    let args_object = extract_first_args_object(args_section)?;
+    let args_offset = args_section.find(&args_object)?;
+    let block_end = args_pos + "\nargs:".len() + args_offset + args_object.len();
+    let block = &after[..block_end];
+    if !after[block_end..].trim().is_empty() {
+        return None;
+    }
+
+    Some(block.trim())
 }
 
 fn validate_internal_llm_search_tool_call(
@@ -1671,13 +1737,15 @@ fn build_collection_review_context(
     execution: &LlmSearchExecution,
 ) -> LLMContext {
     let mut context = LLMContext::new(AgentKind::CollectionReview.system_prompt());
-    context.push_section("Search Prompt", prompt);
-    context.push_section(
+    context.push_section_with_kind("Search Prompt", ContextSectionKind::CurrentTask, prompt);
+    context.push_section_with_kind(
         "Collection Evidence",
+        ContextSectionKind::ReviewEvidence,
         render_review_collection_evidence(collection, execution),
     );
-    context.push_section(
+    context.push_section_with_kind(
         "Proposed Summary",
+        ContextSectionKind::ParentSearchResults,
         render_llm_result(execution.original_result.as_ref()),
     );
     context
@@ -2752,9 +2820,14 @@ fn build_llm_search_parent_context(
     outcomes: &[CollectionSearchOutcome],
 ) -> LLMContext {
     let mut context = LLMContext::new(AgentKind::LlmSearch.system_prompt());
-    context.push_section("Original Search Query", prompt);
-    context.push_section(
+    context.push_section_with_kind(
+        "Original Search Query",
+        ContextSectionKind::CurrentTask,
+        prompt,
+    );
+    context.push_section_with_kind(
         "Per-Collection Results",
+        ContextSectionKind::ParentSearchResults,
         outcomes
             .iter()
             .map(|outcome| {
@@ -2892,6 +2965,19 @@ fn summarize_progress_text(text: &str) -> String {
         .take(8)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn truncate_diagnostic_block(text: &str, max_chars: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut out = trimmed
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    out.push_str("...");
+    out
 }
 
 fn normalize_parent_summary(summary: Option<&str>) -> Option<String> {
@@ -3619,6 +3705,19 @@ mod tests {
         let response = "I will search now.\n\nTOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}";
         let result = validate_internal_tool_response(response);
         assert!(matches!(result, super::InternalToolResponse::Invalid(_)));
+    }
+
+    #[test]
+    fn strict_internal_tool_response_accepts_whitespace_only_formatting_differences() {
+        let response = "TOOL_CALL\nname: collection_search\nargs:\n{\n  \"collection_id\": \"clearsky_lists:did:plc:testactor\",\n  \"prompt\": \"check lists\"\n}\n";
+        let result = validate_internal_tool_response(response);
+        assert!(matches!(result, super::InternalToolResponse::ToolCall(_)));
+    }
+
+    #[test]
+    fn truncate_diagnostic_block_appends_ellipsis() {
+        let truncated = super::truncate_diagnostic_block("abcdefghij", 6);
+        assert_eq!(truncated, "abc...");
     }
 
     #[test]

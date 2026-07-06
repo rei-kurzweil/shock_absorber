@@ -9,11 +9,23 @@
 
 ## Result Summary
 
-I couldn't inspect the requested cached collections, so I can't ground a sentiment answer.
 
-Tool execution failed: unknown collection `actor_profile:did:3deilm3cxnqundoo227xudg2`
+The sentiment toward jcorvinus.bsky.social is generally **negative when applied to specific behaviors** (e.g., 'Please stop' (8)), but **positive/neutral when describing groups** ('People' (13)).
 
-No list contents or reply evidence were successfully loaded for this search, so any sentiment summary would be speculative.
+**Lists she is on (summarized from Clearsky moderation lists):**
+
+*   **Negative/Behavioral Focus:** Lists heavily target AI content and specific actions, such as:
+    *   'AI slop' (21)
+    *   'AI Fanatics' (19)
+    *   'AI' (18, 23)
+    *   'Please stop' (8)
+*   **Positive/Neutral/Structural Focus:** Lists denote groups or general themes:
+    *   'People' (13)
+    *   'Core Cluster' (12)
+    *   'Silver Cluster (54)' (6)
+    *   Broad AI categories like 'AI research / effective acceleration / good tech people' (7)
+
+The lists are heavily focused on **Artificial Intelligence (AI)** and **technological clusters**.
 
 ## Context Window Stats
 
@@ -21,8 +33,15 @@ No list contents or reply evidence were successfully loaded for this search, so 
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 923
+- used_input_tokens: 1016
 - truncated: false
+
+## Included Sections
+
+- Tools [tool_definitions]: used 693 / estimated 693
+- Search Hints [ui_context]: used 76 / estimated 76
+- Current UI Context [ui_context]: used 184 / estimated 184
+- Current Task [local_task]: used 42 / estimated 42
 
 ## Rendered Context Window
 
@@ -76,13 +95,16 @@ Notes:
 The selected actor is did:plc:3deilm3cxnqundoo227xudg2. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed.
 
 ## Current UI Context
-reason: like
+reason: reply
 author_handle: jcorvinus.bsky.social
 author_did: did:plc:3deilm3cxnqundoo227xudg2
-uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.like/3mprk3mvlsu22
-indexed_at: 2026-07-03 21:57:35.609 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpoymhh4qs2f
+uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3mpxerae44c22
+indexed_at: 2026-07-06 05:38:16.829 +00:00
+reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpxdfdda2s2t
+reply_parent_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3mpxebwyqis22
+reply_root_uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpxdfdda2s2t
+reply_text_preview: Tbf, the negative signals themselves are low res, and unpacking them would require analysis that I think entire teams of humans would struggle with if they weren't lucky enough to already be embedded in the context
 
 ## Current Task
-lets see what this user is known for based on how people reply to them, and what lists this actor is on (try to summarize negative and positive sounding lists / constrast examples from them)
+what is the sentiment toward this user? that is, how do people reply to her? what lists is she on (positive or negative lists? try to summarize both)
 ```

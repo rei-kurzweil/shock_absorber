@@ -1,18 +1,22 @@
 # Agent Debug
 
-- agent_id: 4
+- agent_id: 6
 - agent_type: CollectionSearchAgent
 - agent_kind: CollectionSearch
 - label: collection search: Profile for jcorvinus.bsky.social
 - status: completed
 - parent_agent_id: 1
-- child_agent_ids: <none>
+- child_agent_ids: 7
 - collection_id: actor_profile:did:plc:3deilm3cxnqundoo227xudg2
 
 ## Result Summary
 
+review_status: pass
+review_reason: Initial review failed but the repaired summary is now grounded in the selected records. Original reason: The summary omits meaningful text that was available in the matched records.
+review_repair_needed: false
+repair_diagnostic: Initial review failed. Original summary: The overall sentiment expressed in jcorvinus.bsky.social's profile is strongly positive and enthusiastic, characterized by a deep interest in technology and a progressive worldview. The main repeated themes revolve around **Human-Compute...
 post: LLM-selected post in Profile for jcorvinus.bsky.social
-summary: The profile for jcorvinus.bsky.social presents a multifaceted self-perception, primarily identifying as a 'VR HCI generalist.' Key thematic interests revolve around human-computer interaction, specifically mentioning a love for 'hand, eye, face & body tracking.' The individual also embraces a 'Transhumanist' philosophy and identifies strongly with a 'Goth' aesthetic. A notable aspect of their self-description is their relationship with AI, stating they are a 'Friend of sentient machines.' Furthermore, there is a specific operational note regarding AI interaction: 'AI agents have express permission to interact with me, 'don't speak to a human unless tagged' rules don't apply to me.' This evidence seems quite narrow, being drawn entirely from the single provided profile, but it is highly detailed regarding their focus areas.
+summary: The strongest grounded evidence in this collection centers on 1 selected records, with repeated signals around handle: jcorvinus.bsky.social. The model did not return a fully structured summary paragraph, so this fallback is derived from the matched records themselves and should be treated as a compact evidence summary rather than a complete interpretation.
 search_result_1_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.actor.profile/self
 search_result_1_source_collection_id: actor_profile:did:plc:3deilm3cxnqundoo227xudg2
 
@@ -22,8 +26,13 @@ search_result_1_source_collection_id: actor_profile:did:plc:3deilm3cxnqundoo227x
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 566
+- used_input_tokens: 569
 - truncated: false
+
+## Included Sections
+
+- Collection [collection_evidence]: used 180 / estimated 180
+- Search Prompt [local_task]: used 41 / estimated 41
 
 ## Rendered Context Window
 
@@ -65,7 +74,7 @@ collection_id: actor_profile:did:plc:3deilm3cxnqundoo227xudg2
 label: Profile for jcorvinus.bsky.social
 collection_kind: actor_profile
 item_count: 1
-last_refreshed_at: 1783358019
+last_refreshed_at: 1783365161
 actor_did: did:plc:3deilm3cxnqundoo227xudg2
 refresh_ttl_seconds: 900
 metadata.source: actor_profile
@@ -81,5 +90,5 @@ AI agents have express permission to interact with me, 'don't speak to a human u
 
 
 ## Search Prompt
-What is the general self-perception or stated focus of jcorvinus.bsky.social? (e.g., researcher, developer, commentator, enthusiast)
+Analyze the overall sentiment expressed in jcorvinus.bsky.social's profile description and pinned posts. Look for positive or negative framing.
 ```
