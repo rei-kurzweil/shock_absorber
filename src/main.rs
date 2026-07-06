@@ -6,10 +6,8 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::text::Text;
+use ratatui::widgets::ListItem;
 use ratatui::{Frame, Terminal};
 use std::env;
 use std::error::Error;
@@ -30,6 +28,7 @@ mod harness;
 mod model;
 mod net_backend;
 mod post;
+mod ui;
 mod visualization;
 
 use crate::db::AppDb;
@@ -2672,101 +2671,63 @@ fn line_to_string(line: ratatui::text::Line<'_>) -> String {
 }
 
 fn draw_ui(frame: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3)])
-        .split(frame.area());
+    let (chunks, input_area) = ui::tui_renderer::layout(frame);
 
     if app.is_fullscreen_overlay() {
         match &app.detail {
             DetailView::Command { .. } | DetailView::AiChat { .. } => {
-                let text = match &app.detail {
-                    DetailView::AiChat { text, .. } => pad_background_lines(text.clone(), chunks[0].width.saturating_sub(2)),
-                    _ => app.detail_text(),
-                };
-                let detail = Paragraph::new(text)
-                    .block(Block::default().title(app.detail_title()))
-                    .scroll((app.detail_scroll, 0))
-                    .wrap(Wrap { trim: false });
-                frame.render_widget(detail, chunks[0]);
+                match &app.detail {
+                    DetailView::AiChat { text, .. } => ui::chat_renderer::render_chat_detail(
+                        frame,
+                        chunks[0],
+                        &app.detail_title(),
+                        text.clone(),
+                        app.detail_scroll,
+                    ),
+                    _ => ui::tui_renderer::render_fullscreen_text(
+                        frame,
+                        chunks[0],
+                        &app.detail_title(),
+                        app.detail_text(),
+                        app.detail_scroll,
+                    ),
+                }
             }
             DetailView::ContextVisualization(data) => {
-                visualization::context::render(frame, chunks[0], data, app.detail_scroll);
+                ui::tui_renderer::render_context_visualization(
+                    frame,
+                    chunks[0],
+                    data,
+                    app.detail_scroll,
+                );
             }
             DetailView::Notification => {}
         }
     } else {
-        let body = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-            .split(chunks[0]);
-
-        let notifications = List::new(app.notification_items())
-            .block(Block::default().title("Notifications"))
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol(">> ");
-
-        let mut list_state = ListState::default();
-        if !app.store.notifications.is_empty() {
-            list_state.select(Some(app.selected));
-        }
-        frame.render_stateful_widget(notifications, body[0], &mut list_state);
-
-        let detail = Paragraph::new(app.detail_text())
-            .block(Block::default().title(app.detail_title()))
-            .scroll((app.detail_scroll, 0))
-            .wrap(Wrap { trim: false });
-        frame.render_widget(detail, body[1]);
+        let selected = if app.store.notifications.is_empty() {
+            None
+        } else {
+            Some(app.selected)
+        };
+        ui::tui_renderer::render_notification_split(
+            frame,
+            chunks[0],
+            app.notification_items(),
+            selected,
+            &app.detail_title(),
+            app.detail_text(),
+            app.detail_scroll,
+        );
     }
 
-    let input = Paragraph::new(app.input.as_str())
-        .block(
-            Block::default()
-                .title(format!("Command | {} ", app.status))
-                .style(Style::default().bg(Color::Rgb(220, 220, 220)).fg(Color::Black)),
-        )
-        .style(Style::default().bg(Color::Rgb(220, 220, 220)).fg(Color::Black))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(input, chunks[1]);
+    ui::tui_renderer::render_input(frame, input_area, app.input.as_str(), &app.status);
 
-    let cursor_x = chunks[1]
+    let cursor_x = input_area
         .x
         .saturating_add(app.input.chars().count() as u16 + 1)
-        .min(chunks[1].x + chunks[1].width.saturating_sub(2));
-    let cursor_y = chunks[1].y + 1;
+        .min(input_area.x + input_area.width.saturating_sub(2));
+    let cursor_y = input_area.y + 1;
     frame.set_cursor_position((cursor_x, cursor_y));
-}
-
-fn pad_background_lines(text: Text<'static>, inner_width: u16) -> Text<'static> {
-    let width = inner_width as usize;
-    let lines = text
-        .lines
-        .into_iter()
-        .map(|mut line| {
-            let bg_style = line.spans.iter().find_map(|span| span.style.bg.map(|_| span.style));
-            if let Some(style) = bg_style {
-                let used = plain_line_width(&line);
-                if width > used {
-                    line.spans
-                        .push(Span::styled(" ".repeat(width - used), style));
-                }
-            }
-            Line::from(line.spans)
-        })
-        .collect::<Vec<_>>();
-    Text::from(lines)
-}
-
-fn plain_line_width(line: &Line<'_>) -> usize {
-    line.spans
-        .iter()
-        .map(|span| span.content.chars().count())
-        .sum()
 }
 
 #[cfg(test)]
