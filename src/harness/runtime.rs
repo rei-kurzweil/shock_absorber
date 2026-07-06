@@ -74,6 +74,16 @@ pub struct RootToolCallRecord {
     pub executed: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SuccessfulRootLlmSearch {
+    pub query: String,
+    pub rendered_result: String,
+    pub summary: String,
+    pub actor_refs: Vec<String>,
+    pub collection_ids: Vec<String>,
+    pub intent: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct RootRunRound {
     pub round_index: usize,
@@ -96,6 +106,7 @@ pub struct RootRunState {
     rounds: Vec<RootRunRound>,
     active_tool_entry: Option<String>,
     final_response: Option<String>,
+    latest_successful_llm_search: Option<SuccessfulRootLlmSearch>,
     agent_graph: AgentGraph,
     context_visualization: Option<ContextVisualizationData>,
 }
@@ -119,6 +130,7 @@ impl RootRunState {
             rounds: Vec::new(),
             active_tool_entry: None,
             final_response: None,
+            latest_successful_llm_search: None,
             agent_graph,
             context_visualization: None,
         }
@@ -182,11 +194,7 @@ impl RootRunState {
         &self.transcript_entries
     }
 
-    pub fn push_transcript_entry(
-        &mut self,
-        kind: TranscriptEntryKind,
-        content: impl Into<String>,
-    ) {
+    pub fn push_transcript_entry(&mut self, kind: TranscriptEntryKind, content: impl Into<String>) {
         self.transcript_entries.push(TranscriptEntry {
             kind,
             content: content.into(),
@@ -275,6 +283,14 @@ impl RootRunState {
         self.final_response = Some(response.into());
     }
 
+    pub fn latest_successful_llm_search(&self) -> Option<&SuccessfulRootLlmSearch> {
+        self.latest_successful_llm_search.as_ref()
+    }
+
+    pub fn set_latest_successful_llm_search(&mut self, result: Option<SuccessfulRootLlmSearch>) {
+        self.latest_successful_llm_search = result;
+    }
+
     pub fn agent_graph(&self) -> &AgentGraph {
         &self.agent_graph
     }
@@ -344,11 +360,7 @@ impl RootRunState {
                 match entry.kind {
                     TranscriptEntryKind::ToolCall | TranscriptEntryKind::AgentEvent => {
                         let agent_label = entry.agent_label.as_deref();
-                        lines.extend(render_panel_entry(
-                            agent_label,
-                            entry.depth,
-                            &entry.content,
-                        ));
+                        lines.extend(render_panel_entry(agent_label, entry.depth, &entry.content));
                     }
                     TranscriptEntryKind::Notice => {
                         for line in entry.content.lines() {
@@ -360,14 +372,20 @@ impl RootRunState {
                     entry.kind,
                     TranscriptEntryKind::ToolCall | TranscriptEntryKind::AgentEvent
                 ) {
-                    lines.push(Line::from(vec![Span::styled(String::new(), tool_panel_style())]));
+                    lines.push(Line::from(vec![Span::styled(
+                        String::new(),
+                        tool_panel_style(),
+                    )]));
                 } else {
                     lines.push(Line::from(""));
                 }
             }
             if let Some(active_entry) = self.active_tool_entry.as_deref() {
                 lines.extend(render_panel_entry(None, 0, active_entry));
-                lines.push(Line::from(vec![Span::styled(String::new(), tool_panel_style())]));
+                lines.push(Line::from(vec![Span::styled(
+                    String::new(),
+                    tool_panel_style(),
+                )]));
             }
         }
 

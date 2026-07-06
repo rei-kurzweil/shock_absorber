@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Text;
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::visualization::context::ContextVisualizationData;
 
@@ -78,9 +78,17 @@ pub(crate) fn render_input(frame: &mut Frame, area: Rect, input: &str, status: &
         .block(
             Block::default()
                 .title(format!("Command | {} ", status))
-                .style(Style::default().bg(Color::Rgb(220, 220, 220)).fg(Color::Black)),
+                .style(
+                    Style::default()
+                        .bg(Color::Rgb(220, 220, 220))
+                        .fg(Color::Black),
+                ),
         )
-        .style(Style::default().bg(Color::Rgb(220, 220, 220)).fg(Color::Black))
+        .style(
+            Style::default()
+                .bg(Color::Rgb(220, 220, 220))
+                .fg(Color::Black),
+        )
         .wrap(Wrap { trim: false });
     frame.render_widget(input, area);
 }

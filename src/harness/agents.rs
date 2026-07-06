@@ -9,6 +9,7 @@ pub enum AgentNodeKind {
     RootAgent,
     ToolAgent,
     CollectionSearchAgent,
+    CollectionReviewAgent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -97,21 +98,13 @@ impl AgentGraph {
         self.nodes.get_mut(id.0)
     }
 
-    pub fn set_context_window(
-        &mut self,
-        id: AgentNodeId,
-        window: BuiltContextWindow,
-    ) {
+    pub fn set_context_window(&mut self, id: AgentNodeId, window: BuiltContextWindow) {
         if let Some(node) = self.node_mut(id) {
             node.context_window_report = Some(window);
         }
     }
 
-    pub fn set_result_summary(
-        &mut self,
-        id: AgentNodeId,
-        result_summary: impl Into<String>,
-    ) {
+    pub fn set_result_summary(&mut self, id: AgentNodeId, result_summary: impl Into<String>) {
         if let Some(node) = self.node_mut(id) {
             node.result_summary = Some(result_summary.into());
         }
@@ -135,11 +128,7 @@ impl AgentGraph {
         node_id
     }
 
-    fn push_node(
-        &mut self,
-        parent_id: AgentNodeId,
-        template: &AgentNodeTemplate,
-    ) -> AgentNodeId {
+    fn push_node(&mut self, parent_id: AgentNodeId, template: &AgentNodeTemplate) -> AgentNodeId {
         let agent_id = AgentNodeId(self.nodes.len());
         self.nodes.push(AgentNode {
             agent_id,

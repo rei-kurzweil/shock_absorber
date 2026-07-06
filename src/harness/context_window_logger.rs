@@ -30,7 +30,10 @@ pub fn log_agent_graph(
         let Some(node) = graph.node(node_id) else {
             continue;
         };
-        fs::write(agents_dir.join(agent_filename(node)), render_agent_node(node))?;
+        fs::write(
+            agents_dir.join(agent_filename(node)),
+            render_agent_node(node),
+        )?;
     }
 
     Ok(())
@@ -69,7 +72,10 @@ pub fn log_current_task(
         "current_task: {}",
         current_task.unwrap_or("<none>")
     ));
-    fs::write(debug_dir(base_dir).join("current_task.txt"), lines.join("\n"))?;
+    fs::write(
+        debug_dir(base_dir).join("current_task.txt"),
+        lines.join("\n"),
+    )?;
     Ok(())
 }
 
@@ -93,6 +99,7 @@ fn agent_filename(node: &crate::harness::agents::AgentNode) -> String {
         crate::harness::agents::AgentNodeKind::RootAgent => "root_agent",
         crate::harness::agents::AgentNodeKind::ToolAgent => "tool_agent",
         crate::harness::agents::AgentNodeKind::CollectionSearchAgent => "collection_search_agent",
+        crate::harness::agents::AgentNodeKind::CollectionReviewAgent => "collection_review_agent",
     };
     let slug = slugify(&node.label);
     format!("agent_{:03}_{}_{}.md", node.agent_id.0, kind, slug)
@@ -162,7 +169,10 @@ fn render_agent_node(node: &crate::harness::agents::AgentNode) -> String {
             "- reserved_output_tokens: {}\n",
             window.limits.reserved_output_tokens
         ));
-        out.push_str(&format!("- used_input_tokens: {}\n", window.used_input_tokens));
+        out.push_str(&format!(
+            "- used_input_tokens: {}\n",
+            window.used_input_tokens
+        ));
         out.push_str(&format!("- truncated: {}\n\n", window.truncated));
         out.push_str("## Rendered Context Window\n\n```text\n");
         out.push_str(&window.rendered);

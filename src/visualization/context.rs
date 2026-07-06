@@ -1,10 +1,10 @@
 use crate::harness::agents::{AgentNode, AgentNodeKind};
 use crate::harness::context_window::BuiltContextWindow;
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextCategory {
@@ -46,10 +46,7 @@ pub struct ContextVisualizationData {
 }
 
 impl ContextVisualizationData {
-    pub fn from_windows(
-        title: impl Into<String>,
-        windows: Vec<PromptContextSnapshot>,
-    ) -> Self {
+    pub fn from_windows(title: impl Into<String>, windows: Vec<PromptContextSnapshot>) -> Self {
         Self {
             title: title.into(),
             windows,
@@ -85,10 +82,7 @@ pub fn snapshot_from_llm_search_window(
     snapshot_from_window(title, window, segments)
 }
 
-pub fn snapshot_from_agent_node(
-    node: &AgentNode,
-    depth: usize,
-) -> Option<PromptContextSnapshot> {
+pub fn snapshot_from_agent_node(node: &AgentNode, depth: usize) -> Option<PromptContextSnapshot> {
     let title = format!(
         "{}{} [{}]",
         "  ".repeat(depth),
@@ -104,6 +98,10 @@ pub fn snapshot_from_agent_node(
             .context_window_report
             .as_ref()
             .map(|window| snapshot_from_llm_search_window(title, window)),
+        AgentNodeKind::CollectionReviewAgent => node
+            .context_window_report
+            .as_ref()
+            .map(|window| snapshot_from_tool_agent_window(title, window)),
         AgentNodeKind::RootAgent => None,
     }
 }
@@ -156,10 +154,7 @@ fn snapshot_from_window(
 
 pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData, scroll: u16) {
     let bar_width = area.width.saturating_sub(2);
-    let mut lines = vec![
-        Line::from(data.title.as_str()),
-        Line::from(""),
-    ];
+    let mut lines = vec![Line::from(data.title.as_str()), Line::from("")];
 
     for (index, window) in data.windows.iter().enumerate() {
         lines.push(Line::from(format!(
@@ -213,11 +208,7 @@ pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData, sc
     lines.push(Line::from(""));
     lines.push(legend_line());
 
-    frame.render_widget(
-        Paragraph::new(Text::from(lines))
-            .scroll((scroll, 0)),
-        area,
-    );
+    frame.render_widget(Paragraph::new(Text::from(lines)).scroll((scroll, 0)), area);
 }
 
 fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
@@ -366,10 +357,9 @@ fn legend_line() -> Line<'static> {
     Line::from(spans)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::{category_totals_summary, ContextCategory, ContextSegment, PromptContextSnapshot};
+    use super::{ContextCategory, ContextSegment, PromptContextSnapshot, category_totals_summary};
 
     #[test]
     fn category_totals_separate_tool_protocol_from_tool_definitions() {

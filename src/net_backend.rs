@@ -589,7 +589,11 @@ pub async fn ensure_recent_replies_received_cached(
                 .iter()
                 .flat_map(move |reply| flatten_thread_replies(reply, post_uri))
         })
-        .filter(|post| actor_handle.as_deref().map_or(true, |handle| post.author_handle != handle))
+        .filter(|post| {
+            actor_handle
+                .as_deref()
+                .map_or(true, |handle| post.author_handle != handle)
+        })
         .take(reply_limit)
         .collect::<Vec<_>>();
 
@@ -630,9 +634,9 @@ pub async fn ensure_post_replies_cached(
             .await?;
 
         match thread.data.thread {
-            Union::Refs(feed::get_post_thread::OutputThreadRefs::AppBskyFeedDefsThreadViewPost(
-                thread,
-            )) => collect_thread_replies(&thread),
+            Union::Refs(
+                feed::get_post_thread::OutputThreadRefs::AppBskyFeedDefsThreadViewPost(thread),
+            ) => collect_thread_replies(&thread),
             _ => Vec::new(),
         }
     };
@@ -904,7 +908,10 @@ fn build_post_replies_collection(
     replies: Vec<CachedThreadReply>,
 ) -> LabeledPostCollection {
     let mut metadata = HashMap::new();
-    metadata.insert("source".to_string(), "app.bsky.feed.getPostThread".to_string());
+    metadata.insert(
+        "source".to_string(),
+        "app.bsky.feed.getPostThread".to_string(),
+    );
     metadata.insert("source_post_uri".to_string(), post_uri.to_string());
 
     LabeledPostCollection::new(
@@ -947,7 +954,10 @@ fn build_global_search_posts_collection(
     posts: Vec<feed::defs::PostView>,
 ) -> LabeledPostCollection {
     let mut metadata = HashMap::new();
-    metadata.insert("source".to_string(), "app.bsky.feed.searchPosts".to_string());
+    metadata.insert(
+        "source".to_string(),
+        "app.bsky.feed.searchPosts".to_string(),
+    );
     metadata.insert("query".to_string(), query.to_string());
 
     LabeledPostCollection::new(
@@ -1085,7 +1095,10 @@ fn flatten_thread_replies(reply: &CachedThreadReply, source_post_uri: &str) -> V
     let mut posts = vec![PostRecord {
         uri: reply.uri.clone(),
         author_handle: reply.author_handle.clone(),
-        body: format!("source_post_uri: {source_post_uri}\nreply_text: {}", reply.text),
+        body: format!(
+            "source_post_uri: {source_post_uri}\nreply_text: {}",
+            reply.text
+        ),
     }];
     for child in &reply.children {
         posts.extend(flatten_thread_replies(child, source_post_uri));

@@ -11,8 +11,8 @@ use ratatui::widgets::ListItem;
 use ratatui::{Frame, Terminal};
 use std::env;
 use std::error::Error;
-use std::future::Future;
 use std::fs;
+use std::future::Future;
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,7 +43,8 @@ use crate::harness::context_window_logger::{
 };
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
 use crate::harness::runtime::{
-    ContextMessage, ContextMessageKind, RootRunState, RootRunStatus, TranscriptEntryKind,
+    ContextMessage, ContextMessageKind, RootRunState, RootRunStatus, SuccessfulRootLlmSearch,
+    TranscriptEntryKind,
 };
 use crate::harness::tools::{
     BlueskyTools, ToolProgressEvent, parse_prompt_tool_call, prompt_tool_protocol_instructions,
@@ -510,9 +511,8 @@ impl App {
             }
             "context" | "/context" => {
                 self.detail_scroll = 0;
-                self.detail = DetailView::ContextVisualization(
-                    self.build_context_visualization(evil_gemma),
-                );
+                self.detail =
+                    DetailView::ContextVisualization(self.build_context_visualization(evil_gemma));
                 self.status = "context visualization loaded".to_string();
             }
             "stop" | "/stop" => {
@@ -627,18 +627,14 @@ impl App {
                     "[tool_prep] prevented immediate re-search of `{collection_id}` after a failed `read_collection_item`"
                 ));
             }
-            let actor_dids =
-                if duplicate_search_after_failed_read.is_some() {
-                    Vec::new()
-                } else {
-                    planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call)
+            let actor_dids = if duplicate_search_after_failed_read.is_some() {
+                Vec::new()
+            } else {
+                planned_tool_call_refresh_targets(&self.store, selected_actor_did, &tool_call)
             };
             if keep_context_overlay {
                 root_run.set_active_tool_entry(Some(build_tool_entry(
-                    &tool_name,
-                    &tool_args,
-                    &prep_log,
-                    None,
+                    &tool_name, &tool_args, &prep_log, None,
                 )));
                 self.root_run = Some(root_run.clone());
                 self.set_ai_chat_output(
@@ -648,10 +644,7 @@ impl App {
                 );
             } else {
                 root_run.set_active_tool_entry(Some(build_tool_entry(
-                    &tool_name,
-                    &tool_args,
-                    &prep_log,
-                    None,
+                    &tool_name, &tool_args, &prep_log, None,
                 )));
                 self.set_evil_gemma_progress(&query, &root_run);
             }
@@ -849,7 +842,9 @@ impl App {
             };
             if let Some(agent_node) = tool_output.agent_node.clone() {
                 let root_agent_id = root_run.agent_graph().root_agent_id();
-                root_run.agent_graph_mut().attach_template(root_agent_id, agent_node);
+                root_run
+                    .agent_graph_mut()
+                    .attach_template(root_agent_id, agent_node);
             }
             let tool_output = if prep_warnings.is_empty() {
                 tool_output.rendered
@@ -879,15 +874,11 @@ impl App {
 
             root_run.push_transcript_entry(
                 TranscriptEntryKind::ToolCall,
-                build_tool_entry(
-                    &tool_name,
-                    &tool_args,
-                    &prep_log,
-                    Some(&tool_output),
-                ),
+                build_tool_entry(&tool_name, &tool_args, &prep_log, Some(&tool_output)),
             );
             root_run.set_active_tool_entry(None);
-            let tool_result_summary = compact_tool_result_for_root_context(&tool_name, &tool_output);
+            let tool_result_summary =
+                compact_tool_result_for_root_context(&tool_name, &tool_output);
             root_run.push_message(
                 ContextMessageKind::ToolRequest,
                 "assistant",
@@ -940,7 +931,11 @@ impl App {
         }
 
         if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
-            root_run.push_message(ContextMessageKind::ToolRequest, "assistant", response.clone());
+            root_run.push_message(
+                ContextMessageKind::ToolRequest,
+                "assistant",
+                response.clone(),
+            );
             root_run.push_message(
                 ContextMessageKind::RoundLimitPrompt,
                 "user",
@@ -966,7 +961,11 @@ impl App {
         }
 
         if parse_prompt_tool_call(&response).is_none() && response_looks_incomplete(&response) {
-            root_run.push_message(ContextMessageKind::AssistantReply, "assistant", response.clone());
+            root_run.push_message(
+                ContextMessageKind::AssistantReply,
+                "assistant",
+                response.clone(),
+            );
             root_run.push_message(
                 ContextMessageKind::RepairPrompt,
                 "user",
@@ -1247,7 +1246,8 @@ impl App {
         let mut agent_graph = AgentGraph::new_root("Root Agent");
         agent_graph.set_context_window(agent_graph.root_agent_id(), root_context_window.clone());
         agent_graph.set_result_summary(agent_graph.root_agent_id(), query.clone());
-        let mut root_run = RootRunState::new(query.clone(), root_context_window, messages, agent_graph);
+        let mut root_run =
+            RootRunState::new(query.clone(), root_context_window, messages, agent_graph);
         let initial_visualization = build_live_context_visualization(
             "/context",
             root_run.messages(),
@@ -1616,13 +1616,16 @@ async fn run_root_query_task(
                 root_run.record_round(round + 1, response.clone(), None, false, None);
                 break;
             };
-            root_run.record_tool_call(round + 1, &tool_call, true)?;
 
             let tool_name = tool_call.name.clone();
             let tool_args = serde_json::to_string(&tool_call.args)?;
             let duplicate_search_after_failed_read = repeated_llm_search_after_failed_read(
                 &tool_call,
                 last_failed_read_collection_id.as_deref(),
+            );
+            let blocked_root_rerun = blocked_root_llm_search_rerun(
+                &tool_call,
+                root_run.latest_successful_llm_search(),
             );
             let mut prep_log = vec![format!(
                 "[tool_prep] inspecting tool `{}` for possible initial collection refresh",
@@ -1633,11 +1636,23 @@ async fn run_root_query_task(
                     "[tool_prep] prevented immediate re-search of `{collection_id}` after a failed `read_collection_item`"
                 ));
             }
-            let actor_dids = if duplicate_search_after_failed_read.is_some() {
+            if let Some(reason) = blocked_root_rerun.as_deref() {
+                prep_log.push(format!(
+                    "[tool_prep] blocked root llm_search rerun because a prior grounded result already covers this scope: {reason}"
+                ));
+            }
+            let actor_dids = if duplicate_search_after_failed_read.is_some()
+                || blocked_root_rerun.is_some()
+            {
                 Vec::new()
             } else {
                 planned_tool_call_refresh_targets(&store, selected_actor_did.clone(), &tool_call)
             };
+            root_run.record_tool_call(
+                round + 1,
+                &tool_call,
+                duplicate_search_after_failed_read.is_none() && blocked_root_rerun.is_none(),
+            )?;
 
             root_run.set_active_tool_entry(Some(build_tool_entry(
                 &tool_name,
@@ -1809,6 +1824,24 @@ async fn run_root_query_task(
                     context_windows: Vec::new(),
                     agent_node: None,
                 }
+            } else if let Some(reason) = blocked_root_rerun.as_deref() {
+                let prior = root_run
+                    .latest_successful_llm_search()
+                    .expect("blocked rerun requires prior grounded result");
+                crate::harness::tools::ToolExecutionOutput {
+                    rendered: format!(
+                        "Tool execution prevented: a previous grounded `llm_search` result in this root run already covers this scope.\nreason: {reason}\n\nUse the existing grounded result unless you can name a materially new scope.\n\nprior_query: {}\nprior_summary: {}\nprior_collection_ids: {}",
+                        prior.query,
+                        prior.summary,
+                        if prior.collection_ids.is_empty() {
+                            "<none>".to_string()
+                        } else {
+                            prior.collection_ids.join(", ")
+                        }
+                    ),
+                    context_windows: Vec::new(),
+                    agent_node: None,
+                }
             } else {
                 match tools
                     .execute_prompt_tool_call(
@@ -1847,6 +1880,14 @@ async fn run_root_query_task(
             let hard_tool_failure_answer =
                 deterministic_tool_failure_answer(&tool_name, &tool_output);
 
+            if tool_name == "llm_search" && blocked_root_rerun.is_none() {
+                if let Some(successful_result) =
+                    extract_successful_root_llm_search_record(&tool_call, &tool_output)
+                {
+                    root_run.set_latest_successful_llm_search(Some(successful_result));
+                }
+            }
+
             if tool_name == "read_collection_item" {
                 if tool_output.contains("Tool execution failed:") {
                     last_failed_read_collection_id = tool_call
@@ -1857,10 +1898,18 @@ async fn run_root_query_task(
                 } else {
                     last_failed_read_collection_id = None;
                 }
-            } else if duplicate_search_after_failed_read.is_none() {
+            } else if duplicate_search_after_failed_read.is_none() && blocked_root_rerun.is_none() {
                 last_failed_read_collection_id = None;
             }
 
+            if blocked_root_rerun.is_some() {
+                root_run.push_transcript_entry(
+                    TranscriptEntryKind::Notice,
+                    format!(
+                        "Runtime Notice\nblocked root `llm_search` rerun and preserved the earlier grounded result"
+                    ),
+                );
+            }
             root_run.push_transcript_entry(
                 TranscriptEntryKind::ToolCall,
                 build_tool_entry(&tool_name, &tool_args, &prep_log, Some(&tool_output)),
@@ -1888,11 +1937,14 @@ async fn run_root_query_task(
                 round + 1,
                 response.clone(),
                 Some(tool_call.clone()),
-                duplicate_search_after_failed_read.is_none(),
+                duplicate_search_after_failed_read.is_none() && blocked_root_rerun.is_none(),
                 Some(tool_output.clone()),
             );
             if let Some(failure_answer) = hard_tool_failure_answer {
-                response = failure_answer;
+                response = fallback_or_failure_answer(
+                    root_run.latest_successful_llm_search(),
+                    &failure_answer,
+                );
                 break;
             }
             hit_tool_round_limit = round + 1 == MAX_TOOL_CALL_ROUNDS;
@@ -2042,7 +2094,11 @@ fn planned_tool_call_refresh_targets(
         }
         "llm_search" => {}
         "read_collection_item" => {
-            if let Some(collection_id) = tool_call.args.get("collection_id").and_then(|value| value.as_str()) {
+            if let Some(collection_id) = tool_call
+                .args
+                .get("collection_id")
+                .and_then(|value| value.as_str())
+            {
                 if collection_needs_initial_refresh(store, collection_id) {
                     if let Some(did) = actor_did_from_collection_id(collection_id) {
                         actor_dids.push(did);
@@ -2145,8 +2201,7 @@ fn build_root_context_snapshot(
             continue;
         }
 
-        let (label, category, increment_round) =
-            classify_context_message(entry, tool_round + 1);
+        let (label, category, increment_round) = classify_context_message(entry, tool_round + 1);
         segments.push(ContextSegment {
             label,
             category,
@@ -2177,11 +2232,9 @@ fn classify_context_message(
     next_tool_round: usize,
 ) -> (String, ContextCategory, bool) {
     match message.kind {
-        ContextMessageKind::InitialSystem | ContextMessageKind::InitialUserContext => (
-            String::new(),
-            ContextCategory::UiContext,
-            false,
-        ),
+        ContextMessageKind::InitialSystem | ContextMessageKind::InitialUserContext => {
+            (String::new(), ContextCategory::UiContext, false)
+        }
         ContextMessageKind::ToolRequest => (
             format!("Tool Request #{next_tool_round}"),
             ContextCategory::ToolResults,
@@ -2263,7 +2316,11 @@ fn compact_llm_search_result_for_root_context(tool_output: &str) -> String {
 }
 
 fn truncate_for_root_context(text: &str, max_lines: usize) -> String {
-    let mut lines = text.lines().take(max_lines).map(str::to_owned).collect::<Vec<_>>();
+    let mut lines = text
+        .lines()
+        .take(max_lines)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     if text.lines().count() > max_lines {
         lines.push("...".to_string());
     }
@@ -2323,6 +2380,184 @@ fn repeated_llm_search_after_failed_read(
     None
 }
 
+fn blocked_root_llm_search_rerun(
+    tool_call: &crate::harness::tools::PromptToolCall,
+    prior: Option<&SuccessfulRootLlmSearch>,
+) -> Option<String> {
+    if tool_call.name != "llm_search" {
+        return None;
+    }
+    let prior = prior?;
+    let query = tool_call.args.get("query")?.as_str()?;
+    let current_actor_refs = detect_actor_refs_for_guard(query);
+    if current_actor_refs.is_empty() || current_actor_refs != prior.actor_refs {
+        return None;
+    }
+    let current_intent = classify_root_llm_search_intent(query);
+    if current_intent != prior.intent {
+        return None;
+    }
+    let current_collection_targets = detect_collection_targets_in_query(query);
+    if !current_collection_targets.is_empty()
+        && current_collection_targets.iter().any(|target| {
+            !prior
+                .collection_ids
+                .iter()
+                .any(|existing| existing.starts_with(target))
+        })
+    {
+        return None;
+    }
+    Some(
+        "same actor and same reputation/list scope with no materially new collection target"
+            .to_string(),
+    )
+}
+
+fn extract_successful_root_llm_search_record(
+    tool_call: &crate::harness::tools::PromptToolCall,
+    tool_output: &str,
+) -> Option<SuccessfulRootLlmSearch> {
+    if tool_call.name != "llm_search" || !llm_search_output_is_grounded(tool_output) {
+        return None;
+    }
+    let query = tool_call.args.get("query")?.as_str()?.to_string();
+    let summary = tool_output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("summary:").map(str::trim))
+        .filter(|summary| !summary.is_empty())?
+        .to_string();
+    Some(SuccessfulRootLlmSearch {
+        query: query.clone(),
+        rendered_result: tool_output.to_string(),
+        summary,
+        actor_refs: detect_actor_refs_for_guard(&query),
+        collection_ids: extract_collection_ids_from_llm_output(tool_output),
+        intent: classify_root_llm_search_intent(&query),
+    })
+}
+
+fn llm_search_output_is_grounded(tool_output: &str) -> bool {
+    let has_summary = tool_output.lines().any(|line| {
+        line.trim()
+            .strip_prefix("summary:")
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+    });
+    let has_anchor = tool_output.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with("search_result_") || trimmed.starts_with("selected_result_")
+    });
+    let success_blocks = tool_output
+        .lines()
+        .filter(|line| line.trim() == "status: ok")
+        .count();
+    has_summary && has_anchor && success_blocks >= 1
+}
+
+fn extract_collection_ids_from_llm_output(tool_output: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    for line in tool_output.lines() {
+        if let Some(value) = line.trim().strip_prefix("collection_id:") {
+            let value = value.trim().to_string();
+            if !ids.iter().any(|seen| seen == &value) {
+                ids.push(value);
+            }
+        }
+    }
+    ids
+}
+
+fn classify_root_llm_search_intent(query: &str) -> String {
+    let lower = query.to_ascii_lowercase();
+    if [
+        "reputation",
+        "sentiment",
+        "positive",
+        "negative",
+        "known for",
+        "how are",
+        "list",
+        "lists",
+        "accusation",
+        "dispute",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+    {
+        "reputation_lists".to_string()
+    } else {
+        "general".to_string()
+    }
+}
+
+fn detect_actor_refs_for_guard(query: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    for raw in query.split_whitespace() {
+        let trimmed = raw.trim_matches(|ch: char| {
+            matches!(
+                ch,
+                ',' | '.'
+                    | '!'
+                    | '?'
+                    | ':'
+                    | ';'
+                    | '('
+                    | ')'
+                    | '['
+                    | ']'
+                    | '{'
+                    | '}'
+                    | '<'
+                    | '>'
+                    | '"'
+                    | '\''
+            )
+        });
+        let candidate = trimmed.strip_prefix('@').unwrap_or(trimmed);
+        let candidate = candidate.trim_end_matches("'s");
+        if candidate.starts_with("did:")
+            || (candidate.contains('.')
+                && candidate
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_')))
+        {
+            if !refs.iter().any(|seen| seen == candidate) {
+                refs.push(candidate.to_string());
+            }
+        }
+    }
+    refs
+}
+
+fn detect_collection_targets_in_query(query: &str) -> Vec<String> {
+    let lower = query.to_ascii_lowercase();
+    [
+        "clearsky_lists",
+        "recent_replies_received",
+        "actor_profile",
+        "recent_posts_unaddressed",
+        "pinned_posts",
+    ]
+    .iter()
+    .filter(|target| lower.contains(**target))
+    .map(|target| target.to_string())
+    .collect()
+}
+
+fn fallback_or_failure_answer(
+    prior: Option<&SuccessfulRootLlmSearch>,
+    failure_answer: &str,
+) -> String {
+    let Some(prior) = prior else {
+        return failure_answer.to_string();
+    };
+    format!(
+        "A later `llm_search` attempt failed, so I'm using the earlier grounded result from this run.\n\n{}\n\nDiagnostic from the later failed attempt:\n{}",
+        prior.rendered_result, failure_answer
+    )
+}
+
 fn build_tool_entry(
     tool_name: &str,
     tool_args: &str,
@@ -2378,16 +2613,14 @@ where
 {
     timeout(step_timeout, future)
         .await
-        .map_err(|_| {
-            format!(
-                "{label} timed out after {} seconds",
-                step_timeout.as_secs()
-            )
-        })?
+        .map_err(|_| format!("{label} timed out after {} seconds", step_timeout.as_secs()))?
         .map_err(|err| err.to_string())
 }
 
-fn actor_needs_initial_refresh(store: &NotificationStore, actor_did: &bsky_sdk::api::types::string::Did) -> bool {
+fn actor_needs_initial_refresh(
+    store: &NotificationStore,
+    actor_did: &bsky_sdk::api::types::string::Did,
+) -> bool {
     store.actor_post_collections(actor_did).is_empty()
 }
 
@@ -2548,6 +2781,71 @@ fn format_replies_output(store: &NotificationStore, profile: &ActorProfile) -> V
     lines
 }
 
+#[cfg(test)]
+mod root_guard_tests {
+    use super::{
+        blocked_root_llm_search_rerun, classify_root_llm_search_intent,
+        extract_successful_root_llm_search_record, fallback_or_failure_answer,
+    };
+    use crate::harness::runtime::SuccessfulRootLlmSearch;
+    use crate::harness::tools::PromptToolCall;
+    use serde_json::json;
+
+    #[test]
+    fn blocks_same_scope_root_llm_search_rerun() {
+        let prior = SuccessfulRootLlmSearch {
+            query: "What is the sentiment about elsyluna.bsky.social?".to_string(),
+            rendered_result: "summary: grounded\ncollection_id: clearsky_lists:did:plc:testactor\nstatus: ok\nsearch_result_1_uri: at://one".to_string(),
+            summary: "grounded".to_string(),
+            actor_refs: vec!["elsyluna.bsky.social".to_string()],
+            collection_ids: vec!["clearsky_lists:did:plc:testactor".to_string()],
+            intent: "reputation_lists".to_string(),
+        };
+        let tool_call = PromptToolCall {
+            name: "llm_search".to_string(),
+            args: json!({"query":"How is elsyluna.bsky.social known on lists?"}),
+        };
+
+        assert!(blocked_root_llm_search_rerun(&tool_call, Some(&prior)).is_some());
+    }
+
+    #[test]
+    fn preserves_prior_grounded_result_on_failure() {
+        let prior = SuccessfulRootLlmSearch {
+            query: "What is the sentiment about elsyluna.bsky.social?".to_string(),
+            rendered_result: "summary: grounded earlier result".to_string(),
+            summary: "grounded earlier result".to_string(),
+            actor_refs: vec!["elsyluna.bsky.social".to_string()],
+            collection_ids: vec!["clearsky_lists:did:plc:testactor".to_string()],
+            intent: "reputation_lists".to_string(),
+        };
+        let answer = fallback_or_failure_answer(Some(&prior), "Tool execution failed: boom");
+        assert!(answer.contains("earlier grounded result"));
+        assert!(answer.contains("boom"));
+    }
+
+    #[test]
+    fn extracts_successful_root_llm_search_record_from_grounded_output() {
+        let tool_call = PromptToolCall {
+            name: "llm_search".to_string(),
+            args: json!({"query":"What is the sentiment about elsyluna.bsky.social?"}),
+        };
+        let output = "summary: grounded summary\nselected_result_uri: at://one\ncollection_id: clearsky_lists:did:plc:testactor\nstatus: ok\nsearch_result_1_uri: at://one";
+        let record = extract_successful_root_llm_search_record(&tool_call, output)
+            .expect("expected successful record");
+        assert_eq!(record.intent, "reputation_lists");
+        assert_eq!(record.actor_refs, vec!["elsyluna.bsky.social"]);
+    }
+
+    #[test]
+    fn classifies_reputation_queries_for_root_guard() {
+        assert_eq!(
+            classify_root_llm_search_intent("How is elsyluna.bsky.social known on Bluesky lists?"),
+            "reputation_lists"
+        );
+    }
+}
+
 fn format_pins_output(store: &NotificationStore, profile: &ActorProfile) -> Vec<String> {
     let Some(posts) = store.get_pinned_posts(&profile.did) else {
         return vec![format!("No pinned-post cache entry for {}", profile.handle)];
@@ -2697,24 +2995,22 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 
     if app.is_fullscreen_overlay() {
         match &app.detail {
-            DetailView::Command { .. } | DetailView::AiChat { .. } => {
-                match &app.detail {
-                    DetailView::AiChat { text, .. } => ui::chat_renderer::render_chat_detail(
-                        frame,
-                        chunks[0],
-                        &app.detail_title(),
-                        text.clone(),
-                        app.detail_scroll,
-                    ),
-                    _ => ui::tui_renderer::render_fullscreen_text(
-                        frame,
-                        chunks[0],
-                        &app.detail_title(),
-                        app.detail_text(),
-                        app.detail_scroll,
-                    ),
-                }
-            }
+            DetailView::Command { .. } | DetailView::AiChat { .. } => match &app.detail {
+                DetailView::AiChat { text, .. } => ui::chat_renderer::render_chat_detail(
+                    frame,
+                    chunks[0],
+                    &app.detail_title(),
+                    text.clone(),
+                    app.detail_scroll,
+                ),
+                _ => ui::tui_renderer::render_fullscreen_text(
+                    frame,
+                    chunks[0],
+                    &app.detail_title(),
+                    app.detail_text(),
+                    app.detail_scroll,
+                ),
+            },
             DetailView::ContextVisualization(data) => {
                 ui::tui_renderer::render_context_visualization(
                     frame,
@@ -2820,8 +3116,14 @@ mod tests {
         assert_eq!(snapshot.segments[0].label, "System Prompt");
         assert_eq!(snapshot.segments[0].category, ContextCategory::SystemPrompt);
         assert_eq!(snapshot.segments[1].label, "Tool Instructions");
-        assert_eq!(snapshot.segments[1].category, ContextCategory::ToolInstructions);
+        assert_eq!(
+            snapshot.segments[1].category,
+            ContextCategory::ToolInstructions
+        );
         assert_eq!(snapshot.segments[2].label, "Root Instructions");
-        assert_eq!(snapshot.segments[2].category, ContextCategory::RootInstructions);
+        assert_eq!(
+            snapshot.segments[2].category,
+            ContextCategory::RootInstructions
+        );
     }
 }
