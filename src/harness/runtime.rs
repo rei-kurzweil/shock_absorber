@@ -6,6 +6,7 @@ use crate::visualization::context::ContextVisualizationData;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use serde_json::{Map, Value};
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ROOT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -312,7 +313,7 @@ impl RootRunState {
         if !self.transcript_entries.is_empty() || self.active_tool_entry.is_some() {
             lines.push("Tool Transcript:".to_string());
             lines.push(String::new());
-            for entry in &self.transcript_entries {
+            for entry in compact_transcript_entries(&self.transcript_entries) {
                 let indent = "    ".repeat(entry.depth);
                 if let Some(agent_label) = entry.agent_label.as_deref() {
                     lines.push(format!("{indent}[agent] {agent_label}"));
@@ -356,7 +357,7 @@ impl RootRunState {
         if !self.transcript_entries.is_empty() || self.active_tool_entry.is_some() {
             lines.push(Line::from("Tool Transcript:"));
             lines.push(Line::from(""));
-            for entry in &self.transcript_entries {
+            for entry in compact_transcript_entries(&self.transcript_entries) {
                 match entry.kind {
                     TranscriptEntryKind::ToolCall | TranscriptEntryKind::AgentEvent => {
                         let agent_label = entry.agent_label.as_deref();
@@ -450,6 +451,27 @@ fn tool_panel_style() -> Style {
     Style::default().bg(TOOL_PANEL_BG).fg(TOOL_PANEL_FG)
 }
 
+fn compact_transcript_entries(entries: &[TranscriptEntry]) -> Vec<Cow<'_, TranscriptEntry>> {
+    let mut compacted: Vec<Cow<'_, TranscriptEntry>> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if let Some(previous) = compacted.last_mut()
+            && should_replace_agent_entry(previous.as_ref(), entry)
+        {
+            *previous = Cow::Borrowed(entry);
+            continue;
+        }
+        compacted.push(Cow::Borrowed(entry));
+    }
+    compacted
+}
+
+fn should_replace_agent_entry(previous: &TranscriptEntry, current: &TranscriptEntry) -> bool {
+    previous.kind == TranscriptEntryKind::AgentEvent
+        && current.kind == TranscriptEntryKind::AgentEvent
+        && previous.depth == current.depth
+        && previous.agent_label == current.agent_label
+}
+
 fn normalize_json_value(value: &Value) -> Result<String, serde_json::Error> {
     serde_json::to_string(&canonicalize_json_value(value))
 }
@@ -469,5 +491,59 @@ fn canonicalize_json_value(value: &Value) -> Value {
             Value::Object(out)
         }
         _ => value.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compacts_consecutive_agent_updates_to_latest_status() {
+        let entries = vec![
+            TranscriptEntry {
+                kind: TranscriptEntryKind::AgentEvent,
+                content: "status: running".to_string(),
+                agent_label: Some("hydrate_actor_scope: did:plc:test".to_string()),
+                depth: 1,
+            },
+            TranscriptEntry {
+                kind: TranscriptEntryKind::AgentEvent,
+                content: "status: completed".to_string(),
+                agent_label: Some("hydrate_actor_scope: did:plc:test".to_string()),
+                depth: 1,
+            },
+        ];
+
+        let compacted = compact_transcript_entries(&entries);
+        assert_eq!(compacted.len(), 1);
+        assert_eq!(compacted[0].content, "status: completed");
+    }
+
+    #[test]
+    fn does_not_compact_non_consecutive_agent_updates() {
+        let entries = vec![
+            TranscriptEntry {
+                kind: TranscriptEntryKind::AgentEvent,
+                content: "status: running".to_string(),
+                agent_label: Some("hydrate_actor_scope: did:plc:test".to_string()),
+                depth: 1,
+            },
+            TranscriptEntry {
+                kind: TranscriptEntryKind::Notice,
+                content: "separator".to_string(),
+                agent_label: None,
+                depth: 0,
+            },
+            TranscriptEntry {
+                kind: TranscriptEntryKind::AgentEvent,
+                content: "status: completed".to_string(),
+                agent_label: Some("hydrate_actor_scope: did:plc:test".to_string()),
+                depth: 1,
+            },
+        ];
+
+        let compacted = compact_transcript_entries(&entries);
+        assert_eq!(compacted.len(), 3);
     }
 }

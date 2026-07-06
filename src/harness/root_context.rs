@@ -1,8 +1,8 @@
 use crate::app::ConversationTurn;
 use crate::harness::agents::AgentGraph;
 use crate::harness::context_window::{
-    BuiltContextSection, BuiltContextWindow, ContextSectionKind, LLMContext,
-    ProviderContextLimits, approximate_tokens, build_context_window_report,
+    BuiltContextSection, BuiltContextWindow, ContextSectionKind, LLMContext, ProviderContextLimits,
+    approximate_tokens, build_context_window_report,
 };
 use crate::harness::llm_api::LlmApiClient;
 use crate::harness::runtime::{ContextMessage, ContextMessageKind};
@@ -153,12 +153,16 @@ fn classify_context_message(
             ContextCategory::UserAiChat,
             false,
         ),
-        ContextMessageKind::RoundLimitPrompt => {
-            ("Round Limit Prompt".to_string(), ContextCategory::LocalTask, false)
-        }
-        ContextMessageKind::RepairPrompt => {
-            ("Repair Prompt".to_string(), ContextCategory::LocalTask, false)
-        }
+        ContextMessageKind::RoundLimitPrompt => (
+            "Round Limit Prompt".to_string(),
+            ContextCategory::LocalTask,
+            false,
+        ),
+        ContextMessageKind::RepairPrompt => (
+            "Repair Prompt".to_string(),
+            ContextCategory::LocalTask,
+            false,
+        ),
     }
 }
 

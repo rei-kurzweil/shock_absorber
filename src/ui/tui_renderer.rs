@@ -38,9 +38,10 @@ pub(crate) fn render_context_visualization(
     crate::visualization::context::render(frame, area, data, scroll);
 }
 
-pub(crate) fn render_notification_split(
+pub(crate) fn render_list_detail_split(
     frame: &mut Frame,
     area: Rect,
+    list_title: &str,
     items: Vec<ListItem<'_>>,
     selected: Option<usize>,
     detail_title: &str,
@@ -53,7 +54,7 @@ pub(crate) fn render_notification_split(
         .split(area);
 
     let notifications = List::new(items)
-        .block(Block::default().title("Notifications"))
+        .block(Block::default().title(list_title))
         .highlight_style(
             Style::default()
                 .fg(Color::Black)

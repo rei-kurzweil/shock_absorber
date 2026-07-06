@@ -8,7 +8,8 @@ use crate::harness::runtime::{
     ContextMessage, ContextMessageKind, RootRunState, RootRunStatus, SuccessfulRootLlmSearch,
     TranscriptEntryKind,
 };
-use crate::harness::tools::{BlueskyTools, PromptToolCall, ToolProgressEvent, parse_prompt_tool_call,
+use crate::harness::tools::{
+    BlueskyTools, PromptToolCall, ToolProgressEvent, parse_prompt_tool_call,
 };
 use crate::net_backend::{
     NotificationStore, ensure_clearsky_lists_cached, ensure_pinned_posts_cached,

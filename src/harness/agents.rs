@@ -94,6 +94,10 @@ impl AgentGraph {
         self.nodes.get(id.0)
     }
 
+    pub fn nodes(&self) -> &[AgentNode] {
+        &self.nodes
+    }
+
     pub fn node_mut(&mut self, id: AgentNodeId) -> Option<&mut AgentNode> {
         self.nodes.get_mut(id.0)
     }
@@ -152,6 +156,16 @@ impl AgentGraph {
     pub fn descendant_ids_depth_first(&self) -> Vec<(usize, AgentNodeId)> {
         let mut ordered = Vec::new();
         self.collect_children(self.root_agent_id, 0, &mut ordered);
+        ordered
+    }
+
+    pub fn ids_with_depth_in_display_order(&self) -> Vec<(usize, AgentNodeId)> {
+        let mut ordered = vec![(0, self.root_agent_id)];
+        ordered.extend(
+            self.descendant_ids_depth_first()
+                .into_iter()
+                .map(|(depth, id)| (depth + 1, id)),
+        );
         ordered
     }
 

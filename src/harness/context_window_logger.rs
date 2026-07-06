@@ -268,9 +268,7 @@ fn category_totals(snapshot: &PromptContextSnapshot) -> [usize; 10] {
 fn section_kind_label(kind: crate::harness::context_window::ContextSectionKind) -> &'static str {
     match kind {
         crate::harness::context_window::ContextSectionKind::Generic => "generic",
-        crate::harness::context_window::ContextSectionKind::ToolDefinitions => {
-            "tool_definitions"
-        }
+        crate::harness::context_window::ContextSectionKind::ToolDefinitions => "tool_definitions",
         crate::harness::context_window::ContextSectionKind::UiContext => "ui_context",
         crate::harness::context_window::ContextSectionKind::CurrentTask => "local_task",
         crate::harness::context_window::ContextSectionKind::UserAiChat => "chat",

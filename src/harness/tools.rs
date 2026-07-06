@@ -552,7 +552,7 @@ impl BlueskyTools {
 
         for round in 0..6usize {
             let response = llm_client.complete_chat(messages.clone(), 768).await?;
-            let tool_call = match validate_internal_tool_response(&response) {
+            let accepted_tool_call = match validate_internal_tool_response(&response) {
                 InternalToolResponse::FinalSummary(summary) => {
                     final_summary = Some(summary);
                     break;
@@ -582,10 +582,6 @@ impl BlueskyTools {
                         break;
                     }
                     messages.push(ChatMessage {
-                        role: "assistant".to_string(),
-                        content: response,
-                    });
-                    messages.push(ChatMessage {
                         role: "user".to_string(),
                         content: format!(
                             "Tool Result\nname: protocol_validation\nargs: {{}}\n\n{}\n\nRe-emit exactly one valid TOOL_CALL block and nothing else.",
@@ -598,39 +594,65 @@ impl BlueskyTools {
             };
             consecutive_invalid_tool_responses = 0;
 
-            let tool_call = match validate_internal_llm_search_tool_call(&tool_call) {
+            if let Some(trailing) = accepted_tool_call.discarded_trailing.as_deref() {
+                let diagnostic = format!(
+                    "status: accepted_tool_call\nwarning: trailing planner output was discarded after the first valid TOOL_CALL block\naccepted_tool_call:\n{}\n\ndiscarded_trailing_output:\n{}",
+                    accepted_tool_call.accepted_block,
+                    truncate_diagnostic_block(trailing, 800)
+                );
+                diagnostics.push(format!(
+                    "internal planner trailing output discarded after accepted tool call\naccepted_tool_call:\n{}\ndiscarded_trailing_output:\n{}",
+                    accepted_tool_call.accepted_block,
+                    truncate_diagnostic_block(trailing, 300)
+                ));
+                if let Some(observer) = observer.as_ref() {
+                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                        label: "llm_search planner".to_string(),
+                        depth: 2,
+                        content: diagnostic,
+                    });
+                }
+            }
+
+            let tool_call = match validate_internal_llm_search_tool_call(
+                &accepted_tool_call.tool_call,
+            ) {
                 Ok(tool_call) => tool_call,
                 Err(reason) => {
-                    let tool_args = serde_json::to_string_pretty(&tool_call.args)?;
+                    let tool_args =
+                        serde_json::to_string_pretty(&accepted_tool_call.tool_call.args)?;
                     let diagnostic = format!(
                         "status: invalid_tool_call\nname: {}\nreason: {}\ninstruction: re-emit exactly one valid tool call with corrected arguments\nraw_response:\n{}\nparsed_args:\n{}",
-                        tool_call.name,
+                        accepted_tool_call.tool_call.name,
                         reason,
-                        truncate_diagnostic_block(&response, 800),
+                        truncate_diagnostic_block(&accepted_tool_call.accepted_block, 800),
                         tool_args
                     );
                     diagnostics.push(format!(
                         "internal planner validation failed: {reason}\nname: {}\nparsed_args: {}",
-                        tool_call.name,
+                        accepted_tool_call.tool_call.name,
                         truncate_diagnostic_block(&tool_args, 300)
                     ));
                     if let Some(observer) = observer.as_ref() {
                         let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                            label: format!("internal tool validation: {}", tool_call.name),
+                            label: format!(
+                                "internal tool validation: {}",
+                                accepted_tool_call.tool_call.name
+                            ),
                             depth: 2,
                             content: diagnostic.clone(),
                         });
                     }
                     messages.push(ChatMessage {
                         role: "assistant".to_string(),
-                        content: response,
+                        content: accepted_tool_call.accepted_block.clone(),
                     });
                     messages.push(ChatMessage {
                         role: "user".to_string(),
                         content: format!(
                             "Tool Result\nname: {}\nargs: {}\n\n{}\n\nRe-emit exactly one valid tool call.",
-                            tool_call.name,
-                            serde_json::to_string(&tool_call.args)?,
+                            accepted_tool_call.tool_call.name,
+                            serde_json::to_string(&accepted_tool_call.tool_call.args)?,
                             diagnostic
                         ),
                     });
@@ -716,7 +738,7 @@ impl BlueskyTools {
             let tool_args = serde_json::to_string(&tool_call.args)?;
             messages.push(ChatMessage {
                 role: "assistant".to_string(),
-                content: response,
+                content: accepted_tool_call.accepted_block,
             });
             messages.push(ChatMessage {
                 role: "user".to_string(),
@@ -1568,8 +1590,15 @@ fn detect_post_uri(query: &str) -> Option<String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum InternalToolResponse {
     FinalSummary(String),
-    ToolCall(PromptToolCall),
+    ToolCall(AcceptedInternalToolCall),
     Invalid(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AcceptedInternalToolCall {
+    tool_call: PromptToolCall,
+    accepted_block: String,
+    discarded_trailing: Option<String>,
 }
 
 fn classify_search_intent(query: &str) -> SearchIntent {
@@ -1613,36 +1642,37 @@ fn validate_internal_tool_response(response: &str) -> InternalToolResponse {
         return InternalToolResponse::FinalSummary(response.to_string());
     }
 
-    let Some(tool_call) = parse_prompt_tool_call(trimmed) else {
-        return InternalToolResponse::Invalid(
-            "response contained `TOOL_CALL` but did not parse into a valid tool request"
-                .to_string(),
-        );
-    };
-
-    let Some(strict_block) = extract_strict_tool_call_block(trimmed) else {
+    let Some((accepted_block, discarded_trailing)) = extract_leading_tool_call_block(trimmed)
+    else {
         return InternalToolResponse::Invalid(
             "strict internal mode requires exactly one TOOL_CALL block with no surrounding prose"
                 .to_string(),
         );
     };
 
-    let Some(strict_tool_call) = parse_prompt_tool_call(strict_block) else {
+    let Some(tool_call) = parse_prompt_tool_call(&accepted_block) else {
         return InternalToolResponse::Invalid(
             "strict internal mode requires exactly one parseable TOOL_CALL block".to_string(),
         );
     };
 
-    if strict_tool_call.name != tool_call.name || strict_tool_call.args != tool_call.args {
+    if discarded_trailing
+        .as_deref()
+        .is_some_and(|trailing| trailing.contains("TOOL_CALL"))
+    {
         return InternalToolResponse::Invalid(
             "strict internal mode requires one unambiguous TOOL_CALL block".to_string(),
         );
     }
 
-    InternalToolResponse::ToolCall(tool_call)
+    InternalToolResponse::ToolCall(AcceptedInternalToolCall {
+        tool_call,
+        accepted_block,
+        discarded_trailing,
+    })
 }
 
-fn extract_strict_tool_call_block(response: &str) -> Option<&str> {
+fn extract_leading_tool_call_block(response: &str) -> Option<(String, Option<String>)> {
     let trimmed = response.trim();
     let tool_call_start = trimmed.find("TOOL_CALL")?;
     if !trimmed[..tool_call_start].trim().is_empty() {
@@ -1660,12 +1690,10 @@ fn extract_strict_tool_call_block(response: &str) -> Option<&str> {
     let args_object = extract_first_args_object(args_section)?;
     let args_offset = args_section.find(&args_object)?;
     let block_end = args_pos + "\nargs:".len() + args_offset + args_object.len();
-    let block = &after[..block_end];
-    if !after[block_end..].trim().is_empty() {
-        return None;
-    }
+    let block = after[..block_end].trim().to_string();
+    let trailing = after[block_end..].trim();
 
-    Some(block.trim())
+    Some((block, (!trailing.is_empty()).then(|| trailing.to_string())))
 }
 
 fn validate_internal_llm_search_tool_call(
@@ -3703,6 +3731,26 @@ mod tests {
     #[test]
     fn strict_internal_tool_response_rejects_surrounding_prose() {
         let response = "I will search now.\n\nTOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}";
+        let result = validate_internal_tool_response(response);
+        assert!(matches!(result, super::InternalToolResponse::Invalid(_)));
+    }
+
+    #[test]
+    fn strict_internal_tool_response_accepts_trailing_prose_by_discarding_it() {
+        let response = "TOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}\n\nSelf-correction: hypothetical results go here";
+        let result = validate_internal_tool_response(response);
+        match result {
+            super::InternalToolResponse::ToolCall(accepted) => {
+                assert_eq!(accepted.tool_call.name, "collection_search");
+                assert!(accepted.discarded_trailing.is_some());
+            }
+            other => panic!("expected accepted tool call, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn strict_internal_tool_response_rejects_multiple_tool_blocks() {
+        let response = "TOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}\n\nTOOL_CALL\nname: search_global_posts\nargs: {\"query\":\"duplicate\"}";
         let result = validate_internal_tool_response(response);
         assert!(matches!(result, super::InternalToolResponse::Invalid(_)));
     }

@@ -1,5 +1,5 @@
 use crate::db::AppDb;
-use crate::harness::agents::AgentGraph;
+use crate::harness::agents::{AgentGraph, AgentNode, AgentNodeId, AgentNodeKind};
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
 use crate::harness::root_context::{
     build_live_context_visualization, build_root_context_snapshot,
@@ -44,6 +44,7 @@ const DEFAULT_SYSTEM_PROMPT_PATH: &str = "system_prompt.md";
 #[derive(Clone)]
 pub enum DetailView {
     Notification,
+    Agents,
     Command { title: String, lines: Vec<String> },
     AiChat { title: String, text: Text<'static> },
     ContextVisualization(ContextVisualizationData),
@@ -52,15 +53,23 @@ pub enum DetailView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AppActivity {
     NotificationDetail,
+    Agents,
     CommandOverlay,
     ContextVisualization,
     AiChat,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SplitView {
+    Notifications,
+    Agents,
 }
 
 pub struct App {
     store: NotificationStore,
     input: String,
     selected: usize,
+    selected_agent: usize,
     opened_notification: Option<usize>,
     selected_actor: Option<ActorProfile>,
     detail_scroll: u16,
@@ -117,6 +126,7 @@ impl App {
             store: NotificationStore::new(),
             input: String::new(),
             selected: 0,
+            selected_agent: 0,
             opened_notification: None,
             selected_actor: None,
             detail_scroll: 0,
@@ -155,6 +165,13 @@ impl App {
             if opened >= self.store.notifications.len() {
                 self.opened_notification = Some(self.store.notifications.len() - 1);
             }
+        }
+
+        let agent_count = self.agent_list_entries().len();
+        if agent_count == 0 {
+            self.selected_agent = 0;
+        } else if self.selected_agent >= agent_count {
+            self.selected_agent = agent_count - 1;
         }
     }
 
@@ -214,6 +231,10 @@ impl App {
                 .opened_notification()
                 .map(|notif| format!("Notification: @{}", notif.author.data.handle.as_str()))
                 .unwrap_or_else(|| "Notification".to_string()),
+            DetailView::Agents => self
+                .selected_agent_node()
+                .map(|node| format!("Agent {}", node.agent_id.0))
+                .unwrap_or_else(|| "Agent".to_string()),
             DetailView::Command { title, .. } => title.clone(),
             DetailView::AiChat { title, .. } => title.clone(),
             DetailView::ContextVisualization(data) => data.title.clone(),
@@ -223,9 +244,17 @@ impl App {
     fn current_activity(&self) -> AppActivity {
         match self.detail {
             DetailView::Notification => AppActivity::NotificationDetail,
+            DetailView::Agents => AppActivity::Agents,
             DetailView::Command { .. } => AppActivity::CommandOverlay,
             DetailView::AiChat { .. } => AppActivity::AiChat,
             DetailView::ContextVisualization(_) => AppActivity::ContextVisualization,
+        }
+    }
+
+    fn current_split_view(&self) -> SplitView {
+        match self.detail {
+            DetailView::Agents => SplitView::Agents,
+            _ => SplitView::Notifications,
         }
     }
 
@@ -241,10 +270,146 @@ impl App {
     fn detail_text(&self) -> Text<'static> {
         match &self.detail {
             DetailView::Notification => self.notification_detail_text(),
+            DetailView::Agents => self.agent_detail_text(),
             DetailView::Command { lines, .. } => Text::from(lines.join("\n")),
             DetailView::AiChat { text, .. } => text.clone(),
             DetailView::ContextVisualization(_) => Text::from(""),
         }
+    }
+
+    fn agent_list_entries(&self) -> Vec<(usize, AgentNodeId)> {
+        self.root_run
+            .as_ref()
+            .map(|run| run.agent_graph().ids_with_depth_in_display_order())
+            .unwrap_or_default()
+    }
+
+    fn selected_agent_entry(&self) -> Option<(usize, AgentNodeId)> {
+        self.agent_list_entries().get(self.selected_agent).copied()
+    }
+
+    fn selected_agent_node(&self) -> Option<&AgentNode> {
+        let (_, node_id) = self.selected_agent_entry()?;
+        self.root_run
+            .as_ref()
+            .and_then(|run| run.agent_graph().node(node_id))
+    }
+
+    fn agent_items(&self) -> Vec<ListItem<'_>> {
+        let Some(run) = self.root_run.as_ref() else {
+            return vec![ListItem::new("No agent run available yet.")];
+        };
+
+        self.agent_list_entries()
+            .into_iter()
+            .filter_map(|(depth, node_id)| {
+                let node = run.agent_graph().node(node_id)?;
+                let indent = "  ".repeat(depth.saturating_sub(1));
+                let kind = match node.agent_type {
+                    AgentNodeKind::RootAgent => "root",
+                    AgentNodeKind::ToolAgent => "tool",
+                    AgentNodeKind::CollectionSearchAgent => "search",
+                    AgentNodeKind::CollectionReviewAgent => "review",
+                };
+                let line = format!(
+                    "{}#{:<3} [{:<9}] {:<8} {}",
+                    indent,
+                    node.agent_id.0,
+                    kind,
+                    node.status.as_str(),
+                    node.label
+                );
+                Some(ListItem::new(line))
+            })
+            .collect()
+    }
+
+    fn agent_detail_text(&self) -> Text<'static> {
+        let Some(node) = self.selected_agent_node() else {
+            return Text::from(
+                "No agent selected.\nRun a query, then use `/agents` to inspect the agent graph.",
+            );
+        };
+
+        let mut lines = vec![
+            format!("agent_id: {}", node.agent_id.0),
+            format!("label: {}", node.label),
+            format!("status: {}", node.status.as_str()),
+            format!(
+                "node_type: {}",
+                match node.agent_type {
+                    AgentNodeKind::RootAgent => "root",
+                    AgentNodeKind::ToolAgent => "tool",
+                    AgentNodeKind::CollectionSearchAgent => "collection_search",
+                    AgentNodeKind::CollectionReviewAgent => "collection_review",
+                }
+            ),
+        ];
+
+        if let Some(kind) = node.agent_kind {
+            lines.push(format!("agent_kind: {}", kind.id()));
+        }
+        if let Some(parent_id) = node.parent_agent_id {
+            lines.push(format!("parent_agent_id: {}", parent_id.0));
+        } else {
+            lines.push("parent_agent_id: <none>".to_string());
+        }
+        lines.push(format!(
+            "child_agent_ids: {}",
+            if node.child_agent_ids.is_empty() {
+                "<none>".to_string()
+            } else {
+                node.child_agent_ids
+                    .iter()
+                    .map(|id| id.0.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        ));
+        if let Some(tool_name) = node.tool_name.as_deref() {
+            lines.push(format!("tool_name: {tool_name}"));
+        }
+        if let Some(collection_id) = node.collection_id.as_deref() {
+            lines.push(format!("collection_id: {collection_id}"));
+        }
+
+        if let Some(window) = node.context_window_report.as_ref() {
+            lines.push(String::new());
+            lines.push("context_window:".to_string());
+            lines.push(format!(
+                "provider: {} / {}",
+                window.limits.provider_name, window.limits.model_name
+            ));
+            lines.push(format!(
+                "input_tokens: {} / {}",
+                window.used_input_tokens,
+                window.limits.available_input_tokens()
+            ));
+            lines.push(format!("header_tokens: {}", window.header_tokens));
+            lines.push(format!("truncated: {}", window.truncated));
+            lines.push(format!("sections: {}", window.sections.len()));
+            for section in &window.sections {
+                lines.push(format!(
+                    "- {} [{}] used={} estimated={} truncated={}",
+                    section.title,
+                    format!("{:?}", section.kind).to_ascii_lowercase(),
+                    section.used_tokens,
+                    section.estimated_tokens,
+                    section.truncated
+                ));
+            }
+            lines.push(String::new());
+            lines.push("rendered_context:".to_string());
+            lines.extend(window.rendered.lines().map(str::to_owned));
+        }
+
+        if let Some(summary) = node.result_summary.as_deref() {
+            lines.push(String::new());
+            lines.push("result_summary:".to_string());
+            lines.extend(summary.lines().map(str::to_owned));
+        }
+
+        Text::from(lines.join("\n"))
     }
 
     fn notification_detail_lines(&self) -> Vec<String> {
@@ -356,31 +521,32 @@ impl App {
         );
 
         if let Some(notif) = self.opened_notification() {
-            let created_lists = if let Some(lists) = self.store.get_clearsky_lists(&notif.author.data.did) {
-                if lists.is_empty() {
-                    "This actor has no returned Clearsky moderation lists.".to_string()
+            let created_lists =
+                if let Some(lists) = self.store.get_clearsky_lists(&notif.author.data.did) {
+                    if lists.is_empty() {
+                        "This actor has no returned Clearsky moderation lists.".to_string()
+                    } else {
+                        lists
+                            .iter()
+                            .map(|list| {
+                                let mut parts = vec![
+                                    format!("name: {}", list.name),
+                                    format!("url: {}", list.url),
+                                    format!("did: {}", list.did),
+                                    format!("date_added: {}", list.date_added),
+                                    format!("created_date: {}", list.created_date),
+                                ];
+                                if !list.description.is_empty() {
+                                    parts.push(format!("description: {}", list.description));
+                                }
+                                parts.join("\n")
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n\n")
+                    }
                 } else {
-                    lists
-                        .iter()
-                        .map(|list| {
-                            let mut parts = vec![
-                                format!("name: {}", list.name),
-                                format!("url: {}", list.url),
-                                format!("did: {}", list.did),
-                                format!("date_added: {}", list.date_added),
-                                format!("created_date: {}", list.created_date),
-                            ];
-                            if !list.description.is_empty() {
-                                parts.push(format!("description: {}", list.description));
-                            }
-                            parts.join("\n")
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n\n")
-                }
-            } else {
-                "Clearsky moderation lists not loaded yet.".to_string()
-            };
+                    "Clearsky moderation lists not loaded yet.".to_string()
+                };
             lines.push(String::new());
             lines.push("Clearsky Moderation Lists:".to_string());
             lines.push(String::new());
@@ -413,7 +579,10 @@ impl App {
         match verb {
             "bio" | "/bio" => {
                 let Some(actor) = parts.next() else {
-                    self.set_command_output("/bio", vec!["usage: /bio handle.bsky.social".to_string()]);
+                    self.set_command_output(
+                        "/bio",
+                        vec!["usage: /bio handle.bsky.social".to_string()],
+                    );
                     return Ok(());
                 };
                 let profile =
@@ -442,7 +611,10 @@ impl App {
             }
             "pins" | "/pins" => {
                 let Some(actor) = parts.next() else {
-                    self.set_command_output("/pins", vec!["usage: /pins handle.bsky.social".to_string()]);
+                    self.set_command_output(
+                        "/pins",
+                        vec!["usage: /pins handle.bsky.social".to_string()],
+                    );
                     return Ok(());
                 };
                 let profile =
@@ -473,6 +645,17 @@ impl App {
                 self.detail =
                     DetailView::ContextVisualization(self.build_context_visualization(evil_gemma));
                 self.status = "context visualization loaded".to_string();
+            }
+            "agents" | "/agents" => {
+                self.clamp_selection();
+                self.detail_scroll = 0;
+                self.detail = DetailView::Agents;
+                self.status = "agents view loaded".to_string();
+            }
+            "notifications" | "/notifications" => {
+                self.detail_scroll = 0;
+                self.detail = DetailView::Notification;
+                self.status = "notifications view loaded".to_string();
             }
             "stop" | "/stop" => {
                 self.stop_active_root_run();
@@ -791,6 +974,7 @@ impl App {
                 RootRunEvent::Progress(root_run) => {
                     let query = root_run.query().to_string();
                     self.root_run = Some(root_run.clone());
+                    self.clamp_selection();
                     self.set_ai_chat_output(
                         format!("evil_gemma: {query}"),
                         root_run.render_output_text(),
@@ -834,6 +1018,7 @@ impl App {
                         assistant: response,
                     });
                     self.root_run = Some(root_run.clone());
+                    self.clamp_selection();
                     self.set_ai_chat_output(
                         format!("evil_gemma: {query}"),
                         root_run.render_output_text(),
@@ -851,6 +1036,7 @@ impl App {
                     if let Some(root_run) = root_run {
                         let query = root_run.query().to_string();
                         self.root_run = Some(root_run.clone());
+                        self.clamp_selection();
                         self.set_ai_chat_output(
                             format!("evil_gemma: {query}"),
                             root_run.render_output_text(),
@@ -880,6 +1066,46 @@ impl App {
         self.selected_actor = None;
         self.detail_scroll = 0;
         self.detail = DetailView::Notification;
+    }
+
+    fn move_selection_up(&mut self) {
+        match self.current_split_view() {
+            SplitView::Notifications => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+            }
+            SplitView::Agents => {
+                if self.selected_agent > 0 {
+                    self.selected_agent -= 1;
+                    self.detail_scroll = 0;
+                }
+            }
+        }
+    }
+
+    fn move_selection_down(&mut self) {
+        match self.current_split_view() {
+            SplitView::Notifications => {
+                if self.selected + 1 < self.store.notifications.len() {
+                    self.selected += 1;
+                }
+            }
+            SplitView::Agents => {
+                let len = self.agent_list_entries().len();
+                if self.selected_agent + 1 < len {
+                    self.selected_agent += 1;
+                    self.detail_scroll = 0;
+                }
+            }
+        }
+    }
+
+    fn activate_selected_item(&mut self) {
+        match self.current_split_view() {
+            SplitView::Notifications => self.open_selected_notification(),
+            SplitView::Agents => {}
+        }
     }
 }
 
@@ -929,16 +1155,8 @@ pub async fn run_app(
                     KeyCode::Char('q') if app.input.is_empty() => {
                         app.should_quit = true;
                     }
-                    KeyCode::Up => {
-                        if app.selected > 0 {
-                            app.selected -= 1;
-                        }
-                    }
-                    KeyCode::Down => {
-                        if app.selected + 1 < app.store.notifications.len() {
-                            app.selected += 1;
-                        }
-                    }
+                    KeyCode::Up => app.move_selection_up(),
+                    KeyCode::Down => app.move_selection_down(),
                     KeyCode::PageUp => {
                         app.detail_scroll = app.detail_scroll.saturating_sub(4);
                     }
@@ -960,7 +1178,7 @@ pub async fn run_app(
                     }
                     KeyCode::Enter => {
                         if app.input.trim().is_empty() {
-                            app.open_selected_notification();
+                            app.activate_selected_item();
                         } else if let Err(err) = app.execute_command(&agent, &evil_gemma).await {
                             app.status = format!("command failed: {err}");
                             app.set_command_output(
@@ -1158,6 +1376,8 @@ fn help_lines() -> Vec<String> {
         "  /bio handle.bsky.social".to_string(),
         "  /replies_from handle.bsky.social".to_string(),
         "  /pins handle.bsky.social".to_string(),
+        "  /agents".to_string(),
+        "  /notifications".to_string(),
         "  /context".to_string(),
         "  /stop".to_string(),
         "  /task".to_string(),
@@ -1169,7 +1389,7 @@ fn help_lines() -> Vec<String> {
         "Default endpoint: http://127.0.0.1:5000/v1/chat/completions".to_string(),
         "Override with EVIL_GEMMA_BASE_URL and EVIL_GEMMA_MODEL.".to_string(),
         String::new(),
-        "Navigation: Up/Down selects a notification; Enter opens it; PageUp/PageDown scroll detail; Tab toggles AI chat view.".to_string(),
+        "Navigation: Up/Down selects the active left-list item; Enter opens a notification; PageUp/PageDown scroll detail; Tab toggles AI chat view.".to_string(),
     ]
 }
 
@@ -1179,6 +1399,8 @@ fn is_local_command(verb: &str) -> bool {
         "/bio"
             | "/replies_from"
             | "/pins"
+            | "/agents"
+            | "/notifications"
             | "/context"
             | "/stop"
             | "/task"
@@ -1190,6 +1412,8 @@ fn is_local_command(verb: &str) -> bool {
             | "bio"
             | "replies_from"
             | "pins"
+            | "agents"
+            | "notifications"
             | "context"
             | "stop"
             | "task"
@@ -1246,23 +1470,42 @@ fn draw_ui(frame: &mut Frame, app: &App) {
                     app.detail_scroll,
                 );
             }
-            DetailView::Notification => {}
+            DetailView::Notification | DetailView::Agents => {}
         }
     } else {
-        let selected = if app.store.notifications.is_empty() {
-            None
-        } else {
-            Some(app.selected)
-        };
-        ui::tui_renderer::render_notification_split(
-            frame,
-            chunks[0],
-            app.notification_items(),
-            selected,
-            &app.detail_title(),
-            app.detail_text(),
-            app.detail_scroll,
-        );
+        match app.current_split_view() {
+            SplitView::Notifications => {
+                let selected = if app.store.notifications.is_empty() {
+                    None
+                } else {
+                    Some(app.selected)
+                };
+                ui::tui_renderer::render_list_detail_split(
+                    frame,
+                    chunks[0],
+                    "Notifications",
+                    app.notification_items(),
+                    selected,
+                    &app.detail_title(),
+                    app.detail_text(),
+                    app.detail_scroll,
+                );
+            }
+            SplitView::Agents => {
+                let items = app.agent_items();
+                let selected = (!items.is_empty()).then_some(app.selected_agent);
+                ui::tui_renderer::render_list_detail_split(
+                    frame,
+                    chunks[0],
+                    "Agents",
+                    items,
+                    selected,
+                    &app.detail_title(),
+                    app.detail_text(),
+                    app.detail_scroll,
+                );
+            }
+        }
     }
 
     ui::tui_renderer::render_input(frame, input_area, app.input.as_str(), &app.status);

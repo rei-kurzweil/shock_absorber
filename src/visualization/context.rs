@@ -1,5 +1,5 @@
 use crate::harness::agents::{AgentNode, AgentNodeKind};
-use crate::harness::context_window::{BuiltContextWindow, BuiltContextSection, ContextSectionKind};
+use crate::harness::context_window::{BuiltContextSection, BuiltContextWindow, ContextSectionKind};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
