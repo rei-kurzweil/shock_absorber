@@ -4,7 +4,14 @@ Return a grounded result block with `title:`, `summary:`, and up to four `uri:` 
 
 Every `uri:` must be a real item from the collection.
 
-The `summary:` field is required. It should be dense and grounded: include the main repeated themes, the strongest exact phrases or list names, and any meaningful split or ambiguity inside the collection.
+The `summary:` field is required. It must be one grounded paragraph of roughly 100-200 words.
+
+That paragraph should include:
+
+- the main repeated themes
+- the strongest exact phrases or list names
+- any meaningful split, ambiguity, or contrast inside the collection
+- a short note about how broad or narrow the matched evidence seems when that matters
 
 Use the `uri:` lines to point at the strongest supporting records.
 

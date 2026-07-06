@@ -182,6 +182,7 @@ pub struct LlmSearchResult {
 pub struct LlmSearchExecution {
     pub result: Option<LlmSearchResult>,
     pub context_window: BuiltContextWindow,
+    pub diagnostic: Option<String>,
 }
 
 pub struct ToolExecutionOutput {
@@ -245,6 +246,7 @@ impl<'a> LlmSearchComparator<'a> {
                     &context,
                     &self.llm_client.context_limits(),
                 ),
+                diagnostic: None,
             });
         }
 
@@ -274,6 +276,7 @@ impl<'a> LlmSearchComparator<'a> {
         Ok(LlmSearchExecution {
             result: parse_llm_search_result(collection, &response),
             context_window,
+            diagnostic: None,
         })
     }
 }
@@ -306,18 +309,22 @@ impl BlueskyTools {
                     llm_client,
                     max_output_tokens: 512,
                 };
-                retry.compare(&reduced).await.map_err(|retry_err| {
+                let mut retried = retry.compare(&reduced).await.map_err(|retry_err| -> Box<dyn std::error::Error> {
                     format!(
                         "llm_search failed on full collection ({primary_err}) and reduced retry ({retry_err})"
                     )
                     .into()
-                })
+                })?;
+                retried.diagnostic = Some(format!(
+                    "Primary full-collection search failed and a reduced retry view was used instead. Primary failure: {primary_err}"
+                ));
+                Ok(retried)
             }
         }
     }
 
     pub fn recent_posts_collection_id(&self, did: &Did) -> String {
-        format!("recent_posts:{}", did.as_str())
+        format!("recent_posts_unaddressed:{}", did.as_str())
     }
 
     pub fn pinned_posts_collection_id(&self, did: &Did) -> String {
@@ -706,8 +713,13 @@ impl BlueskyTools {
                 .map_err(|err| err.to_string());
             let progress_content = match execution.as_ref() {
                 Ok(execution) => format!(
-                    "collection_id: {}\nstatus: completed\n\nsummary:\n{}",
+                    "collection_id: {}\nstatus: completed{}\n\nsummary:\n{}",
                     collection.id,
+                    execution
+                        .diagnostic
+                        .as_deref()
+                        .map(|diagnostic| format!("\nretry_diagnostic: {diagnostic}"))
+                        .unwrap_or_default(),
                     summarize_progress_text(&render_llm_result(execution.result.as_ref()))
                 ),
                 Err(err) => format!("collection_id: {}\nstatus: failed\nerror: {}", collection.id, err),
@@ -1413,6 +1425,7 @@ fn fallback_llm_search_summary(
     search_results: &[LlmSearchResultItem],
 ) -> String {
     let mut hints = Vec::new();
+    let mut descriptions = Vec::new();
     for search_result in search_results {
         let Some(post) = collection.posts.iter().find(|post| post.uri == search_result.uri) else {
             continue;
@@ -1427,18 +1440,53 @@ fn fallback_llm_search_summary(
                 break;
             }
         }
-        if hints.len() >= 3 {
+        let fields = body_field_map(&post.body);
+        if let Some(description) = fields.get("list_description") {
+            let description = description.trim();
+            if !description.is_empty()
+                && !descriptions.iter().any(|seen| seen == description)
+            {
+                descriptions.push(description.to_string());
+            }
+        }
+        if hints.len() >= 3 && descriptions.len() >= 2 {
             break;
         }
     }
 
     if hints.is_empty() {
         format!(
-            "Grounded evidence was found in {} selected search result(s).",
+            "Grounded evidence was found in {} selected search result(s), but the model did not return a usable structured summary paragraph. The selected records should be treated as the strongest available anchors from this collection, and a follow-up pass may be needed to restate their themes more completely.",
             search_results.len()
         )
     } else {
-        format!("Grounded evidence centers on: {}.", hints.join("; "))
+        let lead = if collection.collection_kind == "clearsky_lists" {
+            format!(
+                "The strongest grounded evidence in this moderation-list collection centers on {} selected records, with repeated signals around {}.",
+                search_results.len(),
+                hints.join(", ")
+            )
+        } else {
+            format!(
+                "The strongest grounded evidence in this collection centers on {} selected records, with repeated signals around {}.",
+                search_results.len(),
+                hints.join(", ")
+            )
+        };
+        let support = if descriptions.is_empty() {
+            "The model did not return a fully structured summary paragraph, so this fallback is derived from the matched records themselves and should be treated as a compact evidence summary rather than a complete interpretation.".to_string()
+        } else {
+            format!(
+                "The matched record text also includes descriptions such as: {}. This fallback summary is derived directly from those matched records because the model response did not yield a usable structured `summary:` field.",
+                descriptions
+                    .iter()
+                    .take(2)
+                    .map(|text| format!("\"{}\"", text))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        };
+        format!("{lead} {support}")
     }
 }
 
@@ -1700,6 +1748,15 @@ fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
     }
 }
 
+fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
+    let mut lines = Vec::new();
+    if let Some(diagnostic) = execution.diagnostic.as_deref() {
+        lines.push(format!("diagnostic: {diagnostic}"));
+    }
+    lines.push(render_llm_result(execution.result.as_ref()));
+    lines.join("\n")
+}
+
 fn render_llm_result_compact(result: Option<&LlmSearchResult>) -> String {
     match result {
         Some(result) => {
@@ -1812,7 +1869,7 @@ fn build_collection_search_agent_node(
         Ok(execution) => (
             AgentNodeStatus::Completed,
             Some(execution.context_window.clone()),
-            Some(render_llm_result(execution.result.as_ref())),
+            Some(render_llm_execution_result(execution)),
         ),
         Err(err) => (
             AgentNodeStatus::Failed,
@@ -1861,6 +1918,9 @@ fn build_llm_search_parent_context(
                 match outcome.execution.as_ref() {
                     Ok(execution) => {
                         lines.push("status: ok".to_string());
+                        if let Some(diagnostic) = execution.diagnostic.as_deref() {
+                            lines.push(format!("diagnostic: {diagnostic}"));
+                        }
                         lines.push(render_llm_result_compact(execution.result.as_ref()));
                     }
                     Err(err) => {
@@ -1887,7 +1947,7 @@ fn render_combined_llm_search_results_with_summary(
     if outcomes.len() == 1 {
         return match outcomes.first() {
             Some(outcome) => match outcome.execution.as_ref() {
-                Ok(execution) => render_llm_result(execution.result.as_ref()),
+                Ok(execution) => render_llm_execution_result(execution),
                 Err(err) => format!(
                     "collection_id: {}\nlabel: {}\nstatus: failed\nerror: {}",
                     outcome.collection_id, outcome.collection_label, err
@@ -2320,6 +2380,7 @@ fn optional_string_array_arg(
 mod tests {
     use super::{
         BlueskyTools, ToolRegistry, detect_actor_refs, detect_post_uri,
+        fallback_llm_search_summary,
         merged_collection_from_refs, parse_llm_search_result, parse_prompt_tool_call,
         reduced_search_collection, render_internal_llm_search_tool_protocol, render_llm_result,
         render_post_details, serialize_collection,
@@ -2470,6 +2531,48 @@ mod tests {
 
         assert!(!result.summary.contains("## Collection"));
         assert!(result.summary.contains("AI Fanatics") || result.summary.contains("Please stop"));
+    }
+
+    #[test]
+    fn fallback_llm_search_summary_for_lists_is_paragraph_like() {
+        let collection = LabeledPostCollection::new(
+            "clearsky:test",
+            "Clearsky test lists",
+            vec![
+                PostRecord {
+                    uri: "https://example.com/list-a".to_string(),
+                    author_handle: "clearsky".to_string(),
+                    body: "list_name: accused troll\nlist_description: actors accused of trolling"
+                        .to_string(),
+                },
+                PostRecord {
+                    uri: "https://example.com/list-b".to_string(),
+                    author_handle: "clearsky".to_string(),
+                    body: "list_name: engagement bait\nlist_description: repetitive clout-seeking posting"
+                        .to_string(),
+                },
+            ],
+        )
+        .with_collection_kind("clearsky_lists");
+
+        let summary = fallback_llm_search_summary(
+            &collection,
+            &[
+                crate::harness::tools::LlmSearchResultItem {
+                    uri: "https://example.com/list-a".to_string(),
+                    source_collection_id: Some("clearsky:test".to_string()),
+                },
+                crate::harness::tools::LlmSearchResultItem {
+                    uri: "https://example.com/list-b".to_string(),
+                    source_collection_id: Some("clearsky:test".to_string()),
+                },
+            ],
+        );
+
+        assert!(summary.contains("moderation-list collection"));
+        assert!(summary.contains("accused troll"));
+        assert!(summary.contains("engagement bait"));
+        assert!(summary.contains("structured `summary:` field"));
     }
 
     #[test]

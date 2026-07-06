@@ -38,6 +38,24 @@ pub enum TranscriptEntryKind {
     AgentEvent,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContextMessageKind {
+    InitialSystem,
+    InitialUserContext,
+    ToolRequest,
+    ToolResult,
+    AssistantReply,
+    UserFollowUp,
+    RoundLimitPrompt,
+    RepairPrompt,
+}
+
+#[derive(Clone, Debug)]
+pub struct ContextMessage {
+    pub kind: ContextMessageKind,
+    pub message: ChatMessage,
+}
+
 #[derive(Clone, Debug)]
 pub struct TranscriptEntry {
     pub kind: TranscriptEntryKind,
@@ -72,7 +90,7 @@ pub struct RootRunState {
     status: RootRunStatus,
     cancel_requested: bool,
     root_context_window: BuiltContextWindow,
-    messages: Vec<ChatMessage>,
+    messages: Vec<ContextMessage>,
     transcript_entries: Vec<TranscriptEntry>,
     tool_call_history: Vec<RootToolCallRecord>,
     rounds: Vec<RootRunRound>,
@@ -86,7 +104,7 @@ impl RootRunState {
     pub fn new(
         query: impl Into<String>,
         root_context_window: BuiltContextWindow,
-        messages: Vec<ChatMessage>,
+        messages: Vec<ContextMessage>,
         agent_graph: AgentGraph,
     ) -> Self {
         Self {
@@ -134,12 +152,30 @@ impl RootRunState {
         &self.root_context_window
     }
 
-    pub fn messages(&self) -> &[ChatMessage] {
+    pub fn messages(&self) -> &[ContextMessage] {
         &self.messages
     }
 
-    pub fn messages_mut(&mut self) -> &mut Vec<ChatMessage> {
-        &mut self.messages
+    pub fn llm_messages(&self) -> Vec<ChatMessage> {
+        self.messages
+            .iter()
+            .map(|entry| entry.message.clone())
+            .collect()
+    }
+
+    pub fn push_message(
+        &mut self,
+        kind: ContextMessageKind,
+        role: impl Into<String>,
+        content: impl Into<String>,
+    ) {
+        self.messages.push(ContextMessage {
+            kind,
+            message: ChatMessage {
+                role: role.into(),
+                content: content.into(),
+            },
+        });
     }
 
     pub fn transcript_entries(&self) -> &[TranscriptEntry] {

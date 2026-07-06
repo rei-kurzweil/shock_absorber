@@ -42,7 +42,9 @@ use crate::harness::context_window_logger::{
     reset_debug_dir,
 };
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
-use crate::harness::runtime::{RootRunState, RootRunStatus, TranscriptEntryKind};
+use crate::harness::runtime::{
+    ContextMessage, ContextMessageKind, RootRunState, RootRunStatus, TranscriptEntryKind,
+};
 use crate::harness::tools::{
     BlueskyTools, ToolProgressEvent, parse_prompt_tool_call, prompt_tool_protocol_instructions,
 };
@@ -554,17 +556,23 @@ impl App {
         };
         let initial_context = root_context_window.rendered.clone();
         let messages = vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: format!(
-                    "{}\n\n{}",
-                    evil_gemma.system_prompt.trim(),
-                    prompt_tool_protocol_instructions()
-                ),
+            ContextMessage {
+                kind: ContextMessageKind::InitialSystem,
+                message: ChatMessage {
+                    role: "system".to_string(),
+                    content: format!(
+                        "{}\n\n{}",
+                        evil_gemma.system_prompt.trim(),
+                        prompt_tool_protocol_instructions()
+                    ),
+                },
             },
-            ChatMessage {
-                role: "user".to_string(),
-                content: initial_context,
+            ContextMessage {
+                kind: ContextMessageKind::InitialUserContext,
+                message: ChatMessage {
+                    role: "user".to_string(),
+                    content: initial_context,
+                },
             },
         ];
         let mut response = String::new();
@@ -594,7 +602,7 @@ impl App {
         for round in 0..MAX_TOOL_CALL_ROUNDS {
             response = evil_gemma
                 .client
-                .complete_chat(root_run.messages().to_vec(), 1024)
+                .complete_chat(root_run.llm_messages(), 1024)
                 .await?;
 
             let Some(tool_call) = parse_prompt_tool_call(&response) else {
@@ -880,13 +888,15 @@ impl App {
             );
             root_run.set_active_tool_entry(None);
             let tool_result_summary = compact_tool_result_for_root_context(&tool_name, &tool_output);
-            root_run.messages_mut().push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response.clone(),
-            });
-            root_run.messages_mut().push(ChatMessage {
-                role: "user".to_string(),
-                content: format!(
+            root_run.push_message(
+                ContextMessageKind::ToolRequest,
+                "assistant",
+                response.clone(),
+            );
+            root_run.push_message(
+                ContextMessageKind::ToolResult,
+                "user",
+                format!(
                     "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_result_summary}\n\n{}",
                     if round + 1 == MAX_TOOL_CALL_ROUNDS {
                         "This was the final allowed tool round. Answer the original query directly now. Do not request another tool or emit a TOOL_CALL block."
@@ -894,7 +904,7 @@ impl App {
                         "Use this result to answer the original query, or request exactly one more tool if needed."
                     }
                 ),
-            });
+            );
             root_run.record_round(
                 round + 1,
                 response.clone(),
@@ -930,17 +940,15 @@ impl App {
         }
 
         if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
-            root_run.messages_mut().push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response.clone(),
-            });
-            root_run.messages_mut().push(ChatMessage {
-                role: "user".to_string(),
-                content: "You have already used the maximum number of tool rounds. Answer the original query directly using the tool results already provided. Do not emit TOOL_CALL.".to_string(),
-            });
+            root_run.push_message(ContextMessageKind::ToolRequest, "assistant", response.clone());
+            root_run.push_message(
+                ContextMessageKind::RoundLimitPrompt,
+                "user",
+                "You have already used the maximum number of tool rounds. Answer the original query directly using the tool results already provided. Do not emit TOOL_CALL.",
+            );
             response = evil_gemma
                 .client
-                .complete_chat(root_run.messages().to_vec(), 1024)
+                .complete_chat(root_run.llm_messages(), 1024)
                 .await
                 .unwrap_or_else(|_| {
                     "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
@@ -958,17 +966,15 @@ impl App {
         }
 
         if parse_prompt_tool_call(&response).is_none() && response_looks_incomplete(&response) {
-            root_run.messages_mut().push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response.clone(),
-            });
-            root_run.messages_mut().push(ChatMessage {
-                role: "user".to_string(),
-                content: "Your previous answer appears cut off. Finish the answer directly in at most one short paragraph plus up to 3 bullets. Start with a bottom-line conclusion sentence. Do not emit TOOL_CALL.".to_string(),
-            });
+            root_run.push_message(ContextMessageKind::AssistantReply, "assistant", response.clone());
+            root_run.push_message(
+                ContextMessageKind::RepairPrompt,
+                "user",
+                "Your previous answer appears cut off. Finish the answer directly in at most one short paragraph plus up to 3 bullets. Start with a bottom-line conclusion sentence. Do not emit TOOL_CALL.",
+            );
             response = evil_gemma
                 .client
-                .complete_chat(root_run.messages().to_vec(), 320)
+                .complete_chat(root_run.llm_messages(), 320)
                 .await
                 .unwrap_or(response);
             let live_visualization = build_live_context_visualization(
@@ -1015,9 +1021,12 @@ impl App {
         }
         root_run.set_status(RootRunStatus::Completed);
         let mut final_messages = root_run.messages().to_vec();
-        final_messages.push(ChatMessage {
-            role: "assistant".to_string(),
-            content: response.clone(),
+        final_messages.push(ContextMessage {
+            kind: ContextMessageKind::AssistantReply,
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content: response.clone(),
+            },
         });
         let final_context_visualization = build_live_context_visualization(
             "/context",
@@ -1166,7 +1175,14 @@ impl App {
             self.input.trim(),
             &evil_gemma.client,
         );
-        ContextVisualizationData::from_root_window("/context", &root_window)
+        let root_snapshot = build_root_context_snapshot(
+            &[],
+            evil_gemma.system_prompt.trim(),
+            prompt_tool_protocol_instructions(),
+            &root_window,
+            &evil_gemma.client.context_limits(),
+        );
+        ContextVisualizationData::from_windows("/context", vec![root_snapshot])
     }
 
     fn start_root_run(
@@ -1209,17 +1225,23 @@ impl App {
         };
         let initial_context = root_context_window.rendered.clone();
         let messages = vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: format!(
-                    "{}\n\n{}",
-                    evil_gemma.system_prompt.trim(),
-                    prompt_tool_protocol_instructions()
-                ),
+            ContextMessage {
+                kind: ContextMessageKind::InitialSystem,
+                message: ChatMessage {
+                    role: "system".to_string(),
+                    content: format!(
+                        "{}\n\n{}",
+                        evil_gemma.system_prompt.trim(),
+                        prompt_tool_protocol_instructions()
+                    ),
+                },
             },
-            ChatMessage {
-                role: "user".to_string(),
-                content: initial_context,
+            ContextMessage {
+                kind: ContextMessageKind::InitialUserContext,
+                message: ChatMessage {
+                    role: "user".to_string(),
+                    content: initial_context,
+                },
             },
         ];
         let mut agent_graph = AgentGraph::new_root("Root Agent");
@@ -1587,7 +1609,7 @@ async fn run_root_query_task(
         for round in 0..MAX_TOOL_CALL_ROUNDS {
             response = evil_gemma
                 .client
-                .complete_chat(root_run.messages().to_vec(), 1024)
+                .complete_chat(root_run.llm_messages(), 1024)
                 .await?;
 
             let Some(tool_call) = parse_prompt_tool_call(&response) else {
@@ -1845,13 +1867,15 @@ async fn run_root_query_task(
             );
             root_run.set_active_tool_entry(None);
             let tool_result_summary = compact_tool_result_for_root_context(&tool_name, &tool_output);
-            root_run.messages_mut().push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response.clone(),
-            });
-            root_run.messages_mut().push(ChatMessage {
-                role: "user".to_string(),
-                content: format!(
+            root_run.push_message(
+                ContextMessageKind::ToolRequest,
+                "assistant",
+                response.clone(),
+            );
+            root_run.push_message(
+                ContextMessageKind::ToolResult,
+                "user",
+                format!(
                     "Tool Result\nname: {tool_name}\nargs: {tool_args}\n\n{tool_result_summary}\n\n{}",
                     if round + 1 == MAX_TOOL_CALL_ROUNDS {
                         "This was the final allowed tool round. Answer the original query directly now. Do not request another tool or emit a TOOL_CALL block."
@@ -1859,7 +1883,7 @@ async fn run_root_query_task(
                         "Use this result to answer the original query, or request exactly one more tool if needed."
                     }
                 ),
-            });
+            );
             root_run.record_round(
                 round + 1,
                 response.clone(),
@@ -1886,17 +1910,15 @@ async fn run_root_query_task(
         }
 
         if hit_tool_round_limit && parse_prompt_tool_call(&response).is_some() {
-            root_run.messages_mut().push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response.clone(),
-            });
-            root_run.messages_mut().push(ChatMessage {
-                role: "user".to_string(),
-                content: "You have already used the maximum number of tool rounds. Answer the original query directly using the tool results already provided. Do not emit TOOL_CALL.".to_string(),
-            });
+            root_run.push_message(ContextMessageKind::ToolRequest, "assistant", response.clone());
+            root_run.push_message(
+                ContextMessageKind::RoundLimitPrompt,
+                "user",
+                "You have already used the maximum number of tool rounds. Answer the original query directly using the tool results already provided. Do not emit TOOL_CALL.",
+            );
             response = evil_gemma
                 .client
-                .complete_chat(root_run.messages().to_vec(), 1024)
+                .complete_chat(root_run.llm_messages(), 1024)
                 .await
                 .unwrap_or_else(|_| {
                     "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
@@ -1915,17 +1937,15 @@ async fn run_root_query_task(
         }
 
         if parse_prompt_tool_call(&response).is_none() && response_looks_incomplete(&response) {
-            root_run.messages_mut().push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response.clone(),
-            });
-            root_run.messages_mut().push(ChatMessage {
-                role: "user".to_string(),
-                content: "Your previous answer appears cut off. Finish the answer directly in at most one short paragraph plus up to 3 bullets. Start with a bottom-line conclusion sentence. Do not emit TOOL_CALL.".to_string(),
-            });
+            root_run.push_message(ContextMessageKind::AssistantReply, "assistant", response.clone());
+            root_run.push_message(
+                ContextMessageKind::RepairPrompt,
+                "user",
+                "Your previous answer appears cut off. Finish the answer directly in at most one short paragraph plus up to 3 bullets. Start with a bottom-line conclusion sentence. Do not emit TOOL_CALL.",
+            );
             response = evil_gemma
                 .client
-                .complete_chat(root_run.messages().to_vec(), 320)
+                .complete_chat(root_run.llm_messages(), 320)
                 .await
                 .unwrap_or(response);
             let live_visualization = build_live_context_visualization(
@@ -1949,9 +1969,12 @@ async fn run_root_query_task(
             .set_result_summary(root_agent_id, response.clone());
         root_run.set_status(RootRunStatus::Completed);
         let mut final_messages = root_run.messages().to_vec();
-        final_messages.push(ChatMessage {
-            role: "assistant".to_string(),
-            content: response.clone(),
+        final_messages.push(ContextMessage {
+            kind: ContextMessageKind::AssistantReply,
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content: response.clone(),
+            },
         });
         let final_context_visualization = build_live_context_visualization(
             "/context",
@@ -2037,7 +2060,7 @@ fn planned_tool_call_refresh_targets(
 
 fn build_live_context_visualization(
     title: &str,
-    messages: &[ChatMessage],
+    messages: &[ContextMessage],
     system_prompt: &str,
     tool_protocol: &str,
     root_context_window: &BuiltContextWindow,
@@ -2063,7 +2086,7 @@ fn build_live_context_visualization(
 }
 
 fn build_root_context_snapshot(
-    messages: &[ChatMessage],
+    messages: &[ContextMessage],
     system_prompt: &str,
     tool_protocol: &str,
     root_context_window: &BuiltContextWindow,
@@ -2110,14 +2133,20 @@ fn build_root_context_snapshot(
     }
 
     let mut tool_round = 0usize;
-    for message in messages.iter().skip(2) {
-        let trimmed = message.content.trim();
+    for entry in messages {
+        if matches!(
+            entry.kind,
+            ContextMessageKind::InitialSystem | ContextMessageKind::InitialUserContext
+        ) {
+            continue;
+        }
+        let trimmed = entry.message.content.trim();
         if trimmed.is_empty() {
             continue;
         }
 
         let (label, category, increment_round) =
-            classify_followup_message(message, tool_round + 1);
+            classify_context_message(entry, tool_round + 1);
         segments.push(ContextSegment {
             label,
             category,
@@ -2143,54 +2172,47 @@ fn build_root_context_snapshot(
     }
 }
 
-fn classify_followup_message(
-    message: &ChatMessage,
+fn classify_context_message(
+    message: &ContextMessage,
     next_tool_round: usize,
 ) -> (String, ContextCategory, bool) {
-    let trimmed = message.content.trim();
-
-    if message.role == "assistant" {
-        if parse_prompt_tool_call(trimmed).is_some() {
-            return (
-                format!("Tool Request #{next_tool_round}"),
-                ContextCategory::ToolResults,
-                false,
-            );
-        }
-        return (
-            "Assistant Reply".to_string(),
-            ContextCategory::UserAiChat,
+    match message.kind {
+        ContextMessageKind::InitialSystem | ContextMessageKind::InitialUserContext => (
+            String::new(),
+            ContextCategory::UiContext,
             false,
-        );
-    }
-
-    if trimmed.starts_with("Tool Result\nname:") {
-        return (
+        ),
+        ContextMessageKind::ToolRequest => (
+            format!("Tool Request #{next_tool_round}"),
+            ContextCategory::ToolResults,
+            false,
+        ),
+        ContextMessageKind::ToolResult => (
             format!("Tool Result #{next_tool_round}"),
             ContextCategory::ToolResults,
             true,
-        );
-    }
-    if trimmed.starts_with("You have already used the maximum number of tool rounds.") {
-        return (
+        ),
+        ContextMessageKind::AssistantReply => (
+            "Assistant Reply".to_string(),
+            ContextCategory::UserAiChat,
+            false,
+        ),
+        ContextMessageKind::UserFollowUp => (
+            "User Follow-up".to_string(),
+            ContextCategory::UserAiChat,
+            false,
+        ),
+        ContextMessageKind::RoundLimitPrompt => (
             "Round Limit Prompt".to_string(),
             ContextCategory::CurrentTask,
             false,
-        );
-    }
-    if trimmed.starts_with("Your previous answer appears cut off.") {
-        return (
+        ),
+        ContextMessageKind::RepairPrompt => (
             "Repair Prompt".to_string(),
             ContextCategory::CurrentTask,
             false,
-        );
+        ),
     }
-
-    (
-        "User Follow-up".to_string(),
-        ContextCategory::UserAiChat,
-        false,
-    )
 }
 
 fn root_category_for_section(title: &str) -> ContextCategory {
@@ -2737,6 +2759,7 @@ mod tests {
         BuiltContextSection, BuiltContextWindow, ProviderContextLimits,
     };
     use crate::harness::llm_api::ChatMessage;
+    use crate::harness::runtime::{ContextMessage, ContextMessageKind};
     use crate::visualization::context::ContextCategory;
 
     #[test]
@@ -2773,13 +2796,19 @@ mod tests {
 
         let snapshot = build_root_context_snapshot(
             &[
-                ChatMessage {
-                    role: "system".to_string(),
-                    content: "system".to_string(),
+                ContextMessage {
+                    kind: ContextMessageKind::InitialSystem,
+                    message: ChatMessage {
+                        role: "system".to_string(),
+                        content: "system".to_string(),
+                    },
                 },
-                ChatMessage {
-                    role: "user".to_string(),
-                    content: "context".to_string(),
+                ContextMessage {
+                    kind: ContextMessageKind::InitialUserContext,
+                    message: ChatMessage {
+                        role: "user".to_string(),
+                        content: "context".to_string(),
+                    },
                 },
             ],
             "short system prompt",

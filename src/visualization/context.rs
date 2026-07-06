@@ -55,30 +55,6 @@ impl ContextVisualizationData {
             windows,
         }
     }
-
-    pub fn from_root_window(title: impl Into<String>, window: &BuiltContextWindow) -> Self {
-        Self::from_windows(title, vec![snapshot_from_root_window(window)])
-    }
-}
-
-pub fn snapshot_from_root_window(window: &BuiltContextWindow) -> PromptContextSnapshot {
-    let mut segments = vec![ContextSegment {
-        label: "System Prompt".to_string(),
-        category: ContextCategory::SystemPrompt,
-        tokens: window.header_tokens,
-        truncated: false,
-    }];
-
-    for section in &window.sections {
-        segments.push(ContextSegment {
-            label: section.title.clone(),
-            category: category_for_root_section(&section.title),
-            tokens: section.used_tokens,
-            truncated: section.truncated,
-        });
-    }
-
-    snapshot_from_window("Root Agent", window, segments)
 }
 
 pub fn snapshot_from_llm_search_window(
@@ -390,29 +366,6 @@ fn legend_line() -> Line<'static> {
     Line::from(spans)
 }
 
-fn category_for_root_section(title: &str) -> ContextCategory {
-    match title {
-        "Tools" => ContextCategory::ToolDefinitions,
-        "Search Hints" | "Current UI Context" => ContextCategory::UiContext,
-        "Current Task" => ContextCategory::CurrentTask,
-        "Recent Chat" => ContextCategory::UserAiChat,
-        title if title.starts_with("Tool Result") => ContextCategory::ToolResults,
-        _ => {
-            let lowered = title.to_ascii_lowercase();
-            if lowered.contains("tool") {
-                ContextCategory::ToolDefinitions
-            } else if lowered.contains("chat") {
-                ContextCategory::UserAiChat
-            } else if lowered.contains("task") || lowered.contains("prompt") {
-                ContextCategory::CurrentTask
-            } else if lowered.contains("result") || lowered.contains("collection") {
-                ContextCategory::ToolResults
-            } else {
-                ContextCategory::UiContext
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
