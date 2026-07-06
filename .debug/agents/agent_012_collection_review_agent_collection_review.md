@@ -1,19 +1,18 @@
 # Agent Debug
 
-- agent_id: 7
+- agent_id: 12
 - agent_type: CollectionReviewAgent
 - agent_kind: CollectionReview
 - label: collection review
 - status: completed
-- parent_agent_id: 6
+- parent_agent_id: 11
 - child_agent_ids: <none>
 
 ## Result Summary
 
 status: pass
-reason: Initial review failed but the repaired summary is now grounded in the selected records. Original reason: The summary omits meaningful text that was available in the matched records.
+reason: The summary is grounded in the selected records and contains substantive evidence.
 repair_needed: false
-repair_diagnostic: Initial review failed. Original summary: The profile for 'nonbinary.computer' presents a multifaceted identity, primarily identifying as a 'Person who does electrical, computer, and music things.' A key theme is the blend of technical and creative pursuits, further emphasized b...
 
 ## Context Window Stats
 
@@ -21,14 +20,14 @@ repair_diagnostic: Initial review failed. Original summary: The profile for 'non
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 682
+- used_input_tokens: 567
 - truncated: false
 
 ## Included Sections
 
-- Search Prompt [local_task]: used 21 / estimated 21
+- Search Prompt [local_task]: used 16 / estimated 16
 - Collection Evidence [review_evidence]: used 121 / estimated 121
-- Proposed Summary [parent_search_results]: used 265 / estimated 265
+- Proposed Summary [parent_search_results]: used 155 / estimated 155
 
 ## Rendered Context Window
 
@@ -55,7 +54,7 @@ Rules:
 - Do not rewrite the summary yourself in this step.
 
 ## Search Prompt
-General sentiment and description of nonbinary.computer's posts?
+how do people reply to nonbinary.computer?
 
 ## Collection Evidence
 collection_id: actor_profile:did:plc:yfvwmnlztr4dwkb7hwz55r2g
@@ -76,7 +75,7 @@ support: github.com/sponsors/orual https://ko-fi.com/orual
 
 ## Proposed Summary
 post: LLM-selected post in Profile for nonbinary.computer
-summary: The profile for 'nonbinary.computer' presents a multifaceted identity, primarily identifying as a 'Person who does electrical, computer, and music things.' A key theme is the blend of technical and creative pursuits, further emphasized by the self-description 'Mother of machines.' The individual uses a nonbinary pronoun set, explicitly stating 'they/she/it.' The profile also provides practical support information, directing users to 'github.com/sponsors/orual' and 'https://ko-fi.com/orual.' The evidence seems relatively narrow, focusing solely on the self-description and support links provided in the bio, rather than a broad analysis of post content, though the bio itself is quite descriptive. The handle is 'nonbinary.computer,' and the associated DID is did:plc:yfvwmnlztr4dwkb7hwz55r2g.
+summary: The strongest grounded evidence in this collection centers on 1 selected records, with repeated signals around handle: nonbinary.computer. The model did not return a fully structured summary paragraph, so this fallback is derived from the matched records themselves and should be treated as a compact evidence summary rather than a complete interpretation.
 search_result_1_uri: at://did:plc:yfvwmnlztr4dwkb7hwz55r2g/app.bsky.actor.profile/self
 search_result_1_source_collection_id: actor_profile:did:plc:yfvwmnlztr4dwkb7hwz55r2g
 ```

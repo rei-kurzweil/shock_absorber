@@ -1,12 +1,12 @@
 # Agent Debug
 
-- agent_id: 2
+- agent_id: 13
 - agent_type: CollectionSearchAgent
 - agent_kind: CollectionSearch
 - label: collection search: Clearsky moderation lists for did:plc:yfvwmnlztr4dwkb7hwz55r2g
 - status: completed
-- parent_agent_id: 1
-- child_agent_ids: 3
+- parent_agent_id: 10
+- child_agent_ids: 14
 - collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
 
 ## Result Summary
@@ -16,14 +16,14 @@ review_status: pass
 review_reason: The summary is grounded in the selected records and contains substantive evidence.
 review_repair_needed: false
 post: LLM-selected post in Clearsky moderation lists for did:plc:yfvwmnlztr4dwkb7hwz55r2g (reduced retry view)
-summary: The strongest grounded evidence in this moderation-list collection centers on 4 selected records, with repeated signals around Tech, Follows of @godoglyness.bsky.social, Copied from @godoglyness.bsky.social's public follow graph on 2026-05-07. 503 accounts., People who immediately block others when they are contradicted. The matched record text also includes descriptions such as: "Copied from @godoglyness.bsky.social's public follow graph on 2026-05-07. 503 accounts." "Tech bros/Bitcoiners/AI enthusiasts who immediately block others people when questioned about their behavior or views on a particular topic, rather than discussing them peacefully.". This fallback summary is derived directly from those matched records because the model response did not yield a usable structured `summary:` field.
-search_result_1_uri: https://bsky.app/profile/did:plc:23c4uggpdwcjn4vrmyd6w7w4/lists/3mgd43v37ex23
+summary: The collection features numerous moderation lists centered around specific themes, most prominently 'Tech' and various facets of Artificial Intelligence (AI) and Large Language Models (LLMs). There is a clear thematic split between technical categorization (e.g., 'Tech', 'ai and llm', 'Computer-Touchers') and behavioral/social commentary (e.g., 'People who immediately block others when they are contradicted', 'Be Kind'). Specific technical lists include 'ai and llm' (which is noted as 'more LLM focused than my other computer science list') and 'llms' and 'Crypto/AI'. A notable contrast exists in the 'Tech' lists, where one is explicitly marked 'NOT A MUTE LIST' (uri: https://bsky.app/profile/did:plc:dlslhehdki6232cy6uxdphog/lists/3k7a64b32452s), suggesting a nuanced approach to categorization. Furthermore, the evidence is quite broad, covering everything from 'Gold Cluster (113)' mutual-follow groups to specific behavioral traits like 'Genocide simps and most hated by Edward Said'. The evidence seems to be a mix of highly specific (like 'Blackrock Containment Cell') and very broad (like 'Media').
+search_result_1_uri: https://bsky.app/profile/did:plc:dlslhehdki6232cy6uxdphog/lists/3k7a64b32452s
 search_result_1_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
-search_result_2_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbh2zglpr2h
+search_result_2_uri: https://bsky.app/profile/did:plc:2m7nz3542c4hj4pfxhyxmw2j/lists/3lx6t2qy2ym2b
 search_result_2_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
-search_result_3_uri: https://bsky.app/profile/did:plc:2m7nz3542c4hj4pfxhyxmw2j/lists/3lx6t2qy2ym2b
+search_result_3_uri: https://bsky.app/profile/did:plc:7xkqxg6m4legdq5hzwiobkys/lists/3ltzgvdl5dg2l
 search_result_3_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
-search_result_4_uri: https://bsky.app/profile/did:plc:3xbusn6qwgakkgay4xv5p3d2/lists/3lb3kpy5tu32q
+search_result_4_uri: https://bsky.app/profile/did:plc:4uity4bhgo5oxdsgajfzk7y5/lists/3lhwljowezk2h
 search_result_4_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
 
 ## Context Window Stats
@@ -32,13 +32,13 @@ search_result_4_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 1945
+- used_input_tokens: 1947
 - truncated: false
 
 ## Included Sections
 
 - Collection [collection_evidence]: used 1583 / estimated 1583
-- Search Prompt [local_task]: used 14 / estimated 14
+- Search Prompt [local_task]: used 16 / estimated 16
 
 ## Rendered Context Window
 
@@ -254,5 +254,5 @@ list_description: All of the accounts that @atprotocol.dev is following. The acc
 
 
 ## Search Prompt
-What lists is nonbinary.computer on?
+how do people reply to nonbinary.computer?
 ```

@@ -1,18 +1,19 @@
 # Agent Debug
 
-- agent_id: 9
+- agent_id: 18
 - agent_type: CollectionReviewAgent
 - agent_kind: CollectionReview
 - label: collection review
 - status: completed
-- parent_agent_id: 8
+- parent_agent_id: 17
 - child_agent_ids: <none>
 
 ## Result Summary
 
 status: pass
-reason: The summary is grounded in the selected records and contains substantive evidence.
+reason: Initial review failed but the repaired summary is now grounded in the selected records. Original reason: The summary omits meaningful text that was available in the matched records.
 repair_needed: false
+repair_diagnostic: Initial review failed. Original summary: The collection features a specific post from `nonbinary.computer` detailing a domestic incident: a 'girl who pooed in front of the bedroom door last night.' The core themes are domestic chaos, trust issues (as the door was locked because...
 
 ## Context Window Stats
 
@@ -20,14 +21,14 @@ repair_needed: false
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 625
+- used_input_tokens: 696
 - truncated: false
 
 ## Included Sections
 
-- Search Prompt [local_task]: used 18 / estimated 18
+- Search Prompt [local_task]: used 16 / estimated 16
 - Collection Evidence [review_evidence]: used 142 / estimated 142
-- Proposed Summary [parent_search_results]: used 190 / estimated 190
+- Proposed Summary [parent_search_results]: used 263 / estimated 263
 
 ## Rendered Context Window
 
@@ -54,7 +55,7 @@ Rules:
 - Do not rewrite the summary yourself in this step.
 
 ## Search Prompt
-Sentiment toward nonbinary.computer's recent posts?
+how do people reply to nonbinary.computer?
 
 ## Collection Evidence
 collection_id: recent_posts_unaddressed:did:plc:yfvwmnlztr4dwkb7hwz55r2g
@@ -68,7 +69,7 @@ hopefully now that there's no more big changes other than all our furniture show
 
 ## Proposed Summary
 post: LLM-selected post in Recent top-level posts by did:plc:yfvwmnlztr4dwkb7hwz55r2g
-summary: The strongest grounded evidence in this collection centers on 1 selected records, with repeated signals around girl who pooed in front of the bedroom door last night. door was locked because she cannot be trusted with air mattresses.. The model did not return a fully structured summary paragraph, so this fallback is derived from the matched records themselves and should be treated as a compact evidence summary rather than a complete interpretation.
+summary: The collection features a specific post from `nonbinary.computer` detailing a domestic incident: a 'girl who pooed in front of the bedroom door last night.' The core themes are domestic chaos, trust issues (as the door was locked because 'she cannot be trusted with air mattresses'), and the hope for emotional relief, as the author hopes this situation will allow her to 'de-stress properly.' Although the collection does not explicitly show replies, the evidence is narrow, focusing solely on the original statement. This post is highlighted as a 'Recent top-level post' by the actor, suggesting it is a key piece of content. The evidence is very narrow, capturing only the initial declaration of the event rather than the ensuing conversation.
 search_result_1_uri: at://did:plc:yfvwmnlztr4dwkb7hwz55r2g/app.bsky.feed.post/3mpt6ubc2ac2w
 search_result_1_source_collection_id: recent_posts_unaddressed:did:plc:yfvwmnlztr4dwkb7hwz55r2g
 ```

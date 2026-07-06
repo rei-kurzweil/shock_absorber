@@ -20,14 +20,14 @@ repair_needed: false
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 1056
+- used_input_tokens: 1008
 - truncated: false
 
 ## Included Sections
 
-- Search Prompt [local_task]: used 34 / estimated 34
-- Collection Evidence [review_evidence]: used 264 / estimated 264
-- Proposed Summary [parent_search_results]: used 483 / estimated 483
+- Search Prompt [local_task]: used 14 / estimated 14
+- Collection Evidence [review_evidence]: used 297 / estimated 297
+- Proposed Summary [parent_search_results]: used 422 / estimated 422
 
 ## Rendered Context Window
 
@@ -54,42 +54,42 @@ Rules:
 - Do not rewrite the summary yourself in this step.
 
 ## Search Prompt
-Summarize all lists jcorvinus.bsky.social is on, noting if the list is generally positive or negative in sentiment.
+What lists is nonbinary.computer on?
 
 ## Collection Evidence
-collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-collection_label: Clearsky moderation lists for did:plc:3deilm3cxnqundoo227xudg2
+collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
+collection_label: Clearsky moderation lists for did:plc:yfvwmnlztr4dwkb7hwz55r2g
 collection_kind: clearsky_lists
 
-matched_item[0] uri: https://bsky.app/profile/did:plc:7zre4plmd5jllccww575j6sb/lists/3mhrbbkz2hw25
+matched_item[0] uri: https://bsky.app/profile/did:plc:23c4uggpdwcjn4vrmyd6w7w4/lists/3mgd43v37ex23
 type: moderation_list
-list_name: Silver Cluster (54)
-list_description: Mutual-follow cluster with shells, found by mino.mobi/cluster
-
-matched_item[1] uri: https://bsky.app/profile/did:plc:avoehatd55goxr6357qsuiza/lists/3mh44mz7sz62o
-type: moderation_list
-list_name: AI research / effective acceleration / good tech people
+list_name: Tech
 list_description: 
 
-matched_item[2] uri: https://bsky.app/profile/did:plc:bctwbs3xyefn5hmcfztd7neb/lists/3kdhucvdfcg2o
+matched_item[1] uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbh2zglpr2h
 type: moderation_list
-list_name: Please stop
-list_description: People who should stop
+list_name: Follows of @godoglyness.bsky.social
+list_description: Copied from @godoglyness.bsky.social's public follow graph on 2026-05-07. 503 accounts.
 
-matched_item[3] uri: https://bsky.app/profile/did:plc:f6n22z62adionrvb5s6n6vfk/lists/3mktl7bpsbm2y
+matched_item[2] uri: https://bsky.app/profile/did:plc:2m7nz3542c4hj4pfxhyxmw2j/lists/3lx6t2qy2ym2b
 type: moderation_list
-list_name: Core Cluster
-list_description: Mutual-follow cluster with shells, found by mino.mobi/cluster
+list_name: People who immediately block others when they are contradicted
+list_description: Tech bros/Bitcoiners/AI enthusiasts who immediately block others people when questioned about their behavior or views on a particular topic, rather than discussing them peacefully.
+
+matched_item[3] uri: https://bsky.app/profile/did:plc:3xbusn6qwgakkgay4xv5p3d2/lists/3lb3kpy5tu32q
+type: moderation_list
+list_name: Media
+list_description: 
 
 ## Proposed Summary
-post: LLM-selected post in Clearsky moderation lists for did:plc:3deilm3cxnqundoo227xudg2 (reduced retry view)
-summary: The collection showcases a diverse set of moderation lists curated by Clearsky, heavily focused on themes related to Artificial Intelligence (AI), technological clusters, and behavioral curation. A strong recurring theme is the negative categorization of AI content, evidenced by lists like 'AI slop' (21), 'AI Fanatics' (19), and 'AI' (18, 23), which target users who promote 'AI-generated images' or 'AI' content generally. There is a clear split in AI categorization: some lists are broad ('AI', 'AI research / effective acceleration / good tech people' (7)), while others are highly specific, such as 'Crypto/AI' (14) or '%AI/ML' (15). Furthermore, the collection includes structural lists, such as 'Core Cluster' (12) and 'Silver Cluster (54)' (6), which denote mutual-follow groups. Sentiment is generally negative when applied to specific behaviors (e.g., 'Please stop' (8)), but positive/neutral when describing groups ('People' (13)). The evidence seems quite broad, covering everything from specific tech niches to general behavioral flags.
-search_result_1_uri: https://bsky.app/profile/did:plc:avoehatd55goxr6357qsuiza/lists/3mh44mz7sz62o
-search_result_1_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_2_uri: https://bsky.app/profile/did:plc:7zre4plmd5jllccww575j6sb/lists/3mhrbbkz2hw25
-search_result_2_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_3_uri: https://bsky.app/profile/did:plc:f6n22z62adionrvb5s6n6vfk/lists/3mktl7bpsbm2y
-search_result_3_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_4_uri: https://bsky.app/profile/did:plc:bctwbs3xyefn5hmcfztd7neb/lists/3kdhucvdfcg2o
-search_result_4_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
+post: LLM-selected post in Clearsky moderation lists for did:plc:yfvwmnlztr4dwkb7hwz55r2g (reduced retry view)
+summary: The strongest grounded evidence in this moderation-list collection centers on 4 selected records, with repeated signals around Tech, Follows of @godoglyness.bsky.social, Copied from @godoglyness.bsky.social's public follow graph on 2026-05-07. 503 accounts., People who immediately block others when they are contradicted. The matched record text also includes descriptions such as: "Copied from @godoglyness.bsky.social's public follow graph on 2026-05-07. 503 accounts." "Tech bros/Bitcoiners/AI enthusiasts who immediately block others people when questioned about their behavior or views on a particular topic, rather than discussing them peacefully.". This fallback summary is derived directly from those matched records because the model response did not yield a usable structured `summary:` field.
+search_result_1_uri: https://bsky.app/profile/did:plc:23c4uggpdwcjn4vrmyd6w7w4/lists/3mgd43v37ex23
+search_result_1_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
+search_result_2_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbh2zglpr2h
+search_result_2_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
+search_result_3_uri: https://bsky.app/profile/did:plc:2m7nz3542c4hj4pfxhyxmw2j/lists/3lx6t2qy2ym2b
+search_result_3_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
+search_result_4_uri: https://bsky.app/profile/did:plc:3xbusn6qwgakkgay4xv5p3d2/lists/3lb3kpy5tu32q
+search_result_4_source_collection_id: clearsky_lists:did:plc:yfvwmnlztr4dwkb7hwz55r2g
 ```

@@ -1,20 +1,26 @@
 # Agent Debug
 
-- agent_id: 4
+- agent_id: 19
 - agent_type: CollectionSearchAgent
 - agent_kind: CollectionSearch
 - label: collection search: Recent replies received by did:plc:yfvwmnlztr4dwkb7hwz55r2g
-- status: failed
-- parent_agent_id: 1
-- child_agent_ids: 5
+- status: completed
+- parent_agent_id: 10
+- child_agent_ids: 20
 - collection_id: recent_replies_received:did:plc:yfvwmnlztr4dwkb7hwz55r2g
 
 ## Result Summary
 
-review_status: fail
-review_reason: No usable `summary:` paragraph exists.
+review_status: pass
+review_reason: Initial review failed but the repaired summary is now grounded in the selected records. Original reason: The summary omits meaningful text that was available in the matched records.
 review_repair_needed: false
-No matching cached posts.
+repair_diagnostic: Initial review failed. Original summary: The replies to the source post (implied to be from nonbinary.computer, based on the context of the replies) cover several major themes: the state of technology and development, philosophical perspectives on existence and suffering, and s...
+post: LLM-selected post in Recent replies received by did:plc:yfvwmnlztr4dwkb7hwz55r2g
+summary: The strongest grounded evidence in this collection centers on 2 selected records, with repeated signals around source_post_uri: at://did:plc:2zmxikig2sj7gqaezl5gntae/app.bsky.feed.post/3mpr5mber622f. The model did not return a fully structured summary paragraph, so this fallback is derived from the matched records themselves and should be treated as a compact evidence summary rather than a complete interpretation.
+search_result_1_uri: at://did:web:jb.waf.moe/app.bsky.feed.post/3mpr5piz6622a
+search_result_1_source_collection_id: recent_replies_received:did:plc:yfvwmnlztr4dwkb7hwz55r2g
+search_result_2_uri: at://did:plc:e6naztz6nzveqmgjekttg3tr/app.bsky.feed.post/3mpr663xpcc24
+search_result_2_source_collection_id: recent_replies_received:did:plc:yfvwmnlztr4dwkb7hwz55r2g
 
 ## Context Window Stats
 
@@ -22,13 +28,13 @@ No matching cached posts.
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 4320
+- used_input_tokens: 4315
 - truncated: false
 
 ## Included Sections
 
 - Collection [collection_evidence]: used 3951 / estimated 3951
-- Search Prompt [local_task]: used 21 / estimated 21
+- Search Prompt [local_task]: used 16 / estimated 16
 
 ## Rendered Context Window
 
@@ -402,5 +408,5 @@ reply_text: hugs, from this middle easterner
 
 
 ## Search Prompt
-Sentiment toward nonbinary.computer's posts (nonbinary.computer)?
+how do people reply to nonbinary.computer?
 ```

@@ -5,27 +5,28 @@
 - label: Root Agent
 - status: completed
 - parent_agent_id: <none>
-- child_agent_ids: 1
+- child_agent_ids: 1, 10
 
 ## Result Summary
 
 
-The sentiment toward jcorvinus.bsky.social is generally **negative when applied to specific behaviors** (e.g., 'Please stop' (8)), but **positive/neutral when describing groups** ('People' (13)).
+The sentiment toward nonbinary.computer appears generally positive and engaged, based on the search results.
 
-**Lists she is on (summarized from Clearsky moderation lists):**
+**How people reply to her:**
+Replies cover a wide range of topics, including:
+*   Discussions about **AI/LLMs** and technical topics (e.g., accessibility provisions, AI thumbnails indicating "terrible slop content").
+*   Comments on her personal life, such as her finding a **full-time job** at NBCUniversal in Montreal.
+*   General commentary on her posts, such as the anecdote about the **girl who pooed in front of the bedroom door**.
+*   Replies often involve constructive feedback or detailed opinions on the content she shares.
 
-*   **Negative/Behavioral Focus:** Lists heavily target AI content and specific actions, such as:
-    *   'AI slop' (21)
-    *   'AI Fanatics' (19)
-    *   'AI' (18, 23)
-    *   'Please stop' (8)
-*   **Positive/Neutral/Structural Focus:** Lists denote groups or general themes:
-    *   'People' (13)
-    *   'Core Cluster' (12)
-    *   'Silver Cluster (54)' (6)
-    *   Broad AI categories like 'AI research / effective acceleration / good tech people' (7)
+**What lists she is on (and their sentiment):**
+She is on several moderation lists, which indicate the themes she engages with:
+*   **Tech:** This is a major list, and the evidence suggests a nuanced approach, as one related list is explicitly marked **"NOT A MUTE LIST."**
+*   **AI and LLMs:** This is a prominent technical category, with specific lists like 'ai and llm' (noted as "more LLM focused than my other computer science list") and 'llms' and 'Crypto/AI'.
+*   **Behavioral/Social Commentary:** Lists like **'People who immediately block others when they are contradicted'** and **'Be Kind'** suggest she is involved in discussions about social conduct.
 
-The lists are heavily focused on **Artificial Intelligence (AI)** and **technological clusters**.
+**Overall Sentiment Notes:**
+The lists themselves suggest she is part of communities that value **technical depth** (Tech, AI/LLMs) and **constructive social interaction** (Be Kind, blocking behavior), which points toward a positive and engaged presence.
 
 ## Context Window Stats
 
@@ -33,15 +34,15 @@ The lists are heavily focused on **Artificial Intelligence (AI)** and **technolo
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 1016
+- used_input_tokens: 910
 - truncated: false
 
 ## Included Sections
 
 - Tools [tool_definitions]: used 693 / estimated 693
 - Search Hints [ui_context]: used 76 / estimated 76
-- Current UI Context [ui_context]: used 184 / estimated 184
-- Current Task [local_task]: used 42 / estimated 42
+- Current UI Context [ui_context]: used 81 / estimated 81
+- Current Task [local_task]: used 39 / estimated 39
 
 ## Rendered Context Window
 
@@ -92,19 +93,16 @@ Notes:
 - Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated themes from the matching items.
 
 ## Search Hints
-The selected actor is did:plc:3deilm3cxnqundoo227xudg2. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed.
+The selected actor is did:plc:yfvwmnlztr4dwkb7hwz55r2g. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed.
 
 ## Current UI Context
-reason: reply
-author_handle: jcorvinus.bsky.social
-author_did: did:plc:3deilm3cxnqundoo227xudg2
-uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3mpxerae44c22
-indexed_at: 2026-07-06 05:38:16.829 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpxdfdda2s2t
-reply_parent_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3mpxebwyqis22
-reply_root_uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpxdfdda2s2t
-reply_text_preview: Tbf, the negative signals themselves are low res, and unpacking them would require analysis that I think entire teams of humans would struggle with if they weren't lucky enough to already be embedded in the context
+reason: like
+author_handle: nonbinary.computer
+author_did: did:plc:yfvwmnlztr4dwkb7hwz55r2g
+uri: at://did:plc:yfvwmnlztr4dwkb7hwz55r2g/app.bsky.feed.like/3mptpp674kc2l
+indexed_at: 2026-07-04 18:43:19.470 +00:00
+reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mn2n56unyk2v
 
 ## Current Task
-what is the sentiment toward this user? that is, how do people reply to her? what lists is she on (positive or negative lists? try to summarize both)
+what is the sentiment toward this user. how do people reply to her? what lists is she on? (if lists sound negative or positive take note)
 ```

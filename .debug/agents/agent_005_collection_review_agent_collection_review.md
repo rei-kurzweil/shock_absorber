@@ -20,13 +20,13 @@ repair_needed: false
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 616
+- used_input_tokens: 595
 - truncated: false
 
 ## Included Sections
 
-- Search Prompt [local_task]: used 41 / estimated 41
-- Collection Evidence [review_evidence]: used 288 / estimated 288
+- Search Prompt [local_task]: used 21 / estimated 21
+- Collection Evidence [review_evidence]: used 287 / estimated 287
 - Proposed Summary [parent_search_results]: used 12 / estimated 12
 
 ## Rendered Context Window
@@ -54,29 +54,29 @@ Rules:
 - Do not rewrite the summary yourself in this step.
 
 ## Search Prompt
-Analyze the sentiment of replies received from jcorvinus.bsky.social. Look for strong positive or negative indicators in the replies themselves.
+Sentiment toward nonbinary.computer's posts (nonbinary.computer)?
 
 ## Collection Evidence
-collection_id: recent_replies_received:did:plc:3deilm3cxnqundoo227xudg2
-collection_label: Recent replies received by did:plc:3deilm3cxnqundoo227xudg2
+collection_id: recent_replies_received:did:plc:yfvwmnlztr4dwkb7hwz55r2g
+collection_label: Recent replies received by did:plc:yfvwmnlztr4dwkb7hwz55r2g
 collection_kind: recent_replies_received
 
-matched_item[0] uri: at://did:plc:vivdsh7kvkb4iqiwcjt4odvx/app.bsky.feed.post/3lqkt4ctxdk24
-body: source_post_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3lqks73aop227
-reply_text: this is rad 😎
+matched_item[0] uri: at://did:web:jb.waf.moe/app.bsky.feed.post/3mpr5piz6622a
+body: source_post_uri: at://did:plc:2zmxikig2sj7gqaezl5gntae/app.bsky.feed.post/3mpr5mber622f
+reply_text: @jollywhoppers.com i believe in you
+mention: did:plc:lwckcyzhyrufq4ytg2abji7d
 
-matched_item[1] uri: at://did:plc:fccqluwn4zrklddjvcrkxssv/app.bsky.feed.post/3lqkswfb5nc2e
-body: source_post_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3lqks73aop227
-reply_text: and we are HERE FOR IT
+matched_item[1] uri: at://did:web:jb.waf.moe/app.bsky.feed.post/3mpr62lioe226
+body: source_post_uri: at://did:plc:2zmxikig2sj7gqaezl5gntae/app.bsky.feed.post/3mpr5mber622f
+reply_text: please i need witchsky native app
 
-matched_item[2] uri: at://did:plc:uv76n3a4zrgxzo45cgpemkve/app.bsky.feed.post/3mpjds2bj422u
-body: source_post_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3mpjdhcnyns23
-reply_text: WMRN (Write Many Read Never) memory
+matched_item[2] uri: at://did:plc:xgvzy7ni6ig6ievcbls5jaxe/app.bsky.feed.post/3mpr6paked22n
+body: source_post_uri: at://did:plc:2zmxikig2sj7gqaezl5gntae/app.bsky.feed.post/3mpr5mber622f
+reply_text: 
 
-matched_item[3] uri: at://did:plc:uv76n3a4zrgxzo45cgpemkve/app.bsky.feed.post/3mpjec3aq7k2b
-body: source_post_uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.post/3mpjdhcnyns23
-reply_text: yess
-at last, computers with hardware-accelerated /dev/null device
+matched_item[3] uri: at://did:plc:q7suwaz53ztc4mbiqyygbn43/app.bsky.feed.post/3mprbja5u2c23
+body: source_post_uri: at://did:plc:2zmxikig2sj7gqaezl5gntae/app.bsky.feed.post/3mpr5mber622f
+reply_text: i asked for help with fixing performance first 🌝
 
 ## Proposed Summary
 No matching cached posts.

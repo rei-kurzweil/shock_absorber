@@ -1,11 +1,11 @@
 # Agent Debug
 
-- agent_id: 9
+- agent_id: 16
 - agent_type: CollectionReviewAgent
 - agent_kind: CollectionReview
 - label: collection review
 - status: completed
-- parent_agent_id: 8
+- parent_agent_id: 15
 - child_agent_ids: <none>
 
 ## Result Summary
@@ -20,14 +20,14 @@ repair_needed: false
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 625
+- used_input_tokens: 644
 - truncated: false
 
 ## Included Sections
 
-- Search Prompt [local_task]: used 18 / estimated 18
-- Collection Evidence [review_evidence]: used 142 / estimated 142
-- Proposed Summary [parent_search_results]: used 190 / estimated 190
+- Search Prompt [local_task]: used 16 / estimated 16
+- Collection Evidence [review_evidence]: used 135 / estimated 135
+- Proposed Summary [parent_search_results]: used 218 / estimated 218
 
 ## Rendered Context Window
 
@@ -54,21 +54,19 @@ Rules:
 - Do not rewrite the summary yourself in this step.
 
 ## Search Prompt
-Sentiment toward nonbinary.computer's recent posts?
+how do people reply to nonbinary.computer?
 
 ## Collection Evidence
-collection_id: recent_posts_unaddressed:did:plc:yfvwmnlztr4dwkb7hwz55r2g
-collection_label: Recent top-level posts by did:plc:yfvwmnlztr4dwkb7hwz55r2g
-collection_kind: recent_posts_unaddressed
+collection_id: pinned_posts:did:plc:yfvwmnlztr4dwkb7hwz55r2g
+collection_label: Pinned posts by did:plc:yfvwmnlztr4dwkb7hwz55r2g
+collection_kind: pinned_posts
 
-matched_item[0] uri: at://did:plc:yfvwmnlztr4dwkb7hwz55r2g/app.bsky.feed.post/3mpt6ubc2ac2w
-body: girl who pooed in front of the bedroom door last night. door was locked because she cannot be trusted with air mattresses.
-
-hopefully now that there's no more big changes other than all our furniture showing up, she'll be able to de-stress properly.
+matched_item[0] uri: at://did:plc:yfvwmnlztr4dwkb7hwz55r2g/app.bsky.feed.post/3mnhonhuejc2i
+body: people have likely been able to figure some of this out for a bit, given the context of recent Portia photos, but i have finally found a full-time job! very soon going to be working for NBCUniversal, in their Montreal office, on a very interesting project.
 
 ## Proposed Summary
-post: LLM-selected post in Recent top-level posts by did:plc:yfvwmnlztr4dwkb7hwz55r2g
-summary: The strongest grounded evidence in this collection centers on 1 selected records, with repeated signals around girl who pooed in front of the bedroom door last night. door was locked because she cannot be trusted with air mattresses.. The model did not return a fully structured summary paragraph, so this fallback is derived from the matched records themselves and should be treated as a compact evidence summary rather than a complete interpretation.
-search_result_1_uri: at://did:plc:yfvwmnlztr4dwkb7hwz55r2g/app.bsky.feed.post/3mpt6ubc2ac2w
-search_result_1_source_collection_id: recent_posts_unaddressed:did:plc:yfvwmnlztr4dwkb7hwz55r2g
+post: LLM-selected post in Pinned posts by did:plc:yfvwmnlztr4dwkb7hwz55r2g
+summary: The strongest grounded evidence in this collection centers on 1 selected records, with repeated signals around people have likely been able to figure some of this out for a bit, given the context of recent Portia photos, but i have finally found a full-time job! very soon going to be working for NBCUniversal, in their Montreal office, on a very interesting project.. The model did not return a fully structured summary paragraph, so this fallback is derived from the matched records themselves and should be treated as a compact evidence summary rather than a complete interpretation.
+search_result_1_uri: at://did:plc:yfvwmnlztr4dwkb7hwz55r2g/app.bsky.feed.post/3mnhonhuejc2i
+search_result_1_source_collection_id: pinned_posts:did:plc:yfvwmnlztr4dwkb7hwz55r2g
 ```
