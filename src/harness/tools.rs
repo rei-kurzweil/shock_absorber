@@ -351,6 +351,9 @@ impl<'a> LlmSearchComparator<'a> {
 
 pub struct BlueskyTools;
 
+const COLLECTION_SEARCH_PAGE_SIZE: usize = 25;
+const MAX_COLLECTION_SEARCH_RESULTS: usize = 10;
+
 impl BlueskyTools {
     pub fn new() -> Self {
         Self
@@ -685,6 +688,7 @@ impl BlueskyTools {
                 "collection_search" => {
                     let collection_id = require_string_arg(&tool_call.args, "collection_id")?;
                     let prompt = require_string_arg(&tool_call.args, "prompt")?;
+                    let offset = collection_search_offset(&tool_call.args)?;
                     if !searched_collection_ids.insert(collection_id.clone()) {
                         format!(
                             "collection_id: {collection_id}\nstatus: skipped\nreason: this collection was already searched in this llm_search run"
@@ -693,6 +697,11 @@ impl BlueskyTools {
                         let collection = self
                             .resolve_collection_by_id(store, &collection_id)
                             .ok_or_else(|| format!("unknown collection `{collection_id}`"))?;
+                        let collection = paged_search_collection(
+                            &collection,
+                            offset,
+                            COLLECTION_SEARCH_PAGE_SIZE,
+                        );
                         let mut collection_outcomes = self
                             .run_collection_searches(
                                 &[collection],
@@ -899,6 +908,7 @@ impl BlueskyTools {
         let mut outcomes = Vec::with_capacity(collections.len());
 
         for collection in collections {
+            let collection = paged_search_collection(collection, 0, COLLECTION_SEARCH_PAGE_SIZE);
             if let Some(observer) = observer.as_ref() {
                 let _ = observer.send(ToolProgressEvent::AgentUpdate {
                     label: format!("collection search: {}", collection.label),
@@ -906,10 +916,10 @@ impl BlueskyTools {
                     content: format!("collection_id: {}\nstatus: running", collection.id),
                 });
             }
-            let execution = match self.llm_search(collection, prompt, llm_client).await {
+            let execution = match self.llm_search(&collection, prompt, llm_client).await {
                 Ok(execution) => self
                     .review_collection_search_execution(
-                        collection,
+                        &collection,
                         prompt,
                         execution,
                         llm_client,
@@ -1710,6 +1720,8 @@ fn validate_internal_llm_search_tool_call(
             let collection_id = require_string_arg(&tool_call.args, "collection_id")
                 .map_err(|err| err.to_string())?;
             require_string_arg(&tool_call.args, "prompt").map_err(|err| err.to_string())?;
+            optional_usize_arg(&tool_call.args, "page").map_err(|err| err.to_string())?;
+            optional_usize_arg(&tool_call.args, "offset").map_err(|err| err.to_string())?;
             validate_collection_id(&collection_id)?;
         }
         "search_global_posts" => {
@@ -2039,6 +2051,8 @@ fn render_internal_llm_search_tool_protocol() -> String {
             arguments: &[
                 "collection_id (string, required): exact cached collection ID",
                 "prompt (string, required): what to look for in that collection",
+                "page (integer, optional): zero-based 25-item page of the collection to search",
+                "offset (integer, optional): zero-based item offset into the collection; takes precedence over `page`",
             ],
         },
         InternalLlmSearchToolSpec {
@@ -2205,20 +2219,30 @@ fn find_matching_uris_from_response(
     for line in response.lines() {
         let trimmed = line.trim();
         if let Some(uri) = trimmed.strip_prefix("uri:") {
-            push_search_uri(collection, &mut uris, uri.trim(), 4);
+            push_search_uri(
+                collection,
+                &mut uris,
+                uri.trim(),
+                MAX_COLLECTION_SEARCH_RESULTS,
+            );
         }
     }
 
     for post in &collection.posts {
-        if uris.len() >= 4 {
+        if uris.len() >= MAX_COLLECTION_SEARCH_RESULTS {
             break;
         }
         if response.contains(&post.uri) {
-            push_search_uri(collection, &mut uris, &post.uri, 4);
+            push_search_uri(
+                collection,
+                &mut uris,
+                &post.uri,
+                MAX_COLLECTION_SEARCH_RESULTS,
+            );
         }
     }
 
-    if uris.len() >= 4 {
+    if uris.len() >= MAX_COLLECTION_SEARCH_RESULTS {
         return uris;
     }
 
@@ -2237,10 +2261,10 @@ fn find_matching_uris_from_response(
     scored.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
 
     for (_, uri) in scored {
-        if uris.len() >= 4 {
+        if uris.len() >= MAX_COLLECTION_SEARCH_RESULTS {
             break;
         }
-        push_search_uri(collection, &mut uris, &uri, 4);
+        push_search_uri(collection, &mut uris, &uri, MAX_COLLECTION_SEARCH_RESULTS);
     }
 
     uris
@@ -2386,32 +2410,48 @@ fn candidate_match_score(post: &PostRecord, response_lower: &str) -> usize {
     score
 }
 
-fn candidate_hints(post: &PostRecord) -> Vec<&str> {
+fn candidate_hints(post: &PostRecord) -> Vec<String> {
     let mut hints = Vec::new();
+    let body_fields = body_field_map(&post.body);
+
+    if let Some(value) = body_fields.get("reply_text") {
+        let value = value.trim();
+        if !value.is_empty() {
+            hints.push(value.to_string());
+        }
+    }
+    if let Some(value) = body_fields.get("list_name") {
+        let value = value.trim();
+        if !value.is_empty() {
+            hints.push(value.to_string());
+        }
+    }
+    if let Some(value) = body_fields.get("list_description") {
+        let value = value.trim();
+        if !value.is_empty() {
+            hints.push(value.to_string());
+        }
+    }
+    if let Some(value) = body_fields.get("source_collection_label") {
+        let value = value.trim();
+        if !value.is_empty() {
+            hints.push(value.to_string());
+        }
+    }
+    let author = post.author_handle.trim();
+    if !author.is_empty() {
+        hints.push(author.to_string());
+    }
+
     for line in post.body.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-
-        if let Some(value) = trimmed.strip_prefix("list_name:") {
-            hints.push(value.trim());
+        if hints.iter().any(|seen| seen == trimmed) {
             continue;
         }
-        if let Some(value) = trimmed.strip_prefix("list_description:") {
-            hints.push(value.trim());
-            continue;
-        }
-        if let Some(value) = trimmed.strip_prefix("source_collection_label:") {
-            hints.push(value.trim());
-            continue;
-        }
-    }
-
-    if hints.is_empty() {
-        if let Some(first_line) = post.body.lines().find(|line| !line.trim().is_empty()) {
-            hints.push(first_line.trim());
-        }
+        hints.push(trimmed.to_string());
     }
 
     hints
@@ -3174,6 +3214,60 @@ fn reduced_search_collection(
     }
 }
 
+fn paged_search_collection(
+    collection: &LabeledPostCollection,
+    offset: usize,
+    page_size: usize,
+) -> LabeledPostCollection {
+    if collection.posts.len() <= page_size && offset == 0 {
+        return collection.clone();
+    }
+
+    let start = offset.min(collection.posts.len());
+    let end = start.saturating_add(page_size).min(collection.posts.len());
+    let posts = collection.posts[start..end].to_vec();
+    let start_display = if collection.posts.is_empty() || start == end {
+        0
+    } else {
+        start + 1
+    };
+    let label = format!(
+        "{} (items {}-{} of {})",
+        collection.label,
+        start_display,
+        end,
+        collection.posts.len()
+    );
+
+    let mut metadata = collection.metadata.clone();
+    metadata.insert("search_window_offset".to_string(), start.to_string());
+    metadata.insert("search_window_size".to_string(), posts.len().to_string());
+    metadata.insert(
+        "search_window_total_items".to_string(),
+        collection.posts.len().to_string(),
+    );
+
+    let paged = LabeledPostCollection::new(collection.id.clone(), label, posts)
+        .with_collection_kind(collection.collection_kind.clone())
+        .with_refresh_state(collection.last_refreshed_at, collection.refresh_ttl_seconds)
+        .with_related_collections(collection.related_collection_ids.clone())
+        .with_metadata(metadata);
+
+    if let Some(actor_did) = collection.actor_did.as_ref() {
+        paged.with_actor_did(actor_did.clone())
+    } else {
+        paged
+    }
+}
+
+fn collection_search_offset(args: &Value) -> Result<usize, Box<dyn std::error::Error>> {
+    if let Some(offset) = optional_usize_arg(args, "offset")? {
+        return Ok(offset);
+    }
+    let page = optional_usize_arg(args, "page")?.unwrap_or(0);
+    Ok(page.saturating_mul(COLLECTION_SEARCH_PAGE_SIZE))
+}
+
 fn reduced_search_body(body: &str, max_body_chars: usize) -> String {
     let _ = max_body_chars;
     let fields = body_field_map(body);
@@ -3335,6 +3429,21 @@ fn optional_bool_arg(args: &Value, key: &str) -> Option<bool> {
     args.get(key).and_then(Value::as_bool)
 }
 
+fn optional_usize_arg(
+    args: &Value,
+    key: &str,
+) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .map(Some)
+            .ok_or_else(|| format!("tool arg `{key}` must be a non-negative integer").into()),
+        Some(_) => Err(format!("tool arg `{key}` must be a non-negative integer").into()),
+    }
+}
+
 fn parse_did_arg(args: &Value, key: &str) -> Result<Did, Box<dyn std::error::Error>> {
     let raw = require_string_arg(args, key)?;
     raw.parse()
@@ -3372,13 +3481,13 @@ fn optional_string_array_arg(
 #[cfg(test)]
 mod tests {
     use super::{
-        BlueskyTools, CollectionReviewStatus, LlmSearchExecution, ToolRegistry, detect_actor_refs,
-        detect_post_uri, fallback_llm_search_summary, heuristic_collection_review,
-        merged_collection_from_refs, parse_collection_review_verdict, parse_llm_search_result,
-        parse_prompt_tool_call, reduced_search_collection,
-        render_internal_llm_search_tool_protocol, render_llm_result, render_post_details,
-        serialize_collection, source_collection_id_from_post, validate_collection_id,
-        validate_internal_tool_response,
+        BlueskyTools, CollectionReviewStatus, LlmSearchExecution, ToolRegistry,
+        collection_search_offset, detect_actor_refs, detect_post_uri, fallback_llm_search_summary,
+        heuristic_collection_review, merged_collection_from_refs, paged_search_collection,
+        parse_collection_review_verdict, parse_llm_search_result, parse_prompt_tool_call,
+        reduced_search_collection, render_internal_llm_search_tool_protocol, render_llm_result,
+        render_post_details, serialize_collection, source_collection_id_from_post,
+        validate_collection_id, validate_internal_tool_response,
     };
     use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
     use crate::model::{LabeledPostCollection, PostRecord};
@@ -3473,6 +3582,34 @@ mod tests {
         assert_eq!(result.search_results.len(), 4);
         assert_eq!(result.search_results[0].uri, "at://one");
         assert_eq!(result.search_results[3].uri, "at://four");
+    }
+
+    #[test]
+    fn paged_search_collection_limits_window_to_twenty_five_items() {
+        let collection = LabeledPostCollection::new(
+            "recent:test",
+            "Recent test posts",
+            (0..40)
+                .map(|index| PostRecord {
+                    uri: format!("at://{index}"),
+                    author_handle: "alpha.test".to_string(),
+                    body: format!("body {index}"),
+                })
+                .collect(),
+        );
+
+        let paged = paged_search_collection(&collection, 25, 25);
+        assert_eq!(paged.posts.len(), 15);
+        assert_eq!(paged.posts[0].uri, "at://25");
+        assert!(paged.label.contains("items 26-40 of 40"));
+    }
+
+    #[test]
+    fn collection_search_offset_uses_page_when_offset_absent() {
+        let args =
+            serde_json::json!({"collection_id": "recent:test", "prompt": "check", "page": 2});
+        let offset = collection_search_offset(&args).expect("expected offset");
+        assert_eq!(offset, 50);
     }
 
     #[test]
@@ -3841,6 +3978,32 @@ mod tests {
 
         let verdict = heuristic_collection_review(&collection, &execution);
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+    }
+
+    #[test]
+    fn parses_reply_collection_result_from_reply_text_hint_without_uri() {
+        let collection = LabeledPostCollection::new(
+            "recent_replies_received:did:plc:testactor",
+            "Recent replies received",
+            vec![PostRecord {
+                uri: "at://did:plc:reply-author/app.bsky.feed.post/abc".to_string(),
+                author_handle: "reply.author".to_string(),
+                body: "source_post_uri: at://did:plc:testactor/app.bsky.feed.post/root\nreply_text: i asked for help with fixing performance first".to_string(),
+            }],
+        )
+        .with_collection_kind("recent_replies_received");
+
+        let result = parse_llm_search_result(
+            &collection,
+            "title: grounded\nsummary: The replies include \"i asked for help with fixing performance first,\" which reads as engaged product feedback rather than hostility.",
+        )
+        .expect("expected reply-text hint to anchor a result");
+
+        assert_eq!(result.search_results.len(), 1);
+        assert_eq!(
+            result.search_results[0].uri,
+            "at://did:plc:reply-author/app.bsky.feed.post/abc"
+        );
     }
 
     fn empty_test_window() -> BuiltContextWindow {

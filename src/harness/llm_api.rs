@@ -1,7 +1,14 @@
 use crate::harness::context_window::ProviderContextLimits;
 use reqwest::Client;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::time::Duration;
+use tokio::time::sleep;
+
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 90;
+const TRANSIENT_RETRY_DELAY_SECS: u64 = 5;
+const MAX_TRANSIENT_ATTEMPTS: usize = 2;
 
 #[derive(Clone, Debug)]
 pub struct OpenAiRestConfig {
@@ -42,7 +49,7 @@ impl LlmApiClient {
     pub fn new(config: OpenAiRestConfig) -> Self {
         Self {
             http: Client::builder()
-                .timeout(Duration::from_secs(90))
+                .timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
                 .build()
                 .expect("reqwest client should build"),
             config,
@@ -65,24 +72,79 @@ impl LlmApiClient {
             stream: false,
         };
 
+        let mut last_error: Option<LlmApiError> = None;
+
+        for attempt in 1..=MAX_TRANSIENT_ATTEMPTS {
+            match self.try_complete_chat(&request).await {
+                Ok(content) => return Ok(content),
+                Err(err) => {
+                    let should_retry = err.is_retryable() && attempt < MAX_TRANSIENT_ATTEMPTS;
+                    last_error = Some(err);
+                    if should_retry {
+                        sleep(Duration::from_secs(TRANSIENT_RETRY_DELAY_SECS)).await;
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+
+        Err(last_error
+            .unwrap_or_else(|| {
+                LlmApiError::message("llm request failed without a captured transport error")
+            })
+            .into())
+    }
+
+    async fn try_complete_chat(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<String, LlmApiError> {
         let response = self
             .http
             .post(format!("{}/v1/chat/completions", self.config.base_url))
-            .json(&request)
+            .json(request)
             .send()
-            .await?
-            .error_for_status()?
-            .json::<ChatCompletionResponse>()
-            .await?;
+            .await
+            .map_err(|err| LlmApiError::Transport {
+                message: format!(
+                    "request to {}/v1/chat/completions failed: {err}",
+                    self.config.base_url
+                ),
+            })?;
 
-        let content = response
+        let status = response.status();
+        let response_text = response
+            .text()
+            .await
+            .map_err(|err| LlmApiError::Transport {
+                message: format!(
+                    "failed reading response body from {}/v1/chat/completions: {err}",
+                    self.config.base_url
+                ),
+            })?;
+
+        if !status.is_success() {
+            return Err(LlmApiError::HttpStatus {
+                status,
+                body_snippet: truncate_body(&response_text, 800),
+            });
+        }
+
+        let response =
+            serde_json::from_str::<ChatCompletionResponse>(&response_text).map_err(|err| {
+                LlmApiError::ResponseParse {
+                    message: format!("failed to parse chat completion response: {err}"),
+                    body_snippet: truncate_body(&response_text, 800),
+                }
+            })?;
+
+        Ok(response
             .choices
             .into_iter()
             .next()
             .map(|choice| choice.message.content)
-            .unwrap_or_default();
-
-        Ok(content)
+            .unwrap_or_default())
     }
 }
 
@@ -108,4 +170,115 @@ struct ChatCompletionResponse {
 #[derive(Debug, Deserialize)]
 struct ChatCompletionChoice {
     message: ChatMessage,
+}
+
+#[derive(Debug)]
+enum LlmApiError {
+    Transport {
+        message: String,
+    },
+    HttpStatus {
+        status: StatusCode,
+        body_snippet: String,
+    },
+    ResponseParse {
+        message: String,
+        body_snippet: String,
+    },
+    Message(String),
+}
+
+impl LlmApiError {
+    fn message(message: impl Into<String>) -> Self {
+        Self::Message(message.into())
+    }
+
+    fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::Transport { .. }
+                | Self::HttpStatus {
+                    status: StatusCode::TOO_MANY_REQUESTS
+                        | StatusCode::INTERNAL_SERVER_ERROR
+                        | StatusCode::BAD_GATEWAY
+                        | StatusCode::SERVICE_UNAVAILABLE
+                        | StatusCode::GATEWAY_TIMEOUT,
+                    ..
+                }
+        )
+    }
+}
+
+impl fmt::Display for LlmApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transport { message } => write!(f, "{message}"),
+            Self::HttpStatus {
+                status,
+                body_snippet,
+            } => {
+                if body_snippet.is_empty() {
+                    write!(f, "HTTP {} from local LLM backend", status)
+                } else {
+                    write!(
+                        f,
+                        "HTTP {} from local LLM backend. Response body:\n{}",
+                        status, body_snippet
+                    )
+                }
+            }
+            Self::ResponseParse {
+                message,
+                body_snippet,
+            } => {
+                if body_snippet.is_empty() {
+                    write!(f, "{message}")
+                } else {
+                    write!(f, "{message}\nResponse body:\n{body_snippet}")
+                }
+            }
+            Self::Message(message) => write!(f, "{message}"),
+        }
+    }
+}
+
+impl std::error::Error for LlmApiError {}
+
+fn truncate_body(body: &str, max_chars: usize) -> String {
+    let trimmed = body.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut out = trimmed
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    out.push_str("...");
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LlmApiError, truncate_body};
+    use reqwest::StatusCode;
+
+    #[test]
+    fn truncates_http_body_for_diagnostics() {
+        assert_eq!(truncate_body("abcdefghij", 6), "abc...");
+    }
+
+    #[test]
+    fn retries_transient_http_errors_only() {
+        let retryable = LlmApiError::HttpStatus {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            body_snippet: "busy".to_string(),
+        };
+        let non_retryable = LlmApiError::HttpStatus {
+            status: StatusCode::BAD_REQUEST,
+            body_snippet: "bad request".to_string(),
+        };
+
+        assert!(retryable.is_retryable());
+        assert!(!non_retryable.is_retryable());
+    }
 }

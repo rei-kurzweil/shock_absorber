@@ -8,6 +8,7 @@ Rules:
 - Prefer the narrowest sufficient scope.
 - For reputation, sentiment, or list questions, bias toward `clearsky_lists` first.
 - Only expand to replies, profile, or recent posts when list evidence is absent, incomplete, or needs contrast.
+- `collection_search` examines one 25-item window at a time. If you need to inspect more of the same collection, call `collection_search` again with a different `page` or `offset`.
 - Keep both handle and DID visible once an actor is resolved.
 - Do not invent collection IDs, item URIs, list names, or evidence.
 - If collection search results already answer the question, synthesize directly from them instead of requesting more tools.
