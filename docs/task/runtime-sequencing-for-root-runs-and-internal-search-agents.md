@@ -37,6 +37,34 @@ All three point to the same missing substrate:
 
 - one first-class active root-run object with owned state
 
+As of the current implementation, most of this substrate now exists:
+
+- root runs are first-class runtime objects
+- `/stop` exists
+- tool/subagent progress is emitted into the live chat view
+
+That changes the sequencing question.
+
+We no longer need to defer all internal `llm_search` toolification until after basic observability exists.
+
+## Important Clarification From The Current UI
+
+The current live transcript can make one collection search look like two “agents” because it renders:
+
+- one `status: running` progress event
+- then one `status: completed` progress event
+
+with the same agent label.
+
+That is a transcript-modeling issue, not necessarily proof that the same collection search executed twice.
+
+So there are now two separate problems to keep distinct:
+
+1. duplicate-looking progress rendering for one child agent
+2. overly heuristic internal planning inside `llm_search`
+
+The first problem should not be mistaken for the second.
+
 ## Recommended Order
 
 ### Phase 0: First-class root-run state
@@ -136,6 +164,23 @@ Why this is not phase 0:
 - without cancellation, nested internal tool calls would be hard to stop
 - without duplicate-call tracking, repeated internal fanout could become another opaque prompt-budget problem
 
+However, this phase is now the most important next planning refactor.
+
+The current Rust heuristic path:
+
+- `detect_actor_refs(query)`
+- `collections_for_actor_refs(...)`
+- implicit eager hydration of actor collections
+
+is now the main source of brittle behavior.
+
+That logic should move behind explicit internal tool definitions owned by the `llm_search` subtree, so the `llm_search` agent can choose when to:
+
+- resolve actor handles / DIDs
+- hydrate actor-backed collections
+- search a specific collection
+- synthesize the final answer
+
 ### Phase 5: Wire-level OpenAI/OpenRouter tool calling and provider fallback
 
 Only after the runtime semantics are stable should we continue:
@@ -183,6 +228,15 @@ If implementation starts immediately, the next concrete coding target should be:
 4. add `/stop`
 5. add repeated-call guard
 6. only then refactor `llm_search` to use internal tool definitions like `collection_search`
+
+That historical order was correct when the runtime substrate did not yet exist.
+
+Given the current codebase, the updated immediate recommendation is:
+
+1. keep the root-level repeated-call guard work on the list
+2. separately fix transcript rendering so one child agent update is not displayed as two sibling “agents”
+3. begin the internal `llm_search` tool-definition refactor
+4. replace Rust-only actor/collection planning heuristics with explicit internal tool calls
 
 ## Related Docs
 
