@@ -156,6 +156,14 @@ impl NotificationStore {
         self.get_post_collection(&recent_replies_sent_collection_id(did))
     }
 
+    #[allow(dead_code)]
+    pub fn get_recent_replies_received_collection(
+        &self,
+        did: &Did,
+    ) -> Option<&LabeledPostCollection> {
+        self.get_post_collection(&recent_replies_received_collection_id(did))
+    }
+
     pub fn cache_pinned_post_replies(&mut self, post_uri: &str, replies: Vec<CachedThreadReply>) {
         self.pinned_post_replies
             .insert(post_uri.to_owned(), replies);
@@ -542,39 +550,103 @@ pub async fn ensure_recent_posts_cached(
     Ok(())
 }
 
+pub async fn ensure_recent_replies_received_cached(
+    agent: &BskyAgent,
+    store: &mut NotificationStore,
+    did: &Did,
+    post_limit: u8,
+    reply_limit: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if store.get_recent_replies_received_collection(did).is_some() {
+        return Ok(());
+    }
+
+    ensure_recent_posts_cached(agent, store, did, post_limit).await?;
+    ensure_pinned_posts_cached(agent, store, did).await?;
+
+    let mut source_posts = Vec::new();
+    if let Some(collection) = store.get_recent_posts_unaddressed_collection(did) {
+        source_posts.extend(collection.posts.iter().map(|post| post.uri.clone()));
+    }
+    if let Some(collection) = store.get_pinned_posts_collection(did) {
+        source_posts.extend(collection.posts.iter().map(|post| post.uri.clone()));
+    }
+    source_posts.sort();
+    source_posts.dedup();
+
+    for post_uri in &source_posts {
+        ensure_post_replies_cached(agent, store, post_uri).await?;
+    }
+
+    let actor_handle = store.get_handle(did).map(str::to_owned);
+    let replies = source_posts
+        .iter()
+        .flat_map(|post_uri| {
+            store
+                .get_pinned_post_replies(post_uri)
+                .unwrap_or(&[])
+                .iter()
+                .flat_map(move |reply| flatten_thread_replies(reply, post_uri))
+        })
+        .filter(|post| actor_handle.as_deref().map_or(true, |handle| post.author_handle != handle))
+        .take(reply_limit)
+        .collect::<Vec<_>>();
+
+    store.cache_post_collection(build_recent_replies_received_collection(
+        did,
+        replies,
+        source_posts,
+    ));
+    Ok(())
+}
+
+pub async fn ensure_post_replies_cached(
+    agent: &BskyAgent,
+    store: &mut NotificationStore,
+    post_uri: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let collection_id = post_replies_collection_id(post_uri);
+    if store.get_post_collection(&collection_id).is_some() {
+        return Ok(());
+    }
+
+    let replies = if let Some(cached) = store.get_pinned_post_replies(post_uri) {
+        cached.to_vec()
+    } else {
+        let thread = agent
+            .api
+            .app
+            .bsky
+            .feed
+            .get_post_thread(
+                feed::get_post_thread::ParametersData {
+                    depth: Some(6u16.try_into()?),
+                    parent_height: Some(0u16.try_into()?),
+                    uri: post_uri.to_owned(),
+                }
+                .into(),
+            )
+            .await?;
+
+        match thread.data.thread {
+            Union::Refs(feed::get_post_thread::OutputThreadRefs::AppBskyFeedDefsThreadViewPost(
+                thread,
+            )) => collect_thread_replies(&thread),
+            _ => Vec::new(),
+        }
+    };
+
+    store.cache_pinned_post_replies(post_uri, replies.clone());
+    store.cache_post_collection(build_post_replies_collection(post_uri, replies));
+    Ok(())
+}
+
 pub async fn ensure_pinned_post_replies_cached(
     agent: &BskyAgent,
     store: &mut NotificationStore,
     post_uri: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if store.get_pinned_post_replies(post_uri).is_some() {
-        return Ok(());
-    }
-
-    let thread = agent
-        .api
-        .app
-        .bsky
-        .feed
-        .get_post_thread(
-            feed::get_post_thread::ParametersData {
-                depth: Some(6u16.try_into()?),
-                parent_height: Some(0u16.try_into()?),
-                uri: post_uri.to_owned(),
-            }
-            .into(),
-        )
-        .await?;
-
-    let replies = match thread.data.thread {
-        Union::Refs(feed::get_post_thread::OutputThreadRefs::AppBskyFeedDefsThreadViewPost(
-            thread,
-        )) => collect_thread_replies(&thread),
-        _ => Vec::new(),
-    };
-
-    store.cache_pinned_post_replies(post_uri, replies);
-    Ok(())
+    ensure_post_replies_cached(agent, store, post_uri).await
 }
 
 pub async fn ensure_clearsky_lists_cached(
@@ -799,6 +871,57 @@ fn build_recent_replies_sent_collection(
     .with_metadata(metadata)
 }
 
+fn build_recent_replies_received_collection(
+    did: &Did,
+    replies: Vec<PostRecord>,
+    source_post_uris: Vec<String>,
+) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("source".to_string(), "post_reply_threads".to_string());
+    metadata.insert(
+        "source_post_count".to_string(),
+        source_post_uris.len().to_string(),
+    );
+
+    LabeledPostCollection::new(
+        recent_replies_received_collection_id(did),
+        format!("Recent replies received by {}", did.as_str()),
+        replies,
+    )
+    .with_collection_kind("recent_replies_received")
+    .with_actor_did(did.as_str())
+    .with_related_collections(source_post_uris)
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
+    )
+    .with_metadata(metadata)
+}
+
+fn build_post_replies_collection(
+    post_uri: &str,
+    replies: Vec<CachedThreadReply>,
+) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("source".to_string(), "app.bsky.feed.getPostThread".to_string());
+    metadata.insert("source_post_uri".to_string(), post_uri.to_string());
+
+    LabeledPostCollection::new(
+        post_replies_collection_id(post_uri),
+        format!("Replies to {}", post_uri),
+        replies
+            .iter()
+            .flat_map(|reply| flatten_thread_replies(reply, post_uri))
+            .collect(),
+    )
+    .with_collection_kind("post_replies")
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
+    )
+    .with_metadata(metadata)
+}
+
 fn build_clearsky_lists_collection(
     did: &Did,
     lists: Vec<clearsky_v1::ModerationListEntry>,
@@ -879,6 +1002,10 @@ fn recent_replies_sent_collection_id(did: &Did) -> String {
     format!("recent_replies_sent:{}", did.as_str())
 }
 
+fn recent_replies_received_collection_id(did: &Did) -> String {
+    format!("recent_replies_received:{}", did.as_str())
+}
+
 fn clearsky_lists_collection_id(did: &Did) -> String {
     format!("clearsky_lists:{}", did.as_str())
 }
@@ -893,6 +1020,14 @@ fn global_search_posts_collection_id(query: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     query.hash(&mut hasher);
     format!("global_search_posts:{:x}", hasher.finish())
+}
+
+fn post_replies_collection_id(post_uri: &str) -> String {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    post_uri.hash(&mut hasher);
+    format!("post_replies:{:x}", hasher.finish())
 }
 
 fn is_reply_record(record: &Unknown) -> bool {
@@ -943,6 +1078,18 @@ fn collect_thread_replies(thread: &feed::defs::ThreadViewPost) -> Vec<CachedThre
         }
     }
     replies
+}
+
+fn flatten_thread_replies(reply: &CachedThreadReply, source_post_uri: &str) -> Vec<PostRecord> {
+    let mut posts = vec![PostRecord {
+        uri: reply.uri.clone(),
+        author_handle: reply.author_handle.clone(),
+        body: format!("source_post_uri: {source_post_uri}\nreply_text: {}", reply.text),
+    }];
+    for child in &reply.children {
+        posts.extend(flatten_thread_replies(child, source_post_uri));
+    }
+    posts
 }
 
 fn notification_key(notif: &Notification) -> String {

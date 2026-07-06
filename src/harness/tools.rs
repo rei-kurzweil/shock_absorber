@@ -9,14 +9,15 @@ use crate::harness::prompts::{AgentKind, tool_prompt};
 use crate::model::{LabeledPostCollection, PostRecord};
 use crate::net_backend::{
     NotificationStore, PostDetails, cache_global_search_posts, ensure_actor_profile_cached,
-    ensure_clearsky_lists_cached, ensure_pinned_posts_cached, ensure_recent_posts_cached,
+    ensure_clearsky_lists_cached, ensure_pinned_posts_cached, ensure_post_replies_cached,
+    ensure_recent_posts_cached, ensure_recent_replies_received_cached,
     extract_post_details, extract_reply_node,
 };
 use bsky_sdk::BskyAgent;
 use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use bsky_sdk::api::types::string::Did;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolArgumentSpec {
@@ -70,7 +71,7 @@ impl ToolRegistry {
                 notes: vec![
                     "Returns compact collection summaries.".to_string(),
                     "If `actor_did` is omitted, all cached collections are listed.".to_string(),
-                    "A synthesized `replies_to_actor:<did>` collection is listed when it can be built from cached pinned-post replies.".to_string(),
+                    "Actor-scoped reply collections may include recent inbound replies from other actors when they have been cached.".to_string(),
                 ],
             },
             ToolSpec {
@@ -519,7 +520,12 @@ impl BlueskyTools {
         query: &str,
         _selected_notification: Option<&Notification>,
     ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
-        let mut collections = if let Some(actor_refs) = detect_actor_refs(query) {
+        let mut collections = if let Some(post_uri) = detect_post_uri(query) {
+            ensure_post_replies_cached(agent, store, &post_uri).await?;
+            vec![self
+                .resolve_collection_by_id(store, &post_replies_collection_id(&post_uri))
+                .ok_or_else(|| format!("post replies collection missing for `{post_uri}`"))?]
+        } else if let Some(actor_refs) = detect_actor_refs(query) {
             self.collections_for_actor_refs(agent, store, &actor_refs).await?
         } else {
             vec![cache_global_search_posts(agent, store, query, 25).await?]
@@ -528,6 +534,7 @@ impl BlueskyTools {
             return Err("no search collections were available for this query".into());
         }
 
+        dedupe_collections_by_id(&mut collections);
         collections.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(collections)
     }
@@ -539,8 +546,14 @@ impl BlueskyTools {
             .cloned()
             .collect::<Vec<_>>();
         for actor_did in store.cached_actor_dids() {
-            if let Some(collection) = self.build_replies_to_actor_collection(store, &actor_did) {
-                collections.push(collection);
+            if store
+                .get_recent_replies_received_collection(&actor_did)
+                .is_none()
+            {
+                if let Some(collection) = self.build_replies_to_actor_collection(store, &actor_did)
+                {
+                    collections.push(collection);
+                }
             }
         }
         collections.sort_by(|left, right| left.id.cmp(&right.id));
@@ -553,8 +566,10 @@ impl BlueskyTools {
             .into_iter()
             .cloned()
             .collect::<Vec<_>>();
-        if let Some(collection) = self.build_replies_to_actor_collection(store, actor_did) {
-            collections.push(collection);
+        if store.get_recent_replies_received_collection(actor_did).is_none() {
+            if let Some(collection) = self.build_replies_to_actor_collection(store, actor_did) {
+                collections.push(collection);
+            }
         }
         collections.sort_by(|left, right| left.id.cmp(&right.id));
         collections
@@ -567,11 +582,16 @@ impl BlueskyTools {
         actor_refs: &[String],
     ) -> Result<Vec<LabeledPostCollection>, Box<dyn std::error::Error>> {
         let mut collections = Vec::new();
+        let mut seen_actor_dids = HashSet::new();
 
         for actor_ref in actor_refs {
             let profile = ensure_actor_profile_cached(agent, store, actor_ref).await?;
+            if !seen_actor_dids.insert(profile.did.as_str().to_string()) {
+                continue;
+            }
             ensure_recent_posts_cached(agent, store, &profile.did, 20).await?;
             ensure_pinned_posts_cached(agent, store, &profile.did).await?;
+            ensure_recent_replies_received_cached(agent, store, &profile.did, 20, 50).await?;
             let _ = ensure_clearsky_lists_cached(store, &profile.did).await;
             collections.extend(self.collections_for_actor(store, &profile.did));
         }
@@ -613,7 +633,10 @@ impl BlueskyTools {
         let did = collection_id
             .strip_prefix("replies_to_actor:")
             .and_then(|value| value.parse::<Did>().ok())?;
-        self.build_replies_to_actor_collection(store, &did)
+        store
+            .get_recent_replies_received_collection(&did)
+            .cloned()
+            .or_else(|| self.build_replies_to_actor_collection(store, &did))
     }
 
     fn find_collection_for_item_uri(&self, store: &NotificationStore, item_uri: &str) -> Option<LabeledPostCollection> {
@@ -666,6 +689,11 @@ impl BlueskyTools {
     }
 }
 
+fn dedupe_collections_by_id(collections: &mut Vec<LabeledPostCollection>) {
+    let mut seen_collection_ids = HashSet::new();
+    collections.retain(|collection| seen_collection_ids.insert(collection.id.clone()));
+}
+
 fn detect_actor_refs(query: &str) -> Option<Vec<String>> {
     let mut actor_refs = Vec::new();
 
@@ -678,6 +706,9 @@ fn detect_actor_refs(query: &str) -> Option<Vec<String>> {
         }
 
         let candidate = trimmed.strip_prefix('@').unwrap_or(trimmed);
+        let candidate = candidate
+            .trim_end_matches("'s")
+            .trim_end_matches("’s");
         let looks_like_did = candidate.starts_with("did:");
         let looks_like_handle = candidate.contains('.')
             && candidate
@@ -697,6 +728,24 @@ fn detect_actor_refs(query: &str) -> Option<Vec<String>> {
     } else {
         Some(actor_refs)
     }
+}
+
+fn detect_post_uri(query: &str) -> Option<String> {
+    query.split_whitespace().find_map(|raw| {
+        let trimmed = raw.trim_matches(|ch: char| {
+            matches!(ch, ',' | '.' | '!' | '?' | ':' | ';' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '"' | '\'')
+        });
+        (trimmed.starts_with("at://") && trimmed.contains("/app.bsky.feed.post/"))
+            .then(|| trimmed.to_string())
+    })
+}
+
+fn post_replies_collection_id(post_uri: &str) -> String {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    post_uri.hash(&mut hasher);
+    format!("post_replies:{:x}", hasher.finish())
 }
 
 fn serialize_collection(collection: &LabeledPostCollection) -> String {
@@ -1760,9 +1809,10 @@ fn optional_string_array_arg(
 #[cfg(test)]
 mod tests {
     use super::{
-        BlueskyTools, ToolRegistry, merged_collection_from_refs, parse_llm_search_result,
-        parse_prompt_tool_call, reduced_search_collection, render_llm_result, render_post_details,
-        serialize_collection, source_collection_id_from_post,
+        BlueskyTools, ToolRegistry, detect_actor_refs, detect_post_uri,
+        merged_collection_from_refs, parse_llm_search_result, parse_prompt_tool_call,
+        reduced_search_collection, render_llm_result, render_post_details, serialize_collection,
+        source_collection_id_from_post,
     };
     use crate::model::{LabeledPostCollection, PostRecord};
     use crate::net_backend::{NotificationStore, PostDetails, PostFacet};
@@ -2020,6 +2070,50 @@ mod tests {
 
         assert_eq!(collections.len(), 1);
         assert_eq!(collections[0].id, "recent:test");
+    }
+
+    #[test]
+    fn collections_from_ids_uses_recent_replies_received_for_legacy_replies_to_actor_id() {
+        let mut store = NotificationStore::new();
+        store.cache_post_collection(
+            LabeledPostCollection::new(
+                "recent_replies_received:did:plc:testactor",
+                "Recent replies received by did:plc:testactor",
+                vec![PostRecord {
+                    uri: "at://reply".to_string(),
+                    author_handle: "other.test".to_string(),
+                    body: "reply_text: hello".to_string(),
+                }],
+            )
+            .with_collection_kind("recent_replies_received")
+            .with_actor_did("did:plc:testactor"),
+        );
+        let tools = BlueskyTools::new();
+
+        let collections = tools
+            .collections_from_ids(&store, &["replies_to_actor:did:plc:testactor".to_string()])
+            .expect("expected legacy replies_to_actor to resolve");
+
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].collection_kind, "recent_replies_received");
+    }
+
+    #[test]
+    fn detect_actor_refs_trims_possessive_handle_suffix() {
+        let refs = detect_actor_refs("what are people saying about elsyluna.bsky.social's post?")
+            .expect("expected actor ref");
+
+        assert_eq!(refs, vec!["elsyluna.bsky.social"]);
+    }
+
+    #[test]
+    fn detect_post_uri_finds_bsky_post_uri_inside_query() {
+        let post_uri = detect_post_uri(
+            "what are people saying about this post (at://did:plc:test/app.bsky.feed.post/3abc)?",
+        )
+        .expect("expected post uri");
+
+        assert_eq!(post_uri, "at://did:plc:test/app.bsky.feed.post/3abc");
     }
 
     #[test]

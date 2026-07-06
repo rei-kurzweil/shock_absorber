@@ -13,11 +13,29 @@ Instead of executing the duplicate call immediately, the harness should intercep
 
 The latest `.debug` run shows the root agent invoked:
 
-- `llm_search(query="what is the sentiment toward schizanon.bsky.social ...")`
+- `llm_search(query="what is the sentiment about elsyluna.bsky.social and how do they reply / respond to people generally? use their posts and replies for grounding")`
 
 three separate times in one root-agent run.
 
-The collection set was effectively the same on each invocation, and the root prompt snapshot shows the repeated tool results consumed most of the remaining input budget.
+Observed artifacts:
+
+- `.debug/chat_transcript.md`
+  - the exact same `llm_search` `args` block appears 3 times
+- `.debug/agents/agent_000_root_agent.md`
+  - root agent child IDs are `1, 7, 13`
+- `.debug/root_prompt_snapshot.md`
+  - `Tool Result #1`, `Tool Result #2`, and `Tool Result #3` together consume `5151` input tokens
+
+The collection set was effectively the same on each invocation:
+
+- `actor_profile:did:plc:hzijw7nigriwppf7eeb3k7ar`
+- `clearsky_lists:did:plc:hzijw7nigriwppf7eeb3k7ar`
+- `pinned_posts:did:plc:hzijw7nigriwppf7eeb3k7ar`
+- `recent_posts_unaddressed:did:plc:hzijw7nigriwppf7eeb3k7ar`
+- `recent_replies_sent:did:plc:hzijw7nigriwppf7eeb3k7ar`
+
+This latest run is important because the internal collection fanout is already de-duped.
+The remaining repetition is now clearly root-level duplicate tool invocation, not duplicated child collection search expansion.
 
 This is not a child-agent search loop.
 It is repeated root-level tool invocation.
