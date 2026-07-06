@@ -8,7 +8,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Text;
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use std::env;
@@ -45,7 +45,7 @@ use crate::harness::context_window_logger::{
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
 use crate::harness::runtime::{RootRunState, RootRunStatus, TranscriptEntryKind};
 use crate::harness::tools::{
-    BlueskyTools, parse_prompt_tool_call, prompt_tool_protocol_instructions,
+    BlueskyTools, ToolProgressEvent, parse_prompt_tool_call, prompt_tool_protocol_instructions,
 };
 use crate::net_backend::{
     ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached,
@@ -71,7 +71,7 @@ const INITIAL_COLLECTION_REFRESH_TIMEOUT: StdDuration = StdDuration::from_secs(3
 enum DetailView {
     Notification,
     Command { title: String, lines: Vec<String> },
-    AiChat { title: String, lines: Vec<String> },
+    AiChat { title: String, text: Text<'static> },
     ContextVisualization(ContextVisualizationData),
 }
 
@@ -109,6 +109,7 @@ struct ActiveRootRunTask {
 
 enum RootRunEvent {
     Progress(RootRunState),
+    ToolProgress(ToolProgressEvent),
     Completed {
         root_run: RootRunState,
         store: NotificationStore,
@@ -273,7 +274,7 @@ impl App {
         match &self.detail {
             DetailView::Notification => self.notification_detail_text(),
             DetailView::Command { lines, .. } => Text::from(lines.join("\n")),
-            DetailView::AiChat { lines, .. } => Text::from(lines.join("\n")),
+            DetailView::AiChat { text, .. } => text.clone(),
             DetailView::ContextVisualization(_) => Text::from(""),
         }
     }
@@ -635,7 +636,7 @@ impl App {
                 self.root_run = Some(root_run.clone());
                 self.set_ai_chat_output(
                     format!("evil_gemma: {query}"),
-                    root_run.render_output_lines(),
+                    root_run.render_output_text(),
                     false,
                 );
             } else {
@@ -827,6 +828,7 @@ impl App {
                         agent,
                         &mut self.store,
                         &evil_gemma.client,
+                        None,
                     )
                     .await
                 {
@@ -920,7 +922,7 @@ impl App {
             if keep_context_overlay {
                 self.set_ai_chat_output(
                     format!("evil_gemma: {query}"),
-                    root_run.render_output_lines(),
+                    root_run.render_output_text(),
                     false,
                 );
             } else {
@@ -987,14 +989,14 @@ impl App {
         if keep_context_overlay {
             self.set_ai_chat_output(
                 format!("evil_gemma: {query}"),
-                output_lines.clone(),
+                root_run.render_output_text(),
                 false,
             );
             self.status = "evil_gemma response ready; dismiss /context to view output".to_string();
         } else {
             self.set_ai_chat_output(
                 format!("evil_gemma: {query}"),
-                output_lines.clone(),
+                root_run.render_output_text(),
                 true,
             );
             self.status = "evil_gemma response loaded".to_string();
@@ -1047,15 +1049,20 @@ impl App {
         self.root_run = Some(run.clone());
         self.set_ai_chat_output(
             format!("evil_gemma: {query}"),
-            run.render_output_lines(),
+            run.render_output_text(),
             true,
         );
     }
 
-    fn set_ai_chat_output<T: Into<String>>(&mut self, title: T, lines: Vec<String>, visible: bool) {
+    fn set_ai_chat_output<T: Into<String>>(
+        &mut self,
+        title: T,
+        text: Text<'static>,
+        visible: bool,
+    ) {
         let detail = DetailView::AiChat {
             title: title.into(),
-            lines,
+            text,
         };
         self.ai_chat_detail = Some(detail.clone());
         if visible {
@@ -1234,7 +1241,7 @@ impl App {
         if keep_context_overlay {
             self.set_ai_chat_output(
                 format!("evil_gemma: {query}"),
-                root_run.render_output_lines(),
+                root_run.render_output_text(),
                 false,
             );
             self.status = "evil_gemma run started; dismiss /context to view output".to_string();
@@ -1292,7 +1299,7 @@ impl App {
         if let Some(root_run) = self.root_run.as_ref() {
             self.set_ai_chat_output(
                 format!("evil_gemma: {}", active.query),
-                root_run.render_output_lines(),
+                root_run.render_output_text(),
                 !active.keep_context_overlay,
             );
         }
@@ -1328,10 +1335,34 @@ impl App {
                     self.root_run = Some(root_run.clone());
                     self.set_ai_chat_output(
                         format!("evil_gemma: {query}"),
-                        root_run.render_output_lines(),
+                        root_run.render_output_text(),
                         !keep_context_overlay,
                     );
                     self.status = format!("evil_gemma running: {}", root_run.status().as_str());
+                }
+                RootRunEvent::ToolProgress(event) => {
+                    if let Some(root_run) = self.root_run.as_mut() {
+                        match event {
+                            ToolProgressEvent::AgentUpdate {
+                                label,
+                                depth,
+                                content,
+                            } => root_run.push_agent_entry(
+                                TranscriptEntryKind::AgentEvent,
+                                label,
+                                depth,
+                                content,
+                            ),
+                        }
+                        let query = root_run.query().to_string();
+                        let text = root_run.render_output_text();
+                        self.set_ai_chat_output(
+                            format!("evil_gemma: {query}"),
+                            text,
+                            !keep_context_overlay,
+                        );
+                        self.status = "evil_gemma running: subagent progress".to_string();
+                    }
                 }
                 RootRunEvent::Completed {
                     root_run,
@@ -1347,7 +1378,7 @@ impl App {
                     self.root_run = Some(root_run.clone());
                     self.set_ai_chat_output(
                         format!("evil_gemma: {query}"),
-                        root_run.render_output_lines(),
+                        root_run.render_output_text(),
                         !keep_context_overlay,
                     );
                     self.status = if keep_context_overlay {
@@ -1364,7 +1395,7 @@ impl App {
                         self.root_run = Some(root_run.clone());
                         self.set_ai_chat_output(
                             format!("evil_gemma: {query}"),
-                            root_run.render_output_lines(),
+                            root_run.render_output_text(),
                             !keep_context_overlay,
                         );
                     }
@@ -1742,6 +1773,13 @@ async fn run_root_query_task(
             let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
 
             let tools = BlueskyTools::new();
+            let (tool_progress_sender, mut tool_progress_receiver) = unbounded_channel();
+            let progress_sender = sender.clone();
+            let forward_handle = tokio::spawn(async move {
+                while let Some(event) = tool_progress_receiver.recv().await {
+                    let _ = progress_sender.send(RootRunEvent::ToolProgress(event));
+                }
+            });
             let tool_output = if let Some(collection_id) = duplicate_search_after_failed_read.as_deref() {
                 crate::harness::tools::ToolExecutionOutput {
                     rendered: format!(
@@ -1758,6 +1796,7 @@ async fn run_root_query_task(
                         &agent,
                         &mut store,
                         &evil_gemma.client,
+                        Some(tool_progress_sender.clone()),
                     )
                     .await
                 {
@@ -1769,6 +1808,8 @@ async fn run_root_query_task(
                     },
                 }
             };
+            drop(tool_progress_sender);
+            let _ = forward_handle.await;
             if let Some(agent_node) = tool_output.agent_node.clone() {
                 let root_agent_id = root_run.agent_graph().root_agent_id();
                 root_run.agent_graph_mut().attach_template(root_agent_id, agent_node);
@@ -2639,7 +2680,11 @@ fn draw_ui(frame: &mut Frame, app: &App) {
     if app.is_fullscreen_overlay() {
         match &app.detail {
             DetailView::Command { .. } | DetailView::AiChat { .. } => {
-                let detail = Paragraph::new(app.detail_text())
+                let text = match &app.detail {
+                    DetailView::AiChat { text, .. } => pad_background_lines(text.clone(), chunks[0].width.saturating_sub(2)),
+                    _ => app.detail_text(),
+                };
+                let detail = Paragraph::new(text)
                     .block(Block::default().title(app.detail_title()))
                     .scroll((app.detail_scroll, 0))
                     .wrap(Wrap { trim: false });
@@ -2695,6 +2740,33 @@ fn draw_ui(frame: &mut Frame, app: &App) {
         .min(chunks[1].x + chunks[1].width.saturating_sub(2));
     let cursor_y = chunks[1].y + 1;
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+fn pad_background_lines(text: Text<'static>, inner_width: u16) -> Text<'static> {
+    let width = inner_width as usize;
+    let lines = text
+        .lines
+        .into_iter()
+        .map(|mut line| {
+            let bg_style = line.spans.iter().find_map(|span| span.style.bg.map(|_| span.style));
+            if let Some(style) = bg_style {
+                let used = plain_line_width(&line);
+                if width > used {
+                    line.spans
+                        .push(Span::styled(" ".repeat(width - used), style));
+                }
+            }
+            Line::from(line.spans)
+        })
+        .collect::<Vec<_>>();
+    Text::from(lines)
+}
+
+fn plain_line_width(line: &Line<'_>) -> usize {
+    line.spans
+        .iter()
+        .map(|span| span.content.chars().count())
+        .sum()
 }
 
 #[cfg(test)]

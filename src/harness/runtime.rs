@@ -3,10 +3,14 @@ use crate::harness::context_window::BuiltContextWindow;
 use crate::harness::llm_api::ChatMessage;
 use crate::harness::tools::PromptToolCall;
 use crate::visualization::context::ContextVisualizationData;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span, Text};
 use serde_json::{Map, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ROOT_RUN_ID: AtomicU64 = AtomicU64::new(1);
+const TOOL_PANEL_BG: Color = Color::Rgb(230, 230, 230);
+const TOOL_PANEL_FG: Color = Color::Black;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RootRunStatus {
@@ -31,12 +35,15 @@ impl RootRunStatus {
 pub enum TranscriptEntryKind {
     ToolCall,
     Notice,
+    AgentEvent,
 }
 
 #[derive(Clone, Debug)]
 pub struct TranscriptEntry {
     pub kind: TranscriptEntryKind,
     pub content: String,
+    pub agent_label: Option<String>,
+    pub depth: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -147,6 +154,23 @@ impl RootRunState {
         self.transcript_entries.push(TranscriptEntry {
             kind,
             content: content.into(),
+            agent_label: None,
+            depth: 0,
+        });
+    }
+
+    pub fn push_agent_entry(
+        &mut self,
+        kind: TranscriptEntryKind,
+        agent_label: impl Into<String>,
+        depth: usize,
+        content: impl Into<String>,
+    ) {
+        self.transcript_entries.push(TranscriptEntry {
+            kind,
+            content: content.into(),
+            agent_label: Some(agent_label.into()),
+            depth,
         });
     }
 
@@ -237,7 +261,17 @@ impl RootRunState {
             lines.push("Tool Transcript:".to_string());
             lines.push(String::new());
             for entry in &self.transcript_entries {
-                lines.extend(entry.content.lines().map(str::to_owned));
+                let indent = "    ".repeat(entry.depth);
+                if let Some(agent_label) = entry.agent_label.as_deref() {
+                    lines.push(format!("{indent}[agent] {agent_label}"));
+                }
+                for line in entry.content.lines() {
+                    if line.is_empty() {
+                        lines.push(String::new());
+                    } else {
+                        lines.push(format!("{indent}{line}"));
+                    }
+                }
                 lines.push(String::new());
             }
             if let Some(active_entry) = self.active_tool_entry.as_deref() {
@@ -264,6 +298,102 @@ impl RootRunState {
 
         lines
     }
+
+    pub fn render_output_text(&self) -> Text<'static> {
+        let mut lines = Vec::new();
+        if !self.transcript_entries.is_empty() || self.active_tool_entry.is_some() {
+            lines.push(Line::from("Tool Transcript:"));
+            lines.push(Line::from(""));
+            for entry in &self.transcript_entries {
+                match entry.kind {
+                    TranscriptEntryKind::ToolCall | TranscriptEntryKind::AgentEvent => {
+                        let agent_label = entry.agent_label.as_deref();
+                        lines.extend(render_panel_entry(
+                            agent_label,
+                            entry.depth,
+                            &entry.content,
+                        ));
+                    }
+                    TranscriptEntryKind::Notice => {
+                        for line in entry.content.lines() {
+                            lines.push(Line::from(line.to_string()));
+                        }
+                    }
+                }
+                if matches!(
+                    entry.kind,
+                    TranscriptEntryKind::ToolCall | TranscriptEntryKind::AgentEvent
+                ) {
+                    lines.push(Line::from(vec![Span::styled(String::new(), tool_panel_style())]));
+                } else {
+                    lines.push(Line::from(""));
+                }
+            }
+            if let Some(active_entry) = self.active_tool_entry.as_deref() {
+                lines.extend(render_panel_entry(None, 0, active_entry));
+                lines.push(Line::from(vec![Span::styled(String::new(), tool_panel_style())]));
+            }
+        }
+
+        if let Some(response) = self.final_response() {
+            if !self.transcript_entries.is_empty() || self.active_tool_entry.is_some() {
+                lines.push(Line::from("Final Answer:"));
+                lines.push(Line::from(""));
+            }
+            if response.trim().is_empty() {
+                lines.push(Line::from("<empty response>"));
+            } else {
+                for line in response.lines() {
+                    lines.push(Line::from(line.to_string()));
+                }
+            }
+        }
+
+        if lines.is_empty() {
+            lines.push(Line::from("Waiting for evil_gemma..."));
+        }
+
+        Text::from(lines)
+    }
+}
+
+fn render_panel_entry(
+    agent_label: Option<&str>,
+    depth: usize,
+    content: &str,
+) -> Vec<Line<'static>> {
+    let indent = "    ".repeat(depth);
+    let inner_indent = format!("{indent}    ");
+    let style = tool_panel_style();
+    let mut lines = Vec::new();
+    if let Some(agent_label) = agent_label {
+        lines.push(Line::from(vec![Span::styled(
+            format!("{indent}[agent] {agent_label}"),
+            style,
+        )]));
+    }
+    for line in content.lines() {
+        let text = if line.is_empty() {
+            if agent_label.is_some() {
+                inner_indent.clone()
+            } else {
+                indent.clone()
+            }
+        } else {
+            let line_indent = if agent_label.is_some() {
+                inner_indent.as_str()
+            } else {
+                indent.as_str()
+            };
+            format!("{line_indent}{line}")
+        };
+        lines.push(Line::from(vec![Span::styled(text, style)]));
+    }
+    lines
+}
+
+fn tool_panel_style() -> Style {
+    Style::default().bg(TOOL_PANEL_BG).fg(TOOL_PANEL_FG)
 }
 
 fn normalize_json_value(value: &Value) -> Result<String, serde_json::Error> {

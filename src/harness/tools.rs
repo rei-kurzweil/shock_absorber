@@ -18,6 +18,7 @@ use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use bsky_sdk::api::types::string::Did;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolArgumentSpec {
@@ -189,6 +190,15 @@ pub struct ToolExecutionOutput {
     pub agent_node: Option<AgentNodeTemplate>,
 }
 
+#[derive(Clone, Debug)]
+pub enum ToolProgressEvent {
+    AgentUpdate {
+        label: String,
+        depth: usize,
+        content: String,
+    },
+}
+
 pub struct ToolContextWindow {
     pub title: String,
     pub window: BuiltContextWindow,
@@ -330,6 +340,7 @@ impl BlueskyTools {
         agent: &BskyAgent,
         store: &mut NotificationStore,
         llm_client: &LlmApiClient,
+        observer: Option<UnboundedSender<ToolProgressEvent>>,
     ) -> Result<ToolExecutionOutput, Box<dyn std::error::Error>> {
         match tool_call.name.as_str() {
             "read_selected_post" => Ok(ToolExecutionOutput {
@@ -356,13 +367,33 @@ impl BlueskyTools {
             }
             "llm_search" => {
                 let query = require_string_arg(&tool_call.args, "query")?;
+                if let Some(observer) = observer.as_ref() {
+                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                        label: "llm_search tool agent".to_string(),
+                        depth: 1,
+                        content: format!("query:\n{query}\n\nstatus: running"),
+                    });
+                }
                 let collections = self
                     .resolve_search_collections(agent, store, &query, selected_notification)
                     .await?;
                 let outcomes = self
-                    .run_collection_searches(&collections, &query, llm_client)
+                    .run_collection_searches(&collections, &query, llm_client, observer.clone())
                     .await;
-                let rendered = synthesize_llm_search_results(&query, &outcomes, llm_client).await;
+                let rendered = synthesize_llm_search_results(
+                    &query,
+                    &outcomes,
+                    llm_client,
+                    observer.clone(),
+                )
+                .await;
+                if let Some(observer) = observer.as_ref() {
+                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                        label: "llm_search tool agent".to_string(),
+                        depth: 1,
+                        content: format!("status: completed\n\nsummary:\n{}", summarize_progress_text(&rendered)),
+                    });
+                }
                 Ok(ToolExecutionOutput {
                     rendered,
                     context_windows: outcomes
@@ -495,14 +526,37 @@ impl BlueskyTools {
         collections: &[LabeledPostCollection],
         prompt: &str,
         llm_client: &LlmApiClient,
+        observer: Option<UnboundedSender<ToolProgressEvent>>,
     ) -> Vec<CollectionSearchOutcome> {
         let mut outcomes = Vec::with_capacity(collections.len());
 
         for collection in collections {
+            if let Some(observer) = observer.as_ref() {
+                let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                    label: format!("collection search: {}", collection.label),
+                    depth: 2,
+                    content: format!("collection_id: {}\nstatus: running", collection.id),
+                });
+            }
             let execution = self
                 .llm_search(collection, prompt, llm_client)
                 .await
                 .map_err(|err| err.to_string());
+            let progress_content = match execution.as_ref() {
+                Ok(execution) => format!(
+                    "collection_id: {}\nstatus: completed\n\nsummary:\n{}",
+                    collection.id,
+                    summarize_progress_text(&render_llm_result(execution.result.as_ref()))
+                ),
+                Err(err) => format!("collection_id: {}\nstatus: failed\nerror: {}", collection.id, err),
+            };
+            if let Some(observer) = observer.as_ref() {
+                let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                    label: format!("collection search: {}", collection.label),
+                    depth: 2,
+                    content: progress_content,
+                });
+            }
             outcomes.push(CollectionSearchOutcome {
                 collection_id: collection.id.clone(),
                 collection_label: collection.label.clone(),
@@ -1247,15 +1301,24 @@ async fn synthesize_llm_search_results(
     prompt: &str,
     outcomes: &[CollectionSearchOutcome],
     llm_client: &LlmApiClient,
+    observer: Option<UnboundedSender<ToolProgressEvent>>,
 ) -> String {
     if outcomes.len() <= 1 {
         return render_combined_llm_search_results(outcomes);
     }
 
+    if let Some(observer) = observer.as_ref() {
+        let _ = observer.send(ToolProgressEvent::AgentUpdate {
+            label: "llm_search synthesis".to_string(),
+            depth: 2,
+            content: "status: running".to_string(),
+        });
+    }
+
     let context = build_llm_search_parent_context(prompt, outcomes);
     let context_window = build_context_window_report(&context, &llm_client.context_limits());
     let rendered_context = context_window.rendered.clone();
-    match llm_client
+    let rendered = match llm_client
         .complete_chat(
             vec![
                 ChatMessage {
@@ -1273,7 +1336,15 @@ async fn synthesize_llm_search_results(
     {
         Ok(summary) => render_combined_llm_search_results_with_summary(outcomes, Some(summary.trim())),
         Err(_) => render_combined_llm_search_results_with_summary(outcomes, None),
+    };
+    if let Some(observer) = observer.as_ref() {
+        let _ = observer.send(ToolProgressEvent::AgentUpdate {
+            label: "llm_search synthesis".to_string(),
+            depth: 2,
+            content: format!("status: completed\n\nsummary:\n{}", summarize_progress_text(&rendered)),
+        });
     }
+    rendered
 }
 
 fn build_llm_search_agent_node(
@@ -1444,6 +1515,15 @@ fn render_combined_llm_search_results_with_summary(
     }
 
     lines.join("\n")
+}
+
+fn summarize_progress_text(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(8)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn normalize_parent_summary(summary: Option<&str>) -> Option<String> {
