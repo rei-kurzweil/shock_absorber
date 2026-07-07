@@ -88,7 +88,9 @@ pub fn extract_leading_tool_call_block(
     let name_pos = after
         .find("\nname:")
         .ok_or(ToolCallParseError::MissingToolName)?;
-    let args_pos = after.find("\nargs:").ok_or(ToolCallParseError::MissingArgs)?;
+    let args_pos = after
+        .find("\nargs:")
+        .ok_or(ToolCallParseError::MissingArgs)?;
     if args_pos <= name_pos {
         return Err(ToolCallParseError::MissingArgs);
     }
@@ -132,7 +134,10 @@ fn extract_args_span(raw_args: &str) -> Result<usize, ToolCallParseError> {
 
 fn extract_first_args_object(raw_args: &str) -> Option<String> {
     let chars = raw_args.char_indices().collect::<Vec<_>>();
-    let start = chars.iter().find(|(_, ch)| *ch == '{').map(|(idx, _)| *idx)?;
+    let start = chars
+        .iter()
+        .find(|(_, ch)| *ch == '{')
+        .map(|(idx, _)| *idx)?;
     let mut depth = 0usize;
     let mut in_string = false;
     let mut escaped = false;
@@ -334,7 +339,9 @@ fn parse_yaml_like_scalar(raw_value: &str) -> Option<Value> {
     }
 
     if normalized.starts_with('\'') && normalized.ends_with('\'') && normalized.len() >= 2 {
-        return Some(Value::String(normalized[1..normalized.len() - 1].to_string()));
+        return Some(Value::String(
+            normalized[1..normalized.len() - 1].to_string(),
+        ));
     }
 
     match normalized.as_str() {

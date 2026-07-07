@@ -180,8 +180,7 @@ impl LlmSearchExecution {
     }
 
     fn has_warnings(&self) -> bool {
-        self.diagnostic.is_some()
-            || result_uses_fallback_summary(self)
+        self.diagnostic.is_some() || result_uses_fallback_summary(self)
     }
 }
 

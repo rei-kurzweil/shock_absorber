@@ -276,6 +276,10 @@ impl RootRunState {
         self.active_tool_entry = entry;
     }
 
+    pub fn active_tool_entry(&self) -> Option<&str> {
+        self.active_tool_entry.as_deref()
+    }
+
     pub fn final_response(&self) -> Option<&str> {
         self.final_response.as_deref()
     }

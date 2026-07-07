@@ -17,12 +17,15 @@ use crate::net_backend::{
 };
 use crate::post::{PostNode, render_post_nodes};
 use crate::ui;
+use crate::ui::chat_editor::ChatEditor;
+use crate::ui::stdout_chat::StdoutChatRenderer;
 use crate::visualization::context::ContextVisualizationData;
 use bsky_sdk::BskyAgent;
 use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::execute;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
-use ratatui::text::Text;
 use ratatui::widgets::ListItem;
 use ratatui::{Frame, Terminal};
 use std::env;
@@ -46,7 +49,6 @@ pub enum DetailView {
     Notification,
     Agents,
     Command { title: String, lines: Vec<String> },
-    AiChat { title: String, text: Text<'static> },
     ContextVisualization(ContextVisualizationData),
 }
 
@@ -60,6 +62,12 @@ enum AppActivity {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PresentationMode {
+    Tui,
+    StdoutChat,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SplitView {
     Notifications,
     Agents,
@@ -68,6 +76,7 @@ enum SplitView {
 pub struct App {
     store: NotificationStore,
     input: String,
+    chat_editor: ChatEditor,
     selected: usize,
     selected_agent: usize,
     opened_notification: Option<usize>,
@@ -78,7 +87,9 @@ pub struct App {
     root_run: Option<RootRunState>,
     active_root_run: Option<ActiveRootRunTask>,
     deferred_detail: Option<DetailView>,
-    ai_chat_detail: Option<DetailView>,
+    last_non_chat_detail: Option<DetailView>,
+    chat_title: Option<String>,
+    presentation_mode: PresentationMode,
     status: String,
     should_quit: bool,
 }
@@ -125,6 +136,7 @@ impl App {
         Self {
             store: NotificationStore::new(),
             input: String::new(),
+            chat_editor: ChatEditor::new(),
             selected: 0,
             selected_agent: 0,
             opened_notification: None,
@@ -138,7 +150,9 @@ impl App {
             root_run: None,
             active_root_run: None,
             deferred_detail: None,
-            ai_chat_detail: None,
+            last_non_chat_detail: None,
+            chat_title: None,
+            presentation_mode: PresentationMode::Tui,
             status: format!("logged in as {handle}"),
             should_quit: false,
         }
@@ -236,17 +250,18 @@ impl App {
                 .map(|node| format!("Agent {}", node.agent_id.0))
                 .unwrap_or_else(|| "Agent".to_string()),
             DetailView::Command { title, .. } => title.clone(),
-            DetailView::AiChat { title, .. } => title.clone(),
             DetailView::ContextVisualization(data) => data.title.clone(),
         }
     }
 
     fn current_activity(&self) -> AppActivity {
+        if self.presentation_mode == PresentationMode::StdoutChat {
+            return AppActivity::AiChat;
+        }
         match self.detail {
             DetailView::Notification => AppActivity::NotificationDetail,
             DetailView::Agents => AppActivity::Agents,
             DetailView::Command { .. } => AppActivity::CommandOverlay,
-            DetailView::AiChat { .. } => AppActivity::AiChat,
             DetailView::ContextVisualization(_) => AppActivity::ContextVisualization,
         }
     }
@@ -261,19 +276,16 @@ impl App {
     fn is_fullscreen_overlay(&self) -> bool {
         matches!(
             self.detail,
-            DetailView::Command { .. }
-                | DetailView::AiChat { .. }
-                | DetailView::ContextVisualization(_)
+            DetailView::Command { .. } | DetailView::ContextVisualization(_)
         )
     }
 
-    fn detail_text(&self) -> Text<'static> {
+    fn detail_text(&self) -> ratatui::text::Text<'static> {
         match &self.detail {
             DetailView::Notification => self.notification_detail_text(),
             DetailView::Agents => self.agent_detail_text(),
-            DetailView::Command { lines, .. } => Text::from(lines.join("\n")),
-            DetailView::AiChat { text, .. } => text.clone(),
-            DetailView::ContextVisualization(_) => Text::from(""),
+            DetailView::Command { lines, .. } => ratatui::text::Text::from(lines.join("\n")),
+            DetailView::ContextVisualization(_) => ratatui::text::Text::from(""),
         }
     }
 
@@ -324,9 +336,9 @@ impl App {
             .collect()
     }
 
-    fn agent_detail_text(&self) -> Text<'static> {
+    fn agent_detail_text(&self) -> ratatui::text::Text<'static> {
         let Some(node) = self.selected_agent_node() else {
-            return Text::from(
+            return ratatui::text::Text::from(
                 "No agent selected.\nRun a query, then use `/agents` to inspect the agent graph.",
             );
         };
@@ -409,7 +421,7 @@ impl App {
             lines.extend(summary.lines().map(str::to_owned));
         }
 
-        Text::from(lines.join("\n"))
+        ratatui::text::Text::from(lines.join("\n"))
     }
 
     fn notification_detail_lines(&self) -> Vec<String> {
@@ -456,13 +468,13 @@ impl App {
         lines
     }
 
-    fn notification_posts_text(&self) -> Text<'static> {
+    fn notification_posts_text(&self) -> ratatui::text::Text<'static> {
         let Some(notif) = self.opened_notification() else {
-            return Text::from("Open a notification to inspect pinned posts.");
+            return ratatui::text::Text::from("Open a notification to inspect pinned posts.");
         };
 
         let Some(posts) = self.store.get_pinned_posts(&notif.author.data.did) else {
-            return Text::from("Pinned posts not loaded yet.");
+            return ratatui::text::Text::from("Pinned posts not loaded yet.");
         };
 
         let nodes = posts
@@ -483,7 +495,7 @@ impl App {
         render_post_nodes(&nodes)
     }
 
-    fn notification_detail_text(&self) -> Text<'static> {
+    fn notification_detail_text(&self) -> ratatui::text::Text<'static> {
         let mut lines = vec!["Notification:".to_string(), String::new()];
         lines.extend(self.notification_detail_lines());
 
@@ -553,17 +565,15 @@ impl App {
             lines.extend(created_lists.lines().map(str::to_owned));
         }
 
-        Text::from(lines.join("\n"))
+        ratatui::text::Text::from(lines.join("\n"))
     }
 
-    async fn execute_command(
+    async fn execute_input(
         &mut self,
         agent: &Arc<BskyAgent>,
         evil_gemma: &Arc<EvilGemmaConfig>,
+        command: String,
     ) -> Result<(), Box<dyn Error>> {
-        let command = self.input.trim().to_owned();
-        self.input.clear();
-
         if command.is_empty() {
             return Ok(());
         }
@@ -631,6 +641,7 @@ impl App {
             "clear" | "/clear" => {
                 self.clear_root_conversation();
                 self.root_run = None;
+                self.chat_title = None;
                 self.set_command_output(
                     "/clear",
                     vec![
@@ -642,6 +653,7 @@ impl App {
             }
             "context" | "/context" => {
                 self.detail_scroll = 0;
+                self.presentation_mode = PresentationMode::Tui;
                 self.detail =
                     DetailView::ContextVisualization(self.build_context_visualization(evil_gemma));
                 self.status = "context visualization loaded".to_string();
@@ -649,11 +661,13 @@ impl App {
             "agents" | "/agents" => {
                 self.clamp_selection();
                 self.detail_scroll = 0;
+                self.presentation_mode = PresentationMode::Tui;
                 self.detail = DetailView::Agents;
                 self.status = "agents view loaded".to_string();
             }
             "notifications" | "/notifications" => {
                 self.detail_scroll = 0;
+                self.presentation_mode = PresentationMode::Tui;
                 self.detail = DetailView::Notification;
                 self.status = "notifications view loaded".to_string();
             }
@@ -678,35 +692,25 @@ impl App {
 
     fn set_evil_gemma_progress(&mut self, query: &str, run: &RootRunState) {
         self.root_run = Some(run.clone());
-        self.set_ai_chat_output(
-            format!("evil_gemma: {query}"),
-            run.render_output_text(),
-            true,
-        );
+        self.chat_title = Some(format!("evil_gemma: {query}"));
+        self.show_chat_output(true);
     }
 
-    fn set_ai_chat_output<T: Into<String>>(
-        &mut self,
-        title: T,
-        text: Text<'static>,
-        visible: bool,
-    ) {
-        let detail = DetailView::AiChat {
-            title: title.into(),
-            text,
-        };
-        self.ai_chat_detail = Some(detail.clone());
+    fn show_chat_output(&mut self, visible: bool) {
         if visible {
-            if !matches!(self.detail, DetailView::AiChat { .. }) {
-                self.deferred_detail = Some(self.detail.clone());
+            if self.presentation_mode != PresentationMode::StdoutChat {
+                self.last_non_chat_detail = Some(self.detail.clone());
             }
-            self.detail_scroll = 0;
-            self.detail = detail;
+            self.presentation_mode = PresentationMode::StdoutChat;
         }
     }
 
     fn set_command_output<T: Into<String>>(&mut self, title: T, lines: Vec<String>) {
         self.detail_scroll = 0;
+        if self.presentation_mode == PresentationMode::StdoutChat {
+            self.deferred_detail = Some(self.current_non_chat_detail());
+        }
+        self.presentation_mode = PresentationMode::Tui;
         self.detail = DetailView::Command {
             title: title.into(),
             lines,
@@ -720,27 +724,29 @@ impl App {
         } else {
             self.detail = DetailView::Notification;
         }
+        self.presentation_mode = PresentationMode::Tui;
     }
 
     fn toggle_ai_chat_view(&mut self) {
         match self.current_activity() {
             AppActivity::AiChat => {
                 self.detail_scroll = 0;
-                if let Some(detail) = self.deferred_detail.take() {
+                if let Some(detail) = self.last_non_chat_detail.clone() {
                     self.detail = detail;
                 } else {
                     self.detail = DetailView::Notification;
                 }
+                self.presentation_mode = PresentationMode::Tui;
                 self.status = "returned to previous view".to_string();
             }
             _ => {
-                let Some(ai_chat_detail) = self.ai_chat_detail.clone() else {
+                if self.chat_title.is_none() && self.root_run.is_none() {
                     self.status = "no ai chat view available".to_string();
                     return;
-                };
-                self.deferred_detail = Some(self.detail.clone());
+                }
+                self.last_non_chat_detail = Some(self.detail.clone());
                 self.detail_scroll = 0;
-                self.detail = ai_chat_detail;
+                self.presentation_mode = PresentationMode::StdoutChat;
                 self.status = "ai chat view loaded".to_string();
             }
         }
@@ -883,12 +889,9 @@ impl App {
         );
         root_run.set_context_visualization(initial_visualization);
         self.root_run = Some(root_run.clone());
+        self.chat_title = Some(format!("evil_gemma: {query}"));
         if keep_context_overlay {
-            self.set_ai_chat_output(
-                format!("evil_gemma: {query}"),
-                root_run.render_output_text(),
-                false,
-            );
+            self.show_chat_output(false);
             self.status = "evil_gemma run started; dismiss /context to view output".to_string();
         } else {
             self.set_evil_gemma_progress(&query, &root_run);
@@ -937,13 +940,8 @@ impl App {
                 "Runtime Notice\nrun cancelled by user with `/stop`",
             );
         }
-        if let Some(root_run) = self.root_run.as_ref() {
-            self.set_ai_chat_output(
-                format!("evil_gemma: {}", active.query),
-                root_run.render_output_text(),
-                !active.keep_context_overlay,
-            );
-        }
+        self.chat_title = Some(format!("evil_gemma: {}", active.query));
+        self.show_chat_output(!active.keep_context_overlay);
         self.status = "active root run cancelled".to_string();
     }
 
@@ -974,12 +972,9 @@ impl App {
                 RootRunEvent::Progress(root_run) => {
                     let query = root_run.query().to_string();
                     self.root_run = Some(root_run.clone());
+                    self.chat_title = Some(format!("evil_gemma: {query}"));
                     self.clamp_selection();
-                    self.set_ai_chat_output(
-                        format!("evil_gemma: {query}"),
-                        root_run.render_output_text(),
-                        !keep_context_overlay,
-                    );
+                    self.show_chat_output(!keep_context_overlay);
                     self.status = format!("evil_gemma running: {}", root_run.status().as_str());
                 }
                 RootRunEvent::ToolProgress(event) => {
@@ -997,12 +992,8 @@ impl App {
                             ),
                         }
                         let query = root_run.query().to_string();
-                        let text = root_run.render_output_text();
-                        self.set_ai_chat_output(
-                            format!("evil_gemma: {query}"),
-                            text,
-                            !keep_context_overlay,
-                        );
+                        self.chat_title = Some(format!("evil_gemma: {query}"));
+                        self.show_chat_output(!keep_context_overlay);
                         self.status = "evil_gemma running: subagent progress".to_string();
                     }
                 }
@@ -1018,12 +1009,9 @@ impl App {
                         assistant: response,
                     });
                     self.root_run = Some(root_run.clone());
+                    self.chat_title = Some(format!("evil_gemma: {query}"));
                     self.clamp_selection();
-                    self.set_ai_chat_output(
-                        format!("evil_gemma: {query}"),
-                        root_run.render_output_text(),
-                        !keep_context_overlay,
-                    );
+                    self.show_chat_output(!keep_context_overlay);
                     self.status = if keep_context_overlay {
                         "evil_gemma response ready; dismiss /context to view output".to_string()
                     } else {
@@ -1036,12 +1024,9 @@ impl App {
                     if let Some(root_run) = root_run {
                         let query = root_run.query().to_string();
                         self.root_run = Some(root_run.clone());
+                        self.chat_title = Some(format!("evil_gemma: {query}"));
                         self.clamp_selection();
-                        self.set_ai_chat_output(
-                            format!("evil_gemma: {query}"),
-                            root_run.render_output_text(),
-                            !keep_context_overlay,
-                        );
+                        self.show_chat_output(!keep_context_overlay);
                     }
                     self.status = format!("root run failed: {error}");
                     self.set_command_output("error", vec![format!("root run failed: {error}")]);
@@ -1107,6 +1092,32 @@ impl App {
             SplitView::Agents => {}
         }
     }
+
+    pub fn presentation_mode(&self) -> PresentationMode {
+        self.presentation_mode
+    }
+
+    pub fn chat_editor(&self) -> &ChatEditor {
+        &self.chat_editor
+    }
+
+    pub fn chat_editor_mut(&mut self) -> &mut ChatEditor {
+        &mut self.chat_editor
+    }
+
+    pub fn chat_title(&self) -> Option<&str> {
+        self.chat_title.as_deref()
+    }
+
+    pub fn root_run(&self) -> Option<&RootRunState> {
+        self.root_run.as_ref()
+    }
+
+    fn current_non_chat_detail(&self) -> DetailView {
+        self.last_non_chat_detail
+            .clone()
+            .unwrap_or_else(|| self.detail.clone())
+    }
 }
 
 pub async fn run_app(
@@ -1117,6 +1128,8 @@ pub async fn run_app(
     db: &AppDb,
 ) -> Result<(), Box<dyn Error>> {
     let mut last_poll = Instant::now() - POLL_INTERVAL;
+    let mut stdout_chat = StdoutChatRenderer::new();
+    let mut terminal_mode = PresentationMode::Tui;
 
     loop {
         if app.active_root_run.is_none() && last_poll.elapsed() >= POLL_INTERVAL {
@@ -1140,7 +1153,29 @@ pub async fn run_app(
         }
 
         app.process_background_events(db);
-        terminal.draw(|frame| draw_ui(frame, &app))?;
+
+        if app.presentation_mode() != terminal_mode {
+            match app.presentation_mode() {
+                PresentationMode::StdoutChat => {
+                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                    stdout_chat.enter(terminal.backend_mut(), &app)?;
+                }
+                PresentationMode::Tui => {
+                    stdout_chat.leave(terminal.backend_mut())?;
+                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                }
+            }
+            terminal_mode = app.presentation_mode();
+        }
+
+        match terminal_mode {
+            PresentationMode::Tui => {
+                terminal.draw(|frame| draw_ui(frame, &app))?;
+            }
+            PresentationMode::StdoutChat => {
+                stdout_chat.sync(terminal.backend_mut(), &app)?;
+            }
+        }
 
         if event::poll(UI_TICK)? {
             if let Event::Key(key) = event::read()? {
@@ -1148,54 +1183,115 @@ pub async fn run_app(
                     continue;
                 }
 
-                match key.code {
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        app.should_quit = true;
-                    }
-                    KeyCode::Char('q') if app.input.is_empty() => {
-                        app.should_quit = true;
-                    }
-                    KeyCode::Up => app.move_selection_up(),
-                    KeyCode::Down => app.move_selection_down(),
-                    KeyCode::PageUp => {
-                        app.detail_scroll = app.detail_scroll.saturating_sub(4);
-                    }
-                    KeyCode::PageDown => {
-                        app.detail_scroll = app.detail_scroll.saturating_add(4);
-                    }
-                    KeyCode::Tab => {
-                        app.toggle_ai_chat_view();
-                    }
-                    KeyCode::Esc => {
-                        if !app.input.is_empty() {
-                            app.input.clear();
-                        } else if app.is_fullscreen_overlay() {
-                            app.dismiss_command_output();
+                match app.presentation_mode() {
+                    PresentationMode::Tui => match key.code {
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.should_quit = true;
                         }
-                    }
-                    KeyCode::Backspace => {
-                        app.input.pop();
-                    }
-                    KeyCode::Enter => {
-                        if app.input.trim().is_empty() {
-                            app.activate_selected_item();
-                        } else if let Err(err) = app.execute_command(&agent, &evil_gemma).await {
-                            app.status = format!("command failed: {err}");
-                            app.set_command_output(
-                                "error",
-                                vec![
-                                    format!("command failed: {err}"),
-                                    "try `/help` for supported commands".to_string(),
-                                ],
-                            );
-                        } else {
-                            db.save_store(&app.store)?;
+                        KeyCode::Char('q') if app.input.is_empty() => {
+                            app.should_quit = true;
                         }
-                    }
-                    KeyCode::Char(ch) => {
-                        app.input.push(ch);
-                    }
-                    _ => {}
+                        KeyCode::Up => app.move_selection_up(),
+                        KeyCode::Down => app.move_selection_down(),
+                        KeyCode::PageUp => {
+                            app.detail_scroll = app.detail_scroll.saturating_sub(4);
+                        }
+                        KeyCode::PageDown => {
+                            app.detail_scroll = app.detail_scroll.saturating_add(4);
+                        }
+                        KeyCode::Tab => {
+                            app.toggle_ai_chat_view();
+                        }
+                        KeyCode::Esc => {
+                            if !app.input.is_empty() {
+                                app.input.clear();
+                            } else if app.is_fullscreen_overlay() {
+                                app.dismiss_command_output();
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            app.input.pop();
+                        }
+                        KeyCode::Enter => {
+                            if app.input.trim().is_empty() {
+                                app.activate_selected_item();
+                            } else {
+                                let command = app.input.trim().to_owned();
+                                app.input.clear();
+                                if let Err(err) =
+                                    app.execute_input(&agent, &evil_gemma, command).await
+                                {
+                                    app.status = format!("command failed: {err}");
+                                    app.set_command_output(
+                                        "error",
+                                        vec![
+                                            format!("command failed: {err}"),
+                                            "try `/help` for supported commands".to_string(),
+                                        ],
+                                    );
+                                } else {
+                                    db.save_store(&app.store)?;
+                                }
+                            }
+                        }
+                        KeyCode::Char(ch)
+                            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                && !key.modifiers.contains(KeyModifiers::ALT) =>
+                        {
+                            app.input.push(ch);
+                        }
+                        _ => {}
+                    },
+                    PresentationMode::StdoutChat => match key.code {
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.should_quit = true;
+                        }
+                        KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.chat_editor_mut().insert_newline();
+                        }
+                        KeyCode::Left => app.chat_editor_mut().move_left(),
+                        KeyCode::Right => app.chat_editor_mut().move_right(),
+                        KeyCode::Up => app.chat_editor_mut().move_up(),
+                        KeyCode::Down => app.chat_editor_mut().move_down(),
+                        KeyCode::Backspace => app.chat_editor_mut().backspace(),
+                        KeyCode::Tab => app.toggle_ai_chat_view(),
+                        KeyCode::Esc => {
+                            if !app.chat_editor().is_empty() {
+                                app.chat_editor_mut().clear();
+                            } else {
+                                app.toggle_ai_chat_view();
+                            }
+                        }
+                        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                            app.chat_editor_mut().insert_newline();
+                        }
+                        KeyCode::Enter => {
+                            if !app.chat_editor().trimmed_text().is_empty() {
+                                let command = app.chat_editor_mut().take_text();
+                                if let Err(err) =
+                                    app.execute_input(&agent, &evil_gemma, command).await
+                                {
+                                    app.status = format!("command failed: {err}");
+                                    app.set_command_output(
+                                        "error",
+                                        vec![
+                                            format!("command failed: {err}"),
+                                            "try `/help` for supported commands".to_string(),
+                                        ],
+                                    );
+                                } else {
+                                    db.save_store(&app.store)?;
+                                }
+                            }
+                        }
+                        KeyCode::Char(ch)
+                            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                && !key.modifiers.contains(KeyModifiers::ALT) =>
+                        {
+                            app.chat_editor_mut().insert_char(ch);
+                        }
+                        _ => {}
+                    },
                 }
             }
         }
@@ -1446,22 +1542,13 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 
     if app.is_fullscreen_overlay() {
         match &app.detail {
-            DetailView::Command { .. } | DetailView::AiChat { .. } => match &app.detail {
-                DetailView::AiChat { text, .. } => ui::chat_renderer::render_chat_detail(
-                    frame,
-                    chunks[0],
-                    &app.detail_title(),
-                    text.clone(),
-                    app.detail_scroll,
-                ),
-                _ => ui::tui_renderer::render_fullscreen_text(
-                    frame,
-                    chunks[0],
-                    &app.detail_title(),
-                    app.detail_text(),
-                    app.detail_scroll,
-                ),
-            },
+            DetailView::Command { .. } => ui::tui_renderer::render_fullscreen_text(
+                frame,
+                chunks[0],
+                &app.detail_title(),
+                app.detail_text(),
+                app.detail_scroll,
+            ),
             DetailView::ContextVisualization(data) => {
                 ui::tui_renderer::render_context_visualization(
                     frame,
@@ -1516,4 +1603,40 @@ fn draw_ui(frame: &mut Frame, app: &App) {
         .min(input_area.x + input_area.width.saturating_sub(2));
     let cursor_y = input_area.y + 1;
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tab_toggle_restores_last_non_chat_detail() {
+        let mut app = App::new("tester".to_string());
+        app.detail = DetailView::Agents;
+        app.chat_title = Some("evil_gemma: test".to_string());
+
+        app.toggle_ai_chat_view();
+        assert_eq!(app.presentation_mode(), PresentationMode::StdoutChat);
+
+        app.toggle_ai_chat_view();
+        assert_eq!(app.presentation_mode(), PresentationMode::Tui);
+        assert!(matches!(app.detail, DetailView::Agents));
+    }
+
+    #[test]
+    fn command_output_from_chat_returns_to_tui() {
+        let mut app = App::new("tester".to_string());
+        app.detail = DetailView::Notification;
+        app.chat_title = Some("evil_gemma: test".to_string());
+        app.show_chat_output(true);
+
+        app.set_command_output("/help", vec!["hello".to_string()]);
+
+        assert_eq!(app.presentation_mode(), PresentationMode::Tui);
+        assert!(matches!(app.detail, DetailView::Command { .. }));
+        assert!(matches!(
+            app.deferred_detail,
+            Some(DetailView::Notification)
+        ));
+    }
 }

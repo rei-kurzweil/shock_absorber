@@ -44,21 +44,21 @@ The current `DetailView` approach should eventually become an implementation det
 
 We should describe the UI with two top-level concepts:
 
-- `layout_mode`
-  - `split_screen`
-  - `full_screen`
+- `presentation_mode`
+  - `ratatui_alternate_screen`
+  - `stdout_chat`
 
 - `primary_activity`
   - `notifications`
   - `ai_chat_output`
   - `context_view`
-  - `collections_view`
+  - `agents_view`
 
 This means the app can say things like:
 
-- split-screen + notifications
-- full-screen + context_view
-- full-screen + ai_chat_output
+- ratatui alternate-screen + notifications
+- ratatui alternate-screen + context_view
+- stdout chat + ai_chat_output
 
 This is a cleaner model than “normal view plus some overlay enum plus deferred detail buffer.”
 
@@ -139,20 +139,15 @@ This gives us the effect we want without inventing an overly abstract pane syste
 
 ## Layout Rules
 
-Near-term layout rules should be simple:
+Near-term presentation rules should be simple:
 
-- `notifications` uses `split_screen`
-- `ai_chat_output` uses `full_screen`
-- `context_view` uses `full_screen`
-- `collections_view` uses `full_screen`
+- `notifications` uses ratatui in the alternate screen
+- `agents_view` uses ratatui in the alternate screen
+- `context_view` uses ratatui in the alternate screen
+- `ai_chat_output` uses normal terminal stdout, so chat remains in terminal scrollback
 
-Later we may allow:
-
-- `context_view` in split-screen
-- `collections_view` in split-screen
-- a dedicated detail pane for chat output
-
-But that should be a later step after the activity model is stable.
+The important difference is that `ai_chat_output` is not another fullscreen ratatui pane.
+It is a distinct terminal presentation mode.
 
 ## `Tab` Behavior
 
@@ -186,6 +181,7 @@ If the user runs a prompt while viewing `/context`, `Tab` should still conceptua
 - `context_view`
 
 This is cleaner than treating `/context` as a fragile overlay over some hidden detail buffer.
+It also means the app can keep collecting chat transcript while `/context` remains visible in ratatui.
 
 ## `Escape` Behavior
 
@@ -236,8 +232,10 @@ This draft suggests replacing that mental model with:
 In practice this probably means:
 
 - `DetailView::Notification` becomes part of `notifications` activity state
-- `DetailView::Command` maps more closely to `ai_chat_output`
+- `DetailView::Command` stays a ratatui-managed fullscreen command/detail surface
+- `ai_chat_output` stops being a `DetailView` and becomes stdout-backed transcript presentation
 - `DetailView::ContextVisualization` maps to `context_view`
+- `DetailView::Agents` maps to `agents_view`
 - deferred command output becomes “chat activity exists but is not currently primary”
 
 ## Recommended Near-Term Refactor Shape
@@ -252,7 +250,7 @@ We should probably move toward something like:
   - `Notifications(NotificationsActivityState)`
   - `AiChatOutput(ChatActivityState)`
   - `ContextView(ContextActivityState)`
-  - `CollectionsView(CollectionsActivityState)`
+  - `AgentsView(AgentsActivityState)`
 
 This keeps all mode-specific state attached to the activity that owns it.
 
