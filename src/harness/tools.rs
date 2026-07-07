@@ -4,6 +4,9 @@ use crate::harness::context_window::{
 };
 use crate::harness::llm_api::{ChatCompletionResponseFormat, ChatMessage, LlmApiClient};
 use crate::harness::prompts::{AgentKind, tool_prompt};
+use crate::harness::tool_call_parser::{
+    extract_leading_tool_call_block, parse_prompt_tool_call as parse_prompt_tool_call_result,
+};
 use crate::model::{LabeledPostCollection, PostRecord};
 use crate::net_backend::{
     NotificationStore, PostDetails, cache_global_search_posts, ensure_actor_profile_cached,
@@ -17,6 +20,8 @@ use bsky_sdk::api::types::string::Did;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc::UnboundedSender;
+
+pub use crate::harness::tool_call_parser::PromptToolCall;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolArgumentSpec {
@@ -117,12 +122,6 @@ impl ToolRegistry {
             .collect::<Vec<_>>()
             .join("\n\n")
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PromptToolCall {
-    pub name: String,
-    pub args: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1653,49 +1652,21 @@ fn validate_internal_tool_response(response: &str) -> InternalToolResponse {
         return InternalToolResponse::FinalSummary(response.to_string());
     }
 
-    let Some((accepted_block, discarded_trailing)) = extract_leading_tool_call_block(trimmed)
-    else {
-        return InternalToolResponse::Invalid(
-            "strict internal mode requires exactly one TOOL_CALL block with no surrounding prose"
-                .to_string(),
-        );
+    let accepted = match extract_leading_tool_call_block(trimmed) {
+        Ok(accepted) => accepted,
+        Err(err) => return InternalToolResponse::Invalid(err.diagnostic().to_string()),
     };
 
-    let Some(tool_call) = parse_prompt_tool_call(&accepted_block) else {
-        return InternalToolResponse::Invalid(
-            "strict internal mode requires exactly one parseable TOOL_CALL block".to_string(),
-        );
+    let tool_call = match parse_prompt_tool_call_result(&accepted.accepted_block) {
+        Ok(tool_call) => tool_call,
+        Err(err) => return InternalToolResponse::Invalid(err.diagnostic().to_string()),
     };
 
     InternalToolResponse::ToolCall(AcceptedInternalToolCall {
         tool_call,
-        accepted_block,
-        discarded_trailing,
+        accepted_block: accepted.accepted_block,
+        discarded_trailing: accepted.discarded_trailing,
     })
-}
-
-fn extract_leading_tool_call_block(response: &str) -> Option<(String, Option<String>)> {
-    let trimmed = response.trim();
-    let tool_call_start = trimmed.find("TOOL_CALL")?;
-    if !trimmed[..tool_call_start].trim().is_empty() {
-        return None;
-    }
-
-    let after = &trimmed[tool_call_start..];
-    let name_pos = after.find("\nname:")?;
-    let args_pos = after.find("\nargs:")?;
-    if args_pos <= name_pos {
-        return None;
-    }
-
-    let args_section = &after[args_pos + "\nargs:".len()..];
-    let args_object = extract_first_args_object(args_section)?;
-    let args_offset = args_section.find(&args_object)?;
-    let block_end = args_pos + "\nargs:".len() + args_offset + args_object.len();
-    let block = after[..block_end].trim().to_string();
-    let trailing = after[block_end..].trim();
-
-    Some((block, (!trailing.is_empty()).then(|| trailing.to_string())))
 }
 
 fn validate_internal_llm_search_tool_call(
@@ -2732,173 +2703,7 @@ pub fn prompt_tool_protocol_instructions() -> &'static str {
 }
 
 pub fn parse_prompt_tool_call(response: &str) -> Option<PromptToolCall> {
-    let mut lines = response.lines();
-    while let Some(line) = lines.next() {
-        let trimmed_line = line.trim();
-        if trimmed_line != "TOOL_CALL"
-            && !trimmed_line.ends_with("TOOL_CALL")
-            && !trimmed_line.contains("TOOL_CALL")
-        {
-            continue;
-        }
-
-        let mut name = None;
-        let mut args_lines = Vec::new();
-
-        for line in lines.by_ref() {
-            let trimmed = line.trim();
-            if let Some(value) = trimmed.strip_prefix("name:") {
-                name = Some(value.trim().to_string());
-                continue;
-            }
-
-            if let Some(value) = trimmed.strip_prefix("args:") {
-                args_lines.push(value.trim().to_string());
-                args_lines.extend(lines.by_ref().map(str::to_owned));
-                break;
-            }
-        }
-
-        let name = name?;
-        let raw_args = extract_first_args_object(&args_lines.join("\n"))?;
-        let args = parse_tool_args_json(&raw_args)?;
-        return Some(PromptToolCall { name, args });
-    }
-
-    None
-}
-
-fn extract_first_args_object(raw_args: &str) -> Option<String> {
-    let chars = raw_args.char_indices().collect::<Vec<_>>();
-    let start = chars
-        .iter()
-        .find(|(_, ch)| *ch == '{')
-        .map(|(idx, _)| *idx)?;
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-
-    for (idx, ch) in raw_args[start..].char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if ch == '"' {
-            in_string = true;
-            continue;
-        }
-
-        if ch == '{' {
-            depth += 1;
-        } else if ch == '}' {
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                let end = start + idx + ch.len_utf8();
-                return Some(raw_args[start..end].to_string());
-            }
-        }
-    }
-
-    None
-}
-
-fn parse_tool_args_json(raw_args: &str) -> Option<Value> {
-    serde_json::from_str(raw_args)
-        .ok()
-        .or_else(|| serde_json::from_str(&repair_tool_args_json(raw_args)).ok())
-}
-
-fn repair_tool_args_json(raw_args: &str) -> String {
-    let normalized_quotes = raw_args.replace("<|\"|>", "\"");
-    quote_bare_object_keys(&normalized_quotes)
-}
-
-fn quote_bare_object_keys(input: &str) -> String {
-    let chars = input.chars().collect::<Vec<_>>();
-    let mut out = String::new();
-    let mut i = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-
-    while i < chars.len() {
-        let ch = chars[i];
-
-        if in_string {
-            out.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            i += 1;
-            continue;
-        }
-
-        if ch == '"' {
-            in_string = true;
-            out.push(ch);
-            i += 1;
-            continue;
-        }
-
-        if ch == '{' || ch == ',' {
-            out.push(ch);
-            i += 1;
-
-            while i < chars.len() && chars[i].is_whitespace() {
-                out.push(chars[i]);
-                i += 1;
-            }
-
-            let key_start = i;
-            if i < chars.len() && (chars[i].is_ascii_alphabetic() || chars[i] == '_') {
-                i += 1;
-                while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
-                    i += 1;
-                }
-
-                let key_end = i;
-                let mut probe = i;
-                while probe < chars.len() && chars[probe].is_whitespace() {
-                    probe += 1;
-                }
-
-                if probe < chars.len() && chars[probe] == ':' {
-                    out.push('"');
-                    for key_char in &chars[key_start..key_end] {
-                        out.push(*key_char);
-                    }
-                    out.push('"');
-                    while i < probe {
-                        out.push(chars[i]);
-                        i += 1;
-                    }
-                    continue;
-                }
-
-                for key_char in &chars[key_start..key_end] {
-                    out.push(*key_char);
-                }
-                continue;
-            }
-
-            continue;
-        }
-
-        out.push(ch);
-        i += 1;
-    }
-
-    out
+    parse_prompt_tool_call_result(response).ok()
 }
 
 fn render_llm_result(result: Option<&LlmSearchResult>) -> String {

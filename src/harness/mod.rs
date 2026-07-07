@@ -6,4 +6,5 @@ pub mod prompts;
 pub mod root_context;
 pub mod root_run;
 pub mod runtime;
+pub mod tool_call_parser;
 pub mod tools;
