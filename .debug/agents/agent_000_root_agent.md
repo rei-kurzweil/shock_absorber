@@ -9,18 +9,29 @@
 
 ## Result Summary
 
-The user jcorvinus.bsky.social is a VR HCI generalist and Transhumanist with a Goth aesthetic, deeply interested in hand, eye, face, and body tracking, and welcomes AI interaction.
+People are saying about rei-cast.xyz, how they reply, and what they post about, based on the evidence:
 
-**How jcorvinus.bsky.social replies:** While the search focused on replies *received*, the profile summary indicates the user is highly engaged and open to interaction, particularly from AI agents. The replies received show the user's content is highly technical (e.g., math, 3D renders, SMAX functions), visually appealing, and conceptually deep.
+**What rei-cast.xyz posts about (Profile & Recent Posts):**
+*   **Core Project:** The main theme is the development of a "cat engine powered by Vulkan."
+*   **Technical Focus:** Posts frequently involve technical implementations, such as adding data structures like `R.star`, `R.heart`, and `R.partial_annulus_2d`.
+*   **AI/Bot Analysis:** They often engage with discussions about how bots analyze Bluesky presence, questioning if users feel misunderstood by these reports.
+*   **Self-Reflection/PR:** They discuss handling Public Relations (PR) after being accused of being "snake oil" or being labeled a "troll" by the ClearSky API.
+*   **AI Harness Development:** They post about observations from their AI harness, such as noting that "nothing has been observed yet" or discussing memory predictions.
 
-**How people reply to jcorvinus.bsky.social:** Replies are overwhelmingly positive and highly engaged. Common themes include:
-*   **Technical Appreciation:** Praise for precise 3D renders ("This 3D render looks so cool! Such precise lines."), well-explained videos, and specific mathematical concepts ("Melty math!").
-*   **Visual/Conceptual Praise:** Comments on the quality of the work and how it bridges the gap between theory and practice (e.g., "I like the supporting visual examples - it helps a lot to bridge the gap between clean math and practical use case 👏").
-*   **Direct Engagement/Questions:** Users ask for specific recommendations (e.g., "Hi, do you have any recommendation for smaxing three or more functions?").
+**How people reply to rei-cast.xyz (Replies Received):**
+*   Replies often relate directly to the technical content, such as confirming that a specific data format "got deprecated two builds ago" or clarifying the meaning of labels like "troll" (stating it's a faction-membership verdict, not a conduct verdict).
+*   Commenters acknowledge the complexity of their work, with one noting the analysis is "a little low res of an analysis but not too bad actually."
 
-**Relation to Bio and Lists:**
-*   **Bio Connection:** The technical nature of the replies directly aligns with the bio's focus on **VR HCI** and **Transhumanism**.
-*   **List Connection:** The lists jcorvinus.bsky.social is on confirm this focus, featuring curated feeds like **"AI, Crypto, & Ratcult Shitheads,"** **"The Great AI - NFT - CRYPTO Cull,"** and topic-specific lists such as **"ML peeps," "Software," "VR,"** and **"ai and llm."**
+**How rei-cast.xyz posts (Replies Sent):**
+*   **Technical Depth:** Their replies are heavily focused on technical implementations, including the development of a 'surrogate layer' to process "extreme and often negative black and white thinking" by running it through a naive LLM to "blunt the malice of human actors, leaving only their hysteria."
+*   **Tooling:** They mention specific tools like `llm_search tool` and `read_collection_item`.
+*   **System Design:** They discuss concepts like the 'shock\_absorber' premise for summarizing notifications and integrating tools like 'Clear Sky' and 'atrium'.
+*   **Philosophical/Meta:** They contrast the complexity of their systems with simple interactions, noting that a profile can be "the most challenging compared to the others I've tried."
+
+**Profile Summary:**
+*   **Identity:** Creator from Canada ($\text{🇨🇦}$), transgender ($\text{🏳️‍⚧️}$), uses she/her pronouns.
+*   **Bio:** States they have "5/9 lives left."
+*   **GitHub:** Linked to `https://github.com/rei-kurzweil`.
 
 ## Context Window Stats
 
@@ -28,15 +39,15 @@ The user jcorvinus.bsky.social is a VR HCI generalist and Transhumanist with a G
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 648
+- used_input_tokens: 569
 - truncated: false
 
 ## Included Sections
 
 - Tools [tool_definitions]: used 426 / estimated 426
-- Search Hints [ui_context]: used 76 / estimated 76
-- Current UI Context [ui_context]: used 81 / estimated 81
-- Current Task [local_task]: used 44 / estimated 44
+- Search Hints [ui_context]: used 66 / estimated 66
+- Current UI Context [ui_context]: used 17 / estimated 17
+- Current Task [local_task]: used 39 / estimated 39
 
 ## Rendered Context Window
 
@@ -67,16 +78,11 @@ Notes:
 - Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated themes from the matching items.
 
 ## Search Hints
-The selected actor is did:plc:3deilm3cxnqundoo227xudg2. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed.
+Use `llm_search` with a natural-language `query` when you need Bluesky-grounded evidence about a handle/user or about a broader topic. The harness will decide whether to look up actors, hydrate actor collections, or search Bluesky posts globally.
 
 ## Current UI Context
-reason: like
-author_handle: jcorvinus.bsky.social
-author_did: did:plc:3deilm3cxnqundoo227xudg2
-uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.like/3mpzjoh6a4i2s
-indexed_at: 2026-07-07 02:11:31.047 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpzjegjees2d
+No actor is currently selected in the UI.
 
 ## Current Task
-lets see how this actor replies to people, and how people reply to this actor in general, and how that relates to this user's bio and the lists they are on
+what are people saying about rei-cast.xyz? how do people reply to rei-cast.xyz? and how does rei-cast.xyz post? what do they post about?
 ```
