@@ -2,7 +2,7 @@ use crate::harness::agents::{AgentNodeKind, AgentNodeStatus, AgentNodeTemplate};
 use crate::harness::context_window::{
     BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
 };
-use crate::harness::llm_api::{ChatMessage, LlmApiClient};
+use crate::harness::llm_api::{ChatCompletionResponseFormat, ChatMessage, LlmApiClient};
 use crate::harness::prompts::{AgentKind, tool_prompt};
 use crate::model::{LabeledPostCollection, PostRecord};
 use crate::net_backend::{
@@ -288,7 +288,7 @@ impl<'a> LlmSearchComparator<'a> {
         let rendered_context = context_window.rendered.clone();
         let response = self
             .llm_client
-            .complete_chat(
+            .complete_chat_with_response_format(
                 vec![
                     ChatMessage {
                         role: "system".to_string(),
@@ -300,6 +300,7 @@ impl<'a> LlmSearchComparator<'a> {
                     },
                 ],
                 self.max_output_tokens,
+                Some(ChatCompletionResponseFormat::JsonObject),
             )
             .await?;
 
@@ -2376,6 +2377,10 @@ fn parse_llm_search_result(
     collection: &LabeledPostCollection,
     response: &str,
 ) -> Option<LlmSearchResult> {
+    if let Some(result) = parse_llm_search_result_json(collection, response) {
+        return Some(result);
+    }
+
     let search_results = find_matching_uris_from_response(collection, response)
         .into_iter()
         .map(|uri| LlmSearchResultItem {
@@ -2401,6 +2406,68 @@ fn parse_llm_search_result(
 
     let summary = extract_llm_search_summary(response)
         .filter(|summary| !summary.is_empty())
+        .unwrap_or_else(|| fallback_llm_search_summary(collection, &search_results));
+
+    Some(LlmSearchResult {
+        title,
+        summary,
+        search_results,
+    })
+}
+
+fn parse_llm_search_result_json(
+    collection: &LabeledPostCollection,
+    response: &str,
+) -> Option<LlmSearchResult> {
+    let value = serde_json::from_str::<Value>(response).ok()?;
+    let object = value.as_object()?;
+
+    let uris = object
+        .get("uris")
+        .and_then(Value::as_array)
+        .map(|items| {
+            let mut uris = Vec::new();
+            for item in items {
+                let Some(uri) = item.as_str() else {
+                    continue;
+                };
+                push_search_uri(collection, &mut uris, uri, MAX_COLLECTION_SEARCH_RESULTS);
+            }
+            uris
+        })
+        .unwrap_or_default();
+
+    if uris.is_empty() {
+        return None;
+    }
+
+    let search_results = uris
+        .into_iter()
+        .map(|uri| LlmSearchResultItem {
+            source_collection_id: collection
+                .posts
+                .iter()
+                .find(|post| post.uri == uri)
+                .and_then(source_collection_id_from_post)
+                .or_else(|| Some(collection.id.clone())),
+            uri,
+        })
+        .collect::<Vec<_>>();
+
+    let title = object
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("LLM-selected post in {}", collection.label));
+
+    let summary = object
+        .get("summary")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|summary| is_valid_llm_search_summary(summary))
+        .map(str::to_owned)
         .unwrap_or_else(|| fallback_llm_search_summary(collection, &search_results));
 
     Some(LlmSearchResult {
@@ -2503,7 +2570,10 @@ fn is_valid_llm_search_summary(summary: &str) -> bool {
         && !trimmed.starts_with("## ")
         && !trimmed.starts_with("collection_id:")
         && !trimmed.starts_with("item[")
+        && !trimmed.starts_with("matched_item[")
         && !trimmed.starts_with("{")
+        && !trimmed.contains(" item[")
+        && !trimmed.contains(" matched_item[")
 }
 
 fn fallback_llm_search_summary(
@@ -3898,6 +3968,32 @@ mod tests {
 
         assert!(!result.summary.contains("## Collection"));
         assert!(result.summary.contains("AI Fanatics") || result.summary.contains("Please stop"));
+    }
+
+    #[test]
+    fn parse_llm_search_result_accepts_json_object_response() {
+        let collection = LabeledPostCollection::new(
+            "recent:test",
+            "Recent test posts",
+            vec![PostRecord {
+                uri: "at://one".to_string(),
+                author_handle: "alpha.test".to_string(),
+                body: "reply_text: This 3D render looks so cool! Such precise lines.".to_string(),
+            }],
+        )
+        .with_collection_kind("recent_replies_received");
+
+        let result = parse_llm_search_result(
+            &collection,
+            r#"{"title":"grounded","summary":"Replies are enthusiastic and visually focused, with praise like \"This 3D render looks so cool! Such precise lines.\" pointing to direct appreciation of polished technical visuals.","uris":["at://one"]}"#,
+        )
+        .expect("expected parsed result");
+
+        assert_eq!(result.title, "grounded");
+        assert_eq!(result.search_results.len(), 1);
+        assert_eq!(result.search_results[0].uri, "at://one");
+        assert!(result.summary.contains("visually focused"));
+        assert!(!result.summary.contains("item["));
     }
 
     #[test]

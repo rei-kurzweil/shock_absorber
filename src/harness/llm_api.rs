@@ -45,6 +45,13 @@ pub struct LlmApiClient {
     config: OpenAiRestConfig,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(tag = "type")]
+pub enum ChatCompletionResponseFormat {
+    #[serde(rename = "json_object")]
+    JsonObject,
+}
+
 impl LlmApiClient {
     pub fn new(config: OpenAiRestConfig) -> Self {
         Self {
@@ -65,11 +72,22 @@ impl LlmApiClient {
         messages: Vec<ChatMessage>,
         max_tokens: usize,
     ) -> Result<String, Box<dyn std::error::Error>> {
+        self.complete_chat_with_response_format(messages, max_tokens, None)
+            .await
+    }
+
+    pub async fn complete_chat_with_response_format(
+        &self,
+        messages: Vec<ChatMessage>,
+        max_tokens: usize,
+        response_format: Option<ChatCompletionResponseFormat>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let request = ChatCompletionRequest {
             model: self.config.model_name.clone(),
             messages,
             max_tokens,
             stream: false,
+            response_format,
         };
 
         let mut last_error: Option<LlmApiError> = None;
@@ -160,6 +178,8 @@ struct ChatCompletionRequest {
     messages: Vec<ChatMessage>,
     max_tokens: usize,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ChatCompletionResponseFormat>,
 }
 
 #[derive(Debug, Deserialize)]
