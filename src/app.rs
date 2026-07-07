@@ -621,7 +621,7 @@ impl App {
                     ensure_actor_profile_cached(agent, &mut self.store, normalize_actor_ref(actor))
                         .await?;
                 self.selected_actor = Some(profile.clone());
-                ensure_recent_posts_cached(agent, &mut self.store, &profile.did, 20).await?;
+                ensure_recent_posts_cached(agent, &mut self.store, &profile.did, 20, 10).await?;
                 ensure_pinned_posts_cached(agent, &mut self.store, &profile.did).await?;
                 ensure_clearsky_lists_cached(&mut self.store, &profile.did).await?;
                 let lines = format_pins_output(&self.store, &profile);

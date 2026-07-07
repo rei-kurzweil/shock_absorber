@@ -17,6 +17,7 @@ pub enum AgentNodeStatus {
     Ready,
     Running,
     Completed,
+    CompletedWithWarnings,
     Failed,
 }
 
@@ -26,6 +27,7 @@ impl AgentNodeStatus {
             Self::Ready => "ready",
             Self::Running => "running",
             Self::Completed => "completed",
+            Self::CompletedWithWarnings => "warning",
             Self::Failed => "failed",
         }
     }

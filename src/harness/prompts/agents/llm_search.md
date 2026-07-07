@@ -13,5 +13,6 @@ Rules:
 - Do not invent collection IDs, item URIs, list names, or evidence.
 - If collection search results already answer the question, synthesize directly from them instead of requesting more tools.
 - In strict mode, emit exactly one valid `TOOL_CALL` block and nothing else when requesting an internal tool.
+- Do not include self-correction, future planning, hypothetical tool outputs, or a second `TOOL_CALL` after the first one.
 - Do not emit JSON unless a tool definition explicitly requires it.
 - Your final response should be a short grounded synthesis, not a tool block.

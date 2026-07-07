@@ -58,45 +58,6 @@ impl ToolRegistry {
                 ],
             },
             ToolSpec {
-                name: "list_collections".to_string(),
-                description: "List cached collections, either globally or for one actor.".to_string(),
-                arguments: vec![ToolArgumentSpec {
-                    name: "actor_did".to_string(),
-                    value_type: "string".to_string(),
-                    description: "Optional actor DID. If provided, only collections related to that actor are listed.".to_string(),
-                    required: false,
-                }],
-                when_to_use: "Use when you need to know what cached collections exist before searching or reading an item.".to_string(),
-                notes: vec![
-                    "Returns compact collection summaries.".to_string(),
-                    "If `actor_did` is omitted, all cached collections are listed.".to_string(),
-                    "Actor-scoped reply collections may include recent inbound replies from other actors when they have been cached.".to_string(),
-                ],
-            },
-            ToolSpec {
-                name: "read_collection_item".to_string(),
-                description: "Read one specific item from a collection in a richer form suitable for loading into context.".to_string(),
-                arguments: vec![
-                    ToolArgumentSpec {
-                        name: "collection_id".to_string(),
-                        value_type: "string".to_string(),
-                        description: "The collection containing the item.".to_string(),
-                        required: true,
-                    },
-                    ToolArgumentSpec {
-                        name: "item_uri".to_string(),
-                        value_type: "string".to_string(),
-                        description: "The URI of the item to read.".to_string(),
-                        required: true,
-                    },
-                ],
-                when_to_use: "Use after search when you want one item and its richer details in the active context.".to_string(),
-                notes: vec![
-                    "Reads the exact item selected from a search result.".to_string(),
-                    "For reply-oriented collections, returns the synthesized reply record body.".to_string(),
-                ],
-            },
-            ToolSpec {
                 name: "llm_search".to_string(),
                 description: "Search Bluesky at a high level, including looking up handles/users or searching posts by topic, then return grounded evidence anchored to real records.".to_string(),
                 arguments: vec![
@@ -217,6 +178,12 @@ impl LlmSearchExecution {
                 self.review_verdict.as_ref().map(|verdict| &verdict.status),
                 Some(CollectionReviewStatus::Fail)
             )
+    }
+
+    fn has_warnings(&self) -> bool {
+        self.diagnostic.is_some()
+            || self.repair_diagnostic.is_some()
+            || result_uses_fallback_summary(self)
     }
 }
 
@@ -353,6 +320,9 @@ pub struct BlueskyTools;
 
 const COLLECTION_SEARCH_PAGE_SIZE: usize = 25;
 const MAX_COLLECTION_SEARCH_RESULTS: usize = 10;
+const ACTOR_SEARCH_POST_TARGET: usize = 25;
+const ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT: usize = 100;
+const ACTOR_SCOPE_REPLY_FETCH_LIMIT: usize = 100;
 
 impl BlueskyTools {
     pub fn new() -> Self {
@@ -440,23 +410,6 @@ impl BlueskyTools {
                 context_windows: Vec::new(),
                 agent_node: None,
             }),
-            "list_collections" => {
-                let actor_did = optional_did_arg(&tool_call.args, "actor_did")?;
-                Ok(ToolExecutionOutput {
-                    rendered: self.list_collections(store, actor_did.as_ref()),
-                    context_windows: Vec::new(),
-                    agent_node: None,
-                })
-            }
-            "read_collection_item" => {
-                let collection_id = require_string_arg(&tool_call.args, "collection_id")?;
-                let item_uri = require_string_arg(&tool_call.args, "item_uri")?;
-                Ok(ToolExecutionOutput {
-                    rendered: self.read_collection_item(store, &collection_id, &item_uri)?,
-                    context_windows: Vec::new(),
-                    agent_node: None,
-                })
-            }
             "llm_search" => {
                 let query = require_string_arg(&tool_call.args, "query")?;
                 if let Some(observer) = observer.as_ref() {
@@ -827,7 +780,14 @@ impl BlueskyTools {
             .posts
             .iter()
             .find(|post| post.uri == item_uri)
-            .ok_or_else(|| format!("item `{item_uri}` was not found in `{collection_id}`"))?;
+            .ok_or_else(|| {
+                let hint = if collection.collection_kind == "clearsky_lists" {
+                    " `clearsky_lists` items are keyed by their exact stored list URL, not by inferred AT URIs. Use `llm_search` for moderation-list questions, or reuse an exact `search_result_*_uri` from a prior tool result."
+                } else {
+                    " Reuse an exact `search_result_*_uri` or `selected_result_uri` from a prior tool result; do not invent an item URI."
+                };
+                format!("item `{item_uri}` was not found in `{collection_id}`.{hint}")
+            })?;
 
         let mut lines = vec![
             format!("collection_id: {}", collection.id),
@@ -1068,7 +1028,13 @@ impl BlueskyTools {
                         collections.push(collection);
                     }
 
-                    ensure_recent_replies_received_cached(agent, store, &profile.did, 20, 50)
+                    ensure_recent_replies_received_cached(
+                        agent,
+                        store,
+                        &profile.did,
+                        ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT,
+                        ACTOR_SCOPE_REPLY_FETCH_LIMIT,
+                    )
                         .await?;
                     if let Some(collection) = self.resolve_collection_by_id(
                         store,
@@ -1084,7 +1050,14 @@ impl BlueskyTools {
                         collections.push(collection);
                     }
 
-                    ensure_recent_posts_cached(agent, store, &profile.did, 20).await?;
+                    ensure_recent_posts_cached(
+                        agent,
+                        store,
+                        &profile.did,
+                        ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT,
+                        ACTOR_SEARCH_POST_TARGET,
+                    )
+                    .await?;
                     if let Some(collection) = self.resolve_collection_by_id(
                         store,
                         &self.recent_posts_collection_id(&profile.did),
@@ -1093,9 +1066,22 @@ impl BlueskyTools {
                     }
                 }
                 SearchIntent::General => {
-                    ensure_recent_posts_cached(agent, store, &profile.did, 20).await?;
+                    ensure_recent_posts_cached(
+                        agent,
+                        store,
+                        &profile.did,
+                        ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT,
+                        ACTOR_SEARCH_POST_TARGET,
+                    )
+                    .await?;
                     ensure_pinned_posts_cached(agent, store, &profile.did).await?;
-                    ensure_recent_replies_received_cached(agent, store, &profile.did, 20, 50)
+                    ensure_recent_replies_received_cached(
+                        agent,
+                        store,
+                        &profile.did,
+                        ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT,
+                        ACTOR_SCOPE_REPLY_FETCH_LIMIT,
+                    )
                         .await?;
                     let _ = ensure_clearsky_lists_cached(store, &profile.did).await;
                     collections.extend(self.collections_for_actor(store, &profile.did));
@@ -1373,7 +1359,14 @@ impl BlueskyTools {
             lines.push(format!("collection_label: {}", collection.label));
         }
         if include_recent_posts {
-            ensure_recent_posts_cached(agent, store, actor_did, 20).await?;
+            ensure_recent_posts_cached(
+                agent,
+                store,
+                actor_did,
+                ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT,
+                ACTOR_SEARCH_POST_TARGET,
+            )
+            .await?;
             let collection_id = self.recent_posts_collection_id(actor_did);
             let collection = self
                 .resolve_collection_by_id(store, &collection_id)
@@ -1391,7 +1384,14 @@ impl BlueskyTools {
             lines.push(format!("collection_label: {}", collection.label));
         }
         if include_recent_replies_received {
-            ensure_recent_replies_received_cached(agent, store, actor_did, 20, 50).await?;
+            ensure_recent_replies_received_cached(
+                agent,
+                store,
+                actor_did,
+                ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT,
+                ACTOR_SCOPE_REPLY_FETCH_LIMIT,
+            )
+            .await?;
             let collection_id = format!("recent_replies_received:{}", actor_did.as_str());
             let collection = self
                 .resolve_collection_by_id(store, &collection_id)
@@ -1665,15 +1665,6 @@ fn validate_internal_tool_response(response: &str) -> InternalToolResponse {
             "strict internal mode requires exactly one parseable TOOL_CALL block".to_string(),
         );
     };
-
-    if discarded_trailing
-        .as_deref()
-        .is_some_and(|trailing| trailing.contains("TOOL_CALL"))
-    {
-        return InternalToolResponse::Invalid(
-            "strict internal mode requires one unambiguous TOOL_CALL block".to_string(),
-        );
-    }
 
     InternalToolResponse::ToolCall(AcceptedInternalToolCall {
         tool_call,
@@ -2800,6 +2791,14 @@ fn build_llm_search_agent_node(
                 .unwrap_or(true)
         }) {
             AgentNodeStatus::Failed
+        } else if outcomes.iter().any(|outcome| {
+            outcome
+                .execution
+                .as_ref()
+                .map(|execution| execution.has_warnings())
+                .unwrap_or(false)
+        }) {
+            AgentNodeStatus::CompletedWithWarnings
         } else {
             AgentNodeStatus::Completed
         },
@@ -2820,7 +2819,11 @@ fn build_collection_search_agent_node(outcome: &CollectionSearchOutcome) -> Agen
     let (status, context_window_report, result_summary) = match outcome.execution.as_ref() {
         Ok(execution) => (
             if execution.is_usable() {
-                AgentNodeStatus::Completed
+                if execution.has_warnings() {
+                    AgentNodeStatus::CompletedWithWarnings
+                } else {
+                    AgentNodeStatus::Completed
+                }
             } else {
                 AgentNodeStatus::Failed
             },
@@ -2860,7 +2863,13 @@ fn build_collection_review_agent_node(execution: &LlmSearchExecution) -> Option<
         agent_kind: Some(AgentKind::CollectionReview),
         label: "collection review".to_string(),
         status: match verdict.status {
-            CollectionReviewStatus::Pass => AgentNodeStatus::Completed,
+            CollectionReviewStatus::Pass => {
+                if execution.repair_diagnostic.is_some() {
+                    AgentNodeStatus::CompletedWithWarnings
+                } else {
+                    AgentNodeStatus::Completed
+                }
+            }
             CollectionReviewStatus::Fail => AgentNodeStatus::Failed,
         },
         tool_name: None,
@@ -3311,6 +3320,22 @@ fn reduced_search_budget(collection: &LabeledPostCollection) -> (usize, usize) {
     }
 
     (12, 280)
+}
+
+fn result_uses_fallback_summary(execution: &LlmSearchExecution) -> bool {
+    execution
+        .result
+        .as_ref()
+        .map(|result| {
+            result.summary.contains("The model did not return a fully structured")
+                || result
+                    .summary
+                    .contains("This fallback summary is derived directly")
+                || result
+                    .summary
+                    .contains("a follow-up pass may be needed")
+        })
+        .unwrap_or(false)
 }
 
 fn sample_posts_evenly(posts: &[PostRecord], max_posts: usize) -> Vec<&PostRecord> {
@@ -3886,10 +3911,21 @@ mod tests {
     }
 
     #[test]
-    fn strict_internal_tool_response_rejects_multiple_tool_blocks() {
+    fn strict_internal_tool_response_accepts_first_tool_block_and_discards_later_blocks() {
         let response = "TOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}\n\nTOOL_CALL\nname: search_global_posts\nargs: {\"query\":\"duplicate\"}";
         let result = validate_internal_tool_response(response);
-        assert!(matches!(result, super::InternalToolResponse::Invalid(_)));
+        match result {
+            super::InternalToolResponse::ToolCall(accepted) => {
+                assert_eq!(accepted.tool_call.name, "collection_search");
+                assert!(
+                    accepted
+                        .discarded_trailing
+                        .as_deref()
+                        .is_some_and(|trailing| trailing.contains("search_global_posts"))
+                );
+            }
+            other => panic!("expected accepted tool call, got {other:?}"),
+        }
     }
 
     #[test]

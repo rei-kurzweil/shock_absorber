@@ -25,7 +25,7 @@ The Current UI Context section is intentionally compact and does not include ful
 
 Use `read_selected_post` when you need the selected post or reply body and facets.
 
-Use `list_collections` before search when you need to inspect cache boundaries.
+For actor reputation, sentiment, faction, or moderation-list questions, prefer `llm_search` directly instead of manually walking collections.
 
 Use `llm_search` for high-level Bluesky search.
 
@@ -36,16 +36,6 @@ Do not rewrite a broad semantic question into a checklist of literal keywords or
 Do not add low-level search-scope details like collection IDs or actor DIDs unless the user explicitly asked for them in the wording of the search itself.
 
 For structured list records, prefer exact fields like `list_name` and `list_description` as evidence.
-
-If an `llm_search` result includes `source_collection_id`, reuse that exact value for `read_collection_item`; do not infer collection IDs from an item URI.
-
-If an `llm_search` result includes `search_result_*_uri`, reuse one of those exact URI values verbatim for `read_collection_item`.
-
-Never invent, assume, or fabricate an `item_uri` for `read_collection_item`.
-
-If no exact item URI is available in the tool result, do not call `read_collection_item`.
-
-Use `read_collection_item` when a chosen item should be loaded into context with more detail.
 
 After a tool result is provided, either answer directly or request one more tool.
 

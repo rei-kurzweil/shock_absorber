@@ -55,7 +55,6 @@ pub async fn run_root_query_task(
     let result: Result<(RootRunState, NotificationStore, String), Box<dyn Error>> = async {
         let mut response = String::new();
         let mut hit_tool_round_limit = false;
-        let mut last_failed_read_collection_id: Option<String> = None;
 
         let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
 
@@ -72,10 +71,6 @@ pub async fn run_root_query_task(
 
             let tool_name = tool_call.name.clone();
             let tool_args = serde_json::to_string(&tool_call.args)?;
-            let duplicate_search_after_failed_read = repeated_llm_search_after_failed_read(
-                &tool_call,
-                last_failed_read_collection_id.as_deref(),
-            );
             let blocked_root_rerun = blocked_root_llm_search_rerun(
                 &tool_call,
                 root_run.latest_successful_llm_search(),
@@ -84,19 +79,12 @@ pub async fn run_root_query_task(
                 "[tool_prep] inspecting tool `{}` for possible initial collection refresh",
                 tool_call.name
             )];
-            if let Some(collection_id) = duplicate_search_after_failed_read.as_deref() {
-                prep_log.push(format!(
-                    "[tool_prep] prevented immediate re-search of `{collection_id}` after a failed `read_collection_item`"
-                ));
-            }
             if let Some(reason) = blocked_root_rerun.as_deref() {
                 prep_log.push(format!(
                     "[tool_prep] blocked root llm_search rerun because a prior grounded result already covers this scope: {reason}"
                 ));
             }
-            let actor_dids = if duplicate_search_after_failed_read.is_some()
-                || blocked_root_rerun.is_some()
-            {
+            let actor_dids = if blocked_root_rerun.is_some() {
                 Vec::new()
             } else {
                 planned_tool_call_refresh_targets(&store, selected_actor_did.clone(), &tool_call)
@@ -104,7 +92,7 @@ pub async fn run_root_query_task(
             root_run.record_tool_call(
                 round + 1,
                 &tool_call,
-                duplicate_search_after_failed_read.is_none() && blocked_root_rerun.is_none(),
+                blocked_root_rerun.is_none(),
             )?;
 
             root_run.set_active_tool_entry(Some(build_tool_entry(
@@ -153,7 +141,7 @@ pub async fn run_root_query_task(
                     let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
                     if let Err(message) = run_tool_prep_step(
                         INITIAL_COLLECTION_REFRESH_TIMEOUT,
-                        ensure_recent_posts_cached(&agent, &mut store, &did, 20),
+                        ensure_recent_posts_cached(&agent, &mut store, &did, 100, 25),
                         format!("ensure_recent_posts_cached {}", did.as_str()),
                     )
                     .await
@@ -269,15 +257,7 @@ pub async fn run_root_query_task(
                     let _ = progress_sender.send(RootRunEvent::ToolProgress(event));
                 }
             });
-            let tool_output = if let Some(collection_id) = duplicate_search_after_failed_read.as_deref() {
-                crate::harness::tools::ToolExecutionOutput {
-                    rendered: format!(
-                        "Tool execution prevented: the previous `read_collection_item` failed for `{collection_id}` because the requested item URI was not one of the returned search results.\n\nReuse one of the existing `search_result_*_uri` values from the prior `llm_search` result, or answer directly from that grounded summary. Do not rerun the same collection search unchanged."
-                    ),
-                    context_windows: Vec::new(),
-                    agent_node: None,
-                }
-            } else if let Some(reason) = blocked_root_rerun.as_deref() {
+            let tool_output = if let Some(reason) = blocked_root_rerun.as_deref() {
                 let prior = root_run
                     .latest_successful_llm_search()
                     .expect("blocked rerun requires prior grounded result");
@@ -341,20 +321,6 @@ pub async fn run_root_query_task(
                 }
             }
 
-            if tool_name == "read_collection_item" {
-                if tool_output.contains("Tool execution failed:") {
-                    last_failed_read_collection_id = tool_call
-                        .args
-                        .get("collection_id")
-                        .and_then(|value| value.as_str())
-                        .map(str::to_string);
-                } else {
-                    last_failed_read_collection_id = None;
-                }
-            } else if duplicate_search_after_failed_read.is_none() && blocked_root_rerun.is_none() {
-                last_failed_read_collection_id = None;
-            }
-
             if blocked_root_rerun.is_some() {
                 root_run.push_transcript_entry(
                     TranscriptEntryKind::Notice,
@@ -388,7 +354,7 @@ pub async fn run_root_query_task(
                 round + 1,
                 response.clone(),
                 Some(tool_call.clone()),
-                duplicate_search_after_failed_read.is_none() && blocked_root_rerun.is_none(),
+                blocked_root_rerun.is_none(),
                 Some(tool_output.clone()),
             );
             if let Some(failure_answer) = hard_tool_failure_answer {
@@ -631,15 +597,6 @@ fn deterministic_tool_failure_answer(tool_name: &str, tool_output: &str) -> Opti
         );
     }
 
-    None
-}
-
-fn repeated_llm_search_after_failed_read(
-    tool_call: &PromptToolCall,
-    last_failed_read_collection_id: Option<&str>,
-) -> Option<String> {
-    let _ = tool_call;
-    let _ = last_failed_read_collection_id;
     None
 }
 
@@ -887,55 +844,16 @@ fn actor_needs_initial_refresh(
     store.actor_post_collections(actor_did).is_empty()
 }
 
-fn collection_needs_initial_refresh(store: &NotificationStore, collection_id: &str) -> bool {
-    match store.get_post_collection(collection_id) {
-        Some(collection) => collection.posts.is_empty() && collection.last_refreshed_at == 0,
-        None => actor_did_from_collection_id(collection_id).is_some(),
-    }
-}
-
-fn actor_did_from_collection_id(collection_id: &str) -> Option<bsky_sdk::api::types::string::Did> {
-    collection_id
-        .split_once(':')
-        .map(|(_, rest)| rest)
-        .and_then(|rest| rest.parse().ok())
-}
-
 fn planned_tool_call_refresh_targets(
-    store: &NotificationStore,
+    _store: &NotificationStore,
     selected_actor_did: Option<bsky_sdk::api::types::string::Did>,
     tool_call: &PromptToolCall,
 ) -> Vec<bsky_sdk::api::types::string::Did> {
     let _ = selected_actor_did;
-    let mut actor_dids = Vec::new();
+    let mut actor_dids: Vec<bsky_sdk::api::types::string::Did> = Vec::new();
 
     match tool_call.name.as_str() {
-        "list_collections" => {
-            if let Some(did) = tool_call
-                .args
-                .get("actor_did")
-                .and_then(|value| value.as_str())
-                .and_then(|value| value.parse().ok())
-            {
-                if actor_needs_initial_refresh(store, &did) {
-                    actor_dids.push(did);
-                }
-            }
-        }
         "llm_search" => {}
-        "read_collection_item" => {
-            if let Some(collection_id) = tool_call
-                .args
-                .get("collection_id")
-                .and_then(|value| value.as_str())
-            {
-                if collection_needs_initial_refresh(store, collection_id) {
-                    if let Some(did) = actor_did_from_collection_id(collection_id) {
-                        actor_dids.push(did);
-                    }
-                }
-            }
-        }
         _ => {}
     }
 

@@ -9,6 +9,7 @@ use reqwest::Client;
 use std::collections::{HashMap, HashSet};
 
 const DEFAULT_COLLECTION_REFRESH_TTL_SECONDS: u64 = 15 * 60;
+const AUTHOR_FEED_PAGE_SIZE: usize = 25;
 
 #[derive(Clone)]
 pub struct NotificationStore {
@@ -343,7 +344,7 @@ pub async fn poll_notifications(
     }
 
     for did in seen_dids {
-        ensure_recent_posts_cached(agent, store, &did, 20).await?;
+        ensure_recent_posts_cached(agent, store, &did, 20, 10).await?;
         ensure_pinned_posts_cached(agent, store, &did).await?;
         ensure_clearsky_lists_cached(store, &did).await?;
     }
@@ -504,37 +505,70 @@ pub async fn ensure_recent_posts_cached(
     agent: &BskyAgent,
     store: &mut NotificationStore,
     did: &Did,
-    limit: u8,
+    feed_fetch_limit: usize,
+    min_top_level_posts: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if store.get_recent_posts_unaddressed_collection(did).is_some()
-        && store.get_recent_replies_sent_collection(did).is_some()
-    {
-        return Ok(());
+    if let (Some(posts), Some(replies)) = (
+        store.get_recent_posts_unaddressed_collection(did),
+        store.get_recent_replies_sent_collection(did),
+    ) {
+        let cached_total = posts.posts.len().saturating_add(replies.posts.len());
+        if posts.posts.len() >= min_top_level_posts || cached_total >= feed_fetch_limit {
+            return Ok(());
+        }
     }
 
-    let feed = agent
-        .api
-        .app
-        .bsky
-        .feed
-        .get_author_feed(
-            feed::get_author_feed::ParametersData {
-                actor: AtIdentifier::Did(did.clone()),
-                cursor: None,
-                filter: None,
-                include_pins: Some(false),
-                limit: Some(limit.try_into()?),
-            }
-            .into(),
-        )
-        .await?;
+    let mut cursor = None;
+    let mut recent_posts = Vec::new();
+    let mut remaining_fetch_budget = feed_fetch_limit;
 
-    let recent_posts = feed
-        .data
-        .feed
-        .into_iter()
-        .map(|item| item.post.clone())
-        .collect::<Vec<_>>();
+    while remaining_fetch_budget > 0 {
+        let page_size = remaining_fetch_budget.min(AUTHOR_FEED_PAGE_SIZE);
+        let feed = agent
+            .api
+            .app
+            .bsky
+            .feed
+            .get_author_feed(
+                feed::get_author_feed::ParametersData {
+                    actor: AtIdentifier::Did(did.clone()),
+                    cursor: cursor.clone(),
+                    filter: None,
+                    include_pins: Some(false),
+                    limit: Some(u8::try_from(page_size)?.try_into()?),
+                }
+                .into(),
+            )
+            .await?;
+
+        let next_cursor = feed.data.cursor.clone();
+        let page_posts = feed
+            .data
+            .feed
+            .into_iter()
+            .map(|item| item.post.clone())
+            .collect::<Vec<_>>();
+        if page_posts.is_empty() {
+            break;
+        }
+
+        remaining_fetch_budget = remaining_fetch_budget.saturating_sub(page_posts.len());
+        recent_posts.extend(page_posts);
+
+        let top_level_count = recent_posts
+            .iter()
+            .filter(|post| !is_reply_record(&post.record))
+            .count();
+        if top_level_count >= min_top_level_posts {
+            break;
+        }
+
+        let Some(next_cursor) = next_cursor else {
+            break;
+        };
+        cursor = Some(next_cursor);
+    }
+
     let (recent_posts_unaddressed, recent_replies_sent): (Vec<_>, Vec<_>) = recent_posts
         .into_iter()
         .partition(|post| !is_reply_record(&post.record));
@@ -555,14 +589,16 @@ pub async fn ensure_recent_replies_received_cached(
     agent: &BskyAgent,
     store: &mut NotificationStore,
     did: &Did,
-    post_limit: u8,
+    post_limit: usize,
     reply_limit: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if store.get_recent_replies_received_collection(did).is_some() {
-        return Ok(());
+    if let Some(existing) = store.get_recent_replies_received_collection(did) {
+        if existing.posts.len() >= reply_limit.min(25) {
+            return Ok(());
+        }
     }
 
-    ensure_recent_posts_cached(agent, store, did, post_limit).await?;
+    ensure_recent_posts_cached(agent, store, did, post_limit, 25).await?;
     ensure_pinned_posts_cached(agent, store, did).await?;
 
     let mut source_posts = Vec::new();
