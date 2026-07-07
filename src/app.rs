@@ -1163,6 +1163,8 @@ pub async fn run_app(
                 PresentationMode::Tui => {
                     stdout_chat.leave(terminal.backend_mut())?;
                     execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                    terminal.clear()?;
+                    terminal.draw(|frame| draw_ui(frame, &app))?;
                 }
             }
             terminal_mode = app.presentation_mode();
