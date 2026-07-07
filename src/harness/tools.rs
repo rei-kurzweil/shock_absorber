@@ -181,7 +181,6 @@ impl LlmSearchExecution {
 
     fn has_warnings(&self) -> bool {
         self.diagnostic.is_some()
-            || self.repair_diagnostic.is_some()
             || result_uses_fallback_summary(self)
     }
 }
@@ -2947,13 +2946,7 @@ fn build_collection_review_agent_node(execution: &LlmSearchExecution) -> Option<
         agent_kind: Some(AgentKind::CollectionReview),
         label: "collection review".to_string(),
         status: match verdict.status {
-            CollectionReviewStatus::Pass => {
-                if execution.repair_diagnostic.is_some() {
-                    AgentNodeStatus::CompletedWithWarnings
-                } else {
-                    AgentNodeStatus::Completed
-                }
-            }
+            CollectionReviewStatus::Pass => AgentNodeStatus::Completed,
             CollectionReviewStatus::Fail => AgentNodeStatus::Failed,
         },
         tool_name: None,
