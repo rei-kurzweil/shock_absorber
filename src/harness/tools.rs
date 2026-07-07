@@ -1035,7 +1035,7 @@ impl BlueskyTools {
                         ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT,
                         ACTOR_SCOPE_REPLY_FETCH_LIMIT,
                     )
-                        .await?;
+                    .await?;
                     if let Some(collection) = self.resolve_collection_by_id(
                         store,
                         &format!("recent_replies_received:{}", profile.did.as_str()),
@@ -1082,7 +1082,7 @@ impl BlueskyTools {
                         ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT,
                         ACTOR_SCOPE_REPLY_FETCH_LIMIT,
                     )
-                        .await?;
+                    .await?;
                     let _ = ensure_clearsky_lists_cached(store, &profile.did).await;
                     collections.extend(self.collections_for_actor(store, &profile.did));
                 }
@@ -1271,7 +1271,7 @@ impl BlueskyTools {
             let repair_summary =
                 repair_collection_summary(collection, &execution, prompt, &verdict);
             execution.repair_diagnostic = Some(format!(
-                "Initial review failed. Original summary: {}",
+                "Initial review failed. Applied deterministic cited repair when possible. Original summary: {}",
                 truncate_chars(&original_summary, 240)
             ));
             if let Some(result) = execution.result.as_mut() {
@@ -1907,7 +1907,10 @@ fn heuristic_collection_review(
         "model did not return a fully structured summary paragraph",
         "Grounded evidence was found in",
     ];
-    if fallback_markers.iter().any(|marker| summary.contains(marker)) {
+    if fallback_markers
+        .iter()
+        .any(|marker| summary.contains(marker))
+    {
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
             reason: "The summary is fallback diagnostic text rather than a grounded collection summary.".to_string(),
@@ -2001,7 +2004,7 @@ fn repair_collection_summary(
     verdict: &CollectionReviewVerdict,
 ) -> String {
     if let Some(original_result) = execution.original_result.as_ref() {
-        let summary = grounded_repair_summary(collection, &original_result.search_results);
+        let summary = deterministic_repair_summary(collection, &original_result.search_results);
         if !summary.trim().is_empty() {
             return summary;
         }
@@ -2011,7 +2014,7 @@ fn repair_collection_summary(
     })
 }
 
-fn grounded_repair_summary(
+fn deterministic_repair_summary(
     collection: &LabeledPostCollection,
     search_results: &[LlmSearchResultItem],
 ) -> String {
@@ -2025,135 +2028,163 @@ fn grounded_repair_summary(
     }
 
     if collection.collection_kind == "clearsky_lists" {
-        return grounded_clearsky_list_summary(&selected_posts);
+        return deterministic_clearsky_list_summary(&selected_posts);
     }
 
-    let hints = selected_posts
-        .iter()
-        .flat_map(|post| candidate_hints(post))
-        .map(|hint| hint.trim().to_string())
-        .filter(|hint| hint.len() >= 4)
-        .fold(Vec::<String>::new(), |mut acc, hint| {
-            if !acc.iter().any(|seen| seen == &hint) {
-                acc.push(hint);
-            }
-            acc
-        });
+    deterministic_post_summary(&selected_posts)
+}
 
-    let strongest = hints.iter().take(3).cloned().collect::<Vec<_>>();
-    let secondary = hints
+fn deterministic_clearsky_list_summary(selected_posts: &[&PostRecord]) -> String {
+    let mut sentences = vec![format!(
+        "Selected moderation-list evidence is drawn from {} cited record(s).",
+        selected_posts.len()
+    )];
+
+    let evidence = selected_posts
         .iter()
-        .skip(3)
-        .take(3)
-        .cloned()
+        .enumerate()
+        .map(|(index, post)| render_repaired_list_evidence_item(index, post))
         .collect::<Vec<_>>();
 
-    let mut sentences = Vec::new();
-    sentences.push(format!(
-        "The selected records center on {}.",
-        join_quoted(&strongest)
-    ));
-    if !secondary.is_empty() {
-        sentences.push(format!(
-            "Secondary supporting signals include {}.",
-            join_quoted(&secondary)
-        ));
+    let lower_names = selected_posts
+        .iter()
+        .filter_map(|post| body_field_map(&post.body).get("list_name").cloned())
+        .map(|name| name.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let has_negative = lower_names.iter().any(|name| {
+        name.contains("ai")
+            || name.contains("crypto")
+            || name.contains("cull")
+            || name.contains("shithead")
+            || name.contains("cunts")
+    });
+    let has_neutral_or_positive = lower_names.iter().any(|name| {
+        name.starts_with("follows of @")
+            || name.contains("insightful")
+            || name.contains("unmissable")
+            || name.contains("commentary")
+    });
+    if has_negative && has_neutral_or_positive {
+        sentences.push(
+            "The cited items mix neutral or positive labels with more judgmental AI/crypto-themed labels."
+                .to_string(),
+        );
     }
-    sentences.push(format!(
-        "The evidence is drawn from {} matched record(s), so it should be treated as {}.",
-        selected_posts.len(),
-        if selected_posts.len() <= 2 {
-            "narrow but specific"
-        } else {
-            "a compact but grounded slice of the collection"
-        }
-    ));
+    sentences.push(evidence.join(" "));
     sentences.join(" ")
 }
 
-fn grounded_clearsky_list_summary(selected_posts: &[&PostRecord]) -> String {
-    let mut list_counts = HashMap::<String, usize>::new();
-    let mut list_descriptions = HashMap::<String, String>::new();
-
-    for post in selected_posts {
-        let fields = body_field_map(&post.body);
-        let Some(list_name) = fields.get("list_name").map(|value| value.trim()) else {
-            continue;
-        };
-        if list_name.is_empty() {
-            continue;
-        }
-        *list_counts.entry(list_name.to_string()).or_insert(0) += 1;
-        if let Some(description) = fields.get("list_description").map(|value| value.trim()) {
-            if !description.is_empty() {
-                list_descriptions
-                    .entry(list_name.to_string())
-                    .or_insert_with(|| description.to_string());
-            }
-        }
-    }
-
-    let mut ranked = list_counts.into_iter().collect::<Vec<_>>();
-    ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
-
-    let primary = ranked
+fn deterministic_post_summary(selected_posts: &[&PostRecord]) -> String {
+    let source_post_count = selected_posts
         .iter()
-        .take(2)
-        .map(|(name, count)| {
-            if let Some(description) = list_descriptions.get(name) {
-                format!("\"{}\" ({} record{}, described as \"{}\")", name, count, if *count == 1 { "" } else { "s" }, description)
-            } else {
-                format!("\"{}\" ({} record{})", name, count, if *count == 1 { "" } else { "s" })
-            }
+        .filter_map(|post| body_field_map(&post.body).get("source_post_uri").cloned())
+        .collect::<HashSet<_>>()
+        .len();
+    let reply_like_count = selected_posts
+        .iter()
+        .filter(|post| {
+            body_field_map(&post.body)
+                .get("reply_text")
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
         })
-        .collect::<Vec<_>>();
-    let secondary = ranked
-        .iter()
-        .skip(2)
-        .take(4)
-        .map(|(name, _)| format!("\"{}\"", name))
-        .collect::<Vec<_>>();
-
-    let has_mixed_tone = ranked.iter().any(|(name, _)| {
-        let lower = name.to_ascii_lowercase();
-        lower.contains("ai")
-            || lower.contains("crypto")
-            || lower.contains("cull")
-            || lower.contains("shithead")
-    }) && ranked.iter().any(|(name, _)| name.starts_with("Follows of @"));
-
-    let mut sentences = Vec::new();
-    sentences.push(format!(
-        "The matched moderation-list evidence is led by {}.",
-        primary.join(" and ")
-    ));
-    if !secondary.is_empty() {
+        .count();
+    let mut sentences = vec![format!(
+        "Selected evidence is drawn from {} cited record(s){}.",
+        selected_posts.len(),
+        if source_post_count > 0 {
+            format!(" across {} source post(s)", source_post_count)
+        } else {
+            String::new()
+        }
+    )];
+    if reply_like_count > 0 {
         sentences.push(format!(
-            "Secondary list labels include {}.",
-            secondary.join(", ")
+            "{} of those cited records include captured reply text.",
+            reply_like_count
         ));
     }
-    if has_mixed_tone {
-        sentences.push(
-            "This creates a clear split between neutral follow-graph copies and more judgmental or topical list labels, so the collection is internally mixed rather than a single consistent signal."
-                .to_string(),
-        );
-    } else {
-        sentences.push(
-            "The strongest repeated list names matter more than the one-off labels because they recur across multiple matched records."
-                .to_string(),
-        );
-    }
-    sentences.push(format!(
-        "Overall the evidence is {} because it comes from {} selected list record(s).",
-        if selected_posts.len() >= 6 {
-            "fairly broad"
-        } else {
-            "relatively narrow"
-        },
-        selected_posts.len()
-    ));
+
+    let evidence = selected_posts
+        .iter()
+        .enumerate()
+        .map(|(index, post)| render_repaired_post_evidence_item(index, post))
+        .collect::<Vec<_>>();
+    sentences.push(evidence.join(" "));
     sentences.join(" ")
+}
+
+fn render_repaired_list_evidence_item(index: usize, post: &PostRecord) -> String {
+    let fields = body_field_map(&post.body);
+    let name = fields
+        .get("list_name")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("<missing list name>");
+    let description = fields
+        .get("list_description")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| truncate_chars(&collapse_whitespace(value), 140));
+
+    match description {
+        Some(description) => format!("[{index}] \"{name}\" - \"{description}\"."),
+        None => format!("[{index}] \"{name}\" - no description."),
+    }
+}
+
+fn render_repaired_post_evidence_item(index: usize, post: &PostRecord) -> String {
+    let snippet = extract_repaired_post_snippet(post)
+        .unwrap_or_else(|| "no grounded text was captured for this item".to_string());
+    format!(
+        "[{index}] @{}: \"{}\".",
+        post.author_handle,
+        truncate_chars(&collapse_whitespace(&snippet), 160)
+    )
+}
+
+fn extract_repaired_post_snippet(post: &PostRecord) -> Option<String> {
+    let fields = body_field_map(&post.body);
+    if let Some(reply_text) = fields.get("reply_text").map(|value| value.trim()) {
+        if !reply_text.is_empty() {
+            return Some(reply_text.to_string());
+        }
+    }
+
+    let filtered_lines = post
+        .body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| !matches_repair_metadata_line(line))
+        .collect::<Vec<_>>();
+
+    if filtered_lines.is_empty() {
+        None
+    } else {
+        Some(filtered_lines.join(" "))
+    }
+}
+
+fn matches_repair_metadata_line(line: &str) -> bool {
+    [
+        "source_post_uri:",
+        "source_collection_id:",
+        "source_collection_label:",
+        "link:",
+        "uri:",
+        "did:",
+        "author:",
+        "reply_text:",
+        "list_name:",
+        "list_description:",
+    ]
+    .iter()
+    .any(|prefix| line.starts_with(prefix))
+}
+
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn join_quoted(items: &[String]) -> String {
@@ -3505,13 +3536,13 @@ fn result_uses_fallback_summary(execution: &LlmSearchExecution) -> bool {
         .result
         .as_ref()
         .map(|result| {
-            result.summary.contains("The model did not return a fully structured")
+            result
+                .summary
+                .contains("The model did not return a fully structured")
                 || result
                     .summary
                     .contains("This fallback summary is derived directly")
-                || result
-                    .summary
-                    .contains("a follow-up pass may be needed")
+                || result.summary.contains("a follow-up pass may be needed")
         })
         .unwrap_or(false)
 }
@@ -3685,8 +3716,8 @@ fn optional_string_array_arg(
 mod tests {
     use super::{
         BlueskyTools, CollectionReviewStatus, LlmSearchExecution, ToolRegistry,
-        collection_search_offset, detect_actor_refs, detect_post_uri, fallback_llm_search_summary,
-        grounded_repair_summary, heuristic_collection_review, merged_collection_from_refs,
+        collection_search_offset, detect_actor_refs, detect_post_uri, deterministic_repair_summary,
+        fallback_llm_search_summary, heuristic_collection_review, merged_collection_from_refs,
         paged_search_collection, parse_collection_review_verdict, parse_llm_search_result,
         parse_prompt_tool_call, reduced_search_collection,
         render_internal_llm_search_tool_protocol, render_llm_result, render_post_details,
@@ -4230,7 +4261,7 @@ mod tests {
     }
 
     #[test]
-    fn grounded_repair_summary_for_clearsky_lists_uses_real_list_names() {
+    fn deterministic_repair_summary_for_clearsky_lists_uses_real_list_names() {
         let collection = LabeledPostCollection::new(
             "clearsky:test",
             "Clearsky test lists",
@@ -4254,7 +4285,7 @@ mod tests {
         )
         .with_collection_kind("clearsky_lists");
 
-        let summary = grounded_repair_summary(
+        let summary = deterministic_repair_summary(
             &collection,
             &[
                 super::LlmSearchResultItem {
@@ -4274,7 +4305,51 @@ mod tests {
 
         assert!(summary.contains("Follows of @norvid-studies.bsky.social"));
         assert!(summary.contains("The Great AI - NFT - CRYPTO Cull"));
+        assert!(summary.contains("[0]"));
+        assert!(summary.contains("[1]"));
         assert!(!summary.contains("usable structured `summary:` field"));
+    }
+
+    #[test]
+    fn deterministic_repair_summary_for_replies_uses_handles_and_reply_text_without_metadata() {
+        let collection = LabeledPostCollection::new(
+            "recent_replies_received:did:plc:testactor",
+            "Recent replies received",
+            vec![
+                PostRecord {
+                    uri: "at://reply-one".to_string(),
+                    author_handle: "bot-tan.suibari.com".to_string(),
+                    body: "source_post_uri: at://did:plc:testactor/app.bsky.feed.post/root-one\nreply_text: This 3D render looks so cool! Such precise lines.".to_string(),
+                },
+                PostRecord {
+                    uri: "at://reply-two".to_string(),
+                    author_handle: "technobaboo.bsky.social".to_string(),
+                    body: "source_post_uri: at://did:plc:testactor/app.bsky.feed.post/root-two\nreply_text: omg saaaaaame".to_string(),
+                },
+            ],
+        )
+        .with_collection_kind("recent_replies_received");
+
+        let summary = deterministic_repair_summary(
+            &collection,
+            &[
+                super::LlmSearchResultItem {
+                    uri: "at://reply-one".to_string(),
+                    source_collection_id: Some(collection.id.clone()),
+                },
+                super::LlmSearchResultItem {
+                    uri: "at://reply-two".to_string(),
+                    source_collection_id: Some(collection.id.clone()),
+                },
+            ],
+        );
+
+        assert!(summary.contains("[0] @bot-tan.suibari.com"));
+        assert!(summary.contains("[1] @technobaboo.bsky.social"));
+        assert!(summary.contains("This 3D render looks so cool! Such precise lines."));
+        assert!(summary.contains("omg saaaaaame"));
+        assert!(!summary.contains("source_post_uri:"));
+        assert!(!summary.contains("reply_text:"));
     }
 
     #[test]

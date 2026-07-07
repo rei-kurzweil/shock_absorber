@@ -1,41 +1,40 @@
 # Agent Debug
 
-- agent_id: 2
+- agent_id: 4
 - agent_type: CollectionSearchAgent
 - agent_kind: CollectionSearch
 - label: collection search: Clearsky moderation lists for did:plc:3deilm3cxnqundoo227xudg2 (items 1-25 of 100)
-- status: warning
+- status: completed
 - parent_agent_id: 1
-- child_agent_ids: 3
+- child_agent_ids: 5
 - collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
 
 ## Result Summary
 
 review_status: pass
-review_reason: Initial review failed but the repaired summary is now grounded in the selected records. Original reason: The summary is fallback diagnostic text rather than a grounded collection summary.
+review_reason: The summary is grounded in the selected records and contains substantive evidence.
 review_repair_needed: false
-repair_diagnostic: Initial review failed. Original summary: The strongest grounded evidence in this moderation-list collection centers on 10 selected records, with repeated signals around Follows of @norvid-studies.bsky.social, Copied from @norvid-studies.bsky.social's public follow graph on 2026...
 post: LLM-selected post in Clearsky moderation lists for did:plc:3deilm3cxnqundoo227xudg2 (items 1-25 of 100)
-summary: The matched moderation-list evidence is led by "Follows of @norvid-studies.bsky.social" (2 records, described as "Copied from @norvid-studies.bsky.social's public follow graph on 2026-05-07. 320 accounts.") and "AI, Crypto, & Ratcult Shitheads" (1 record). Secondary list labels include "Follows of @godoglyness.bsky.social", "Gen AI commentary (feed)", "LUM", "The Great AI - NFT - CRYPTO Cull". This creates a clear split between neutral follow-graph copies and more judgmental or topical list labels, so the collection is internally mixed rather than a single consistent signal. Overall the evidence is fairly broad because it comes from 10 selected list record(s).
+summary: The collection primarily consists of 'moderation_list' entries, showcasing a variety of curated feeds and block lists created by 'clearsky' for different accounts. A major recurring theme is the categorization of content, particularly around technology, with strong evidence pointing to lists like \"AI, Crypto, & Ratcult Shitheads\" and \"The Great AI - NFT - CRYPTO Cull.\" There is a notable split between lists based on specific topics (e.g., \"ML peeps,\" \"Software,\" \"VR,\" \"ai and llm\") and lists based on social graph structure, such as \"Cluster (163)\\" and \"Gold Cluster (92)\." While the prompt asks for lists associated with jcorvinus.bsky.social, the collection provides several examples, suggesting the evidence is broad, covering multiple list creators and types. The most important results appear to be those with descriptive names, like \"Uniquely Insightful,\" which suggests a high level of curation.
 search_result_1_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbfjfm6ze2v
 search_result_1_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_2_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbfo67mop2p
+search_result_2_uri: https://bsky.app/profile/did:plc:2segyv655ckqdgkvsqaiianr/lists/3jxwojift2y2n
 search_result_2_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_3_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbfwqzzsx2n
+search_result_3_uri: https://bsky.app/profile/did:plc:3ra4dxf4rwet2urznakt2sm4/lists/3mmiew6l3zh2t
 search_result_3_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_4_uri: https://bsky.app/profile/did:plc:2bij7yypmcuvwyz4gyqwtluy/lists/3lbxfscjqno2d
+search_result_4_uri: https://bsky.app/profile/did:plc:565ebob5f6hw33hjdkxty6qj/lists/3lar7ge4qyn2c
 search_result_4_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_5_uri: https://bsky.app/profile/did:plc:2segyv655ckqdgkvsqaiianr/lists/3jxwojift2y2n
+search_result_5_uri: https://bsky.app/profile/did:plc:7l2rn4ozedxwth3goe3zsasg/lists/3lafejflekr2w
 search_result_5_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_6_uri: https://bsky.app/profile/did:plc:2u5f43ezqz2u6j32wplqxeup/lists/3llaqm3tnvh2k
+search_result_6_uri: https://bsky.app/profile/did:plc:7nf3vqbvea5gpbet3kmibxpm/lists/3lvunqkqtlt2t
 search_result_6_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_7_uri: https://bsky.app/profile/did:plc:3ra4dxf4rwet2urznakt2sm4/lists/3mmiew6l3zh2t
+search_result_7_uri: https://bsky.app/profile/did:plc:7xkqxg6m4legdq5hzwiobkys/lists/3ltzgvdl5dg2l
 search_result_7_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_8_uri: https://bsky.app/profile/did:plc:7nf3vqbvea5gpbet3kmibxpm/lists/3lvunqkqtlt2t
+search_result_8_uri: https://bsky.app/profile/did:plc:7zre4plmd5jllccww575j6sb/lists/3mfxevpxejj2w
 search_result_8_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_9_uri: https://bsky.app/profile/did:plc:7tsv4wd4ggnv7zctvt3eqyj7/lists/3lr4uycn6z72c
+search_result_9_uri: https://bsky.app/profile/did:plc:7zre4plmd5jllccww575j6sb/lists/3mhrbb6iqxi2g
 search_result_9_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_10_uri: https://bsky.app/profile/did:plc:7xkqxg6m4legdq5hzwiobkys/lists/3ltzgvdl5dg2l
+search_result_10_uri: https://bsky.app/profile/did:plc:2bij7yypmcuvwyz4gyqwtluy/lists/3lbxfscjqno2d
 search_result_10_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
 
 ## Context Window Stats
@@ -44,13 +43,13 @@ search_result_10_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo22
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 1983
+- used_input_tokens: 1977
 - truncated: false
 
 ## Included Sections
 
 - Collection [collection_evidence]: used 1595 / estimated 1595
-- Search Prompt [local_task]: used 27 / estimated 27
+- Search Prompt [local_task]: used 21 / estimated 21
 
 ## Rendered Context Window
 
@@ -96,11 +95,11 @@ item_count: 25
 last_refreshed_at: 0
 actor_did: did:plc:3deilm3cxnqundoo227xudg2
 refresh_ttl_seconds: 900
-metadata.search_window_total_items: 100
-metadata.actor_did: did:plc:3deilm3cxnqundoo227xudg2
+metadata.search_window_size: 25
 metadata.collection_kind: clearsky_lists
 metadata.search_window_offset: 0
-metadata.search_window_size: 25
+metadata.actor_did: did:plc:3deilm3cxnqundoo227xudg2
+metadata.search_window_total_items: 100
 
 item[0]
 uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbfjfm6ze2v
@@ -279,5 +278,5 @@ list_description: Mutual-follow cluster with shells, found by mino.mobi/cluster
 
 
 ## Search Prompt
-Find negative and positive sounding lists and provide examples of the lists themselves.
+List the names of the Clearsky lists jcorvinus.bsky.social is on.
 ```

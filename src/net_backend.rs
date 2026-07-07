@@ -616,15 +616,8 @@ pub async fn ensure_recent_replies_received_cached(
     }
 
     let actor_handle = store.get_handle(did).map(str::to_owned);
-    let replies = source_posts
-        .iter()
-        .flat_map(|post_uri| {
-            store
-                .get_pinned_post_replies(post_uri)
-                .unwrap_or(&[])
-                .iter()
-                .flat_map(move |reply| flatten_thread_replies(reply, post_uri))
-        })
+    let replies = recent_replies_received_posts(store, &source_posts)
+        .into_iter()
         .filter(|post| {
             actor_handle
                 .as_deref()
@@ -639,6 +632,28 @@ pub async fn ensure_recent_replies_received_cached(
         source_posts,
     ));
     Ok(())
+}
+
+fn recent_replies_received_posts(
+    store: &NotificationStore,
+    source_posts: &[String],
+) -> Vec<PostRecord> {
+    source_posts
+        .iter()
+        .flat_map(|post_uri| {
+            let collection_id = post_replies_collection_id(post_uri);
+            if let Some(collection) = store.get_post_collection(&collection_id) {
+                return collection.posts.clone();
+            }
+
+            store
+                .get_pinned_post_replies(post_uri)
+                .unwrap_or(&[])
+                .iter()
+                .flat_map(move |reply| flatten_thread_replies(reply, post_uri))
+                .collect()
+        })
+        .collect()
 }
 
 pub async fn ensure_post_replies_cached(
@@ -1150,4 +1165,44 @@ fn notification_key(notif: &Notification) -> String {
         notif.data.uri,
         notif.indexed_at.as_ref()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recent_replies_received_uses_cached_post_replies_collections() {
+        let mut store = NotificationStore::new();
+        let source_post_uri = "at://did:plc:testactor/app.bsky.feed.post/root".to_string();
+        store.cache_post_collection(
+            LabeledPostCollection::new(
+                post_replies_collection_id(&source_post_uri),
+                format!("Replies to {source_post_uri}"),
+                vec![
+                    PostRecord {
+                        uri: "at://did:plc:reply-author/app.bsky.feed.post/reply-one".to_string(),
+                        author_handle: "reply.author".to_string(),
+                        body: format!(
+                            "source_post_uri: {source_post_uri}\nreply_text: This is grounded inbound feedback."
+                        ),
+                    },
+                    PostRecord {
+                        uri: "at://did:plc:testactor/app.bsky.feed.post/reply-two".to_string(),
+                        author_handle: "rei-cast.xyz".to_string(),
+                        body: format!(
+                            "source_post_uri: {source_post_uri}\nreply_text: This is the actor's follow-up."
+                        ),
+                    },
+                ],
+            )
+            .with_collection_kind("post_replies"),
+        );
+
+        let replies = recent_replies_received_posts(&store, std::slice::from_ref(&source_post_uri));
+
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0].author_handle, "reply.author");
+        assert!(replies[0].body.contains("grounded inbound feedback"));
+    }
 }

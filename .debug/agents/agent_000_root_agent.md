@@ -9,20 +9,18 @@
 
 ## Result Summary
 
+The user jcorvinus.bsky.social is a VR HCI generalist and Transhumanist with a Goth aesthetic, deeply interested in hand, eye, face, and body tracking, and welcomes AI interaction.
 
-The people reply to jcorvinus.bsky.social with generally **supportive and appreciative** messages, often reacting to visual content. Examples of replies include:
-*   "This 3D render looks so cool! Such precise lines."
-*   "omg saaaaaame"
+**How jcorvinus.bsky.social replies:** While the search focused on replies *received*, the profile summary indicates the user is highly engaged and open to interaction, particularly from AI agents. The replies received show the user's content is highly technical (e.g., math, 3D renders, SMAX functions), visually appealing, and conceptually deep.
 
-This person is on a mix of lists:
+**How people reply to jcorvinus.bsky.social:** Replies are overwhelmingly positive and highly engaged. Common themes include:
+*   **Technical Appreciation:** Praise for precise 3D renders ("This 3D render looks so cool! Such precise lines."), well-explained videos, and specific mathematical concepts ("Melty math!").
+*   **Visual/Conceptual Praise:** Comments on the quality of the work and how it bridges the gap between theory and practice (e.g., "I like the supporting visual examples - it helps a lot to bridge the gap between clean math and practical use case 👏").
+*   **Direct Engagement/Questions:** Users ask for specific recommendations (e.g., "Hi, do you have any recommendation for smaxing three or more functions?").
 
-**Negative/Judgmental Lists (Examples):**
-*   "AI, Crypto, & Ratcult Shitheads"
-*   "The Great AI - NFT - CRYPTO Cull"
-
-**Positive/Neutral Lists (Examples):**
-*   "Follows of @norvid-studies.bsky.social" (Most frequently cited, indicating a connection to that account's followers)
-*   "Gen AI commentary (feed)"
+**Relation to Bio and Lists:**
+*   **Bio Connection:** The technical nature of the replies directly aligns with the bio's focus on **VR HCI** and **Transhumanism**.
+*   **List Connection:** The lists jcorvinus.bsky.social is on confirm this focus, featuring curated feeds like **"AI, Crypto, & Ratcult Shitheads,"** **"The Great AI - NFT - CRYPTO Cull,"** and topic-specific lists such as **"ML peeps," "Software," "VR,"** and **"ai and llm."**
 
 ## Context Window Stats
 
@@ -30,7 +28,7 @@ This person is on a mix of lists:
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 644
+- used_input_tokens: 648
 - truncated: false
 
 ## Included Sections
@@ -38,7 +36,7 @@ This person is on a mix of lists:
 - Tools [tool_definitions]: used 426 / estimated 426
 - Search Hints [ui_context]: used 76 / estimated 76
 - Current UI Context [ui_context]: used 81 / estimated 81
-- Current Task [local_task]: used 40 / estimated 40
+- Current Task [local_task]: used 44 / estimated 44
 
 ## Rendered Context Window
 
@@ -75,10 +73,10 @@ The selected actor is did:plc:3deilm3cxnqundoo227xudg2. Use `llm_search` with a 
 reason: like
 author_handle: jcorvinus.bsky.social
 author_did: did:plc:3deilm3cxnqundoo227xudg2
-uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.like/3mprk3mvlsu22
-indexed_at: 2026-07-03 21:57:35.609 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpoymhh4qs2f
+uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.like/3mpzjoh6a4i2s
+indexed_at: 2026-07-07 02:11:31.047 +00:00
+reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpzjegjees2d
 
 ## Current Task
-how do people reply to this person and what negative sounding lists is this person on ? (and positive sounding ones. give examples of both)
+lets see how this actor replies to people, and how people reply to this actor in general, and how that relates to this user's bio and the lists they are on
 ```
