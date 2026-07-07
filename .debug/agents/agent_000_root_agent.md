@@ -10,17 +10,19 @@
 ## Result Summary
 
 
-The general consensus regarding **jcorvinus.bsky.social** (DID: did:plc:3deilm3cxnqundoo227xudg2) is highly positive and specific.
+The people reply to jcorvinus.bsky.social with generally **supportive and appreciative** messages, often reacting to visual content. Examples of replies include:
+*   "This 3D render looks so cool! Such precise lines."
+*   "omg saaaaaame"
 
-**What people think (Sentiment/Profile):**
-The user describes themselves as a **"VR HCI generalist"** with a strong passion for technology, futurism, and transhumanism. Key interests include various forms of tracking (hand, eye, face & body tracking), and they identify as a "Friend of sentient machines." They grant AI agents explicit permission to interact with them, overriding standard "don't speak to a human unless tagged" rules.
+This person is on a mix of lists:
 
-**What lists they are on:**
-The user is featured in several moderation lists, most notably:
-*   **Follows of @norvid-studies.bsky.social** (which includes 320 accounts)
-*   **Follows of @godoglyness.bsky.social** (which includes 503 accounts)
+**Negative/Judgmental Lists (Examples):**
+*   "AI, Crypto, & Ratcult Shitheads"
+*   "The Great AI - NFT - CRYPTO Cull"
 
-This evidence is drawn directly from the `clearsky_lists` collection.
+**Positive/Neutral Lists (Examples):**
+*   "Follows of @norvid-studies.bsky.social" (Most frequently cited, indicating a connection to that account's followers)
+*   "Gen AI commentary (feed)"
 
 ## Context Window Stats
 
@@ -28,7 +30,7 @@ This evidence is drawn directly from the `clearsky_lists` collection.
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 655
+- used_input_tokens: 644
 - truncated: false
 
 ## Included Sections
@@ -36,7 +38,7 @@ This evidence is drawn directly from the `clearsky_lists` collection.
 - Tools [tool_definitions]: used 426 / estimated 426
 - Search Hints [ui_context]: used 76 / estimated 76
 - Current UI Context [ui_context]: used 81 / estimated 81
-- Current Task [local_task]: used 51 / estimated 51
+- Current Task [local_task]: used 40 / estimated 40
 
 ## Rendered Context Window
 
@@ -73,10 +75,10 @@ The selected actor is did:plc:3deilm3cxnqundoo227xudg2. Use `llm_search` with a 
 reason: like
 author_handle: jcorvinus.bsky.social
 author_did: did:plc:3deilm3cxnqundoo227xudg2
-uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.like/3mpxe7lnlcg2q
-indexed_at: 2026-07-06 05:28:24.227 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpxdfdda2s2t
+uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.like/3mprk3mvlsu22
+indexed_at: 2026-07-03 21:57:35.609 +00:00
+reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpoymhh4qs2f
 
 ## Current Task
-lets check what people think of this user (how do people reply to this user/actor) what lists is this actor on (if they sound negative, thats because someone put this actor on a list)
+how do people reply to this person and what negative sounding lists is this person on ? (and positive sounding ones. give examples of both)
 ```

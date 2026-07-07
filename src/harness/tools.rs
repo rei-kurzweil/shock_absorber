@@ -1902,6 +1902,23 @@ fn heuristic_collection_review(
         };
     }
 
+    let fallback_markers = [
+        "model response did not yield a usable structured `summary:` field",
+        "model did not return a fully structured summary paragraph",
+        "Grounded evidence was found in",
+    ];
+    if fallback_markers.iter().any(|marker| summary.contains(marker)) {
+        return CollectionReviewVerdict {
+            status: CollectionReviewStatus::Fail,
+            reason: "The summary is fallback diagnostic text rather than a grounded collection summary.".to_string(),
+            repair_needed: true,
+            repair_instructions: Some(
+                "Rewrite the summary from the selected records, emphasizing repeated names, exact phrases, and the strongest versus secondary evidence."
+                    .to_string(),
+            ),
+        };
+    }
+
     let metadata_markers = [
         "source_post_uri",
         "collection_id:",
@@ -1984,7 +2001,7 @@ fn repair_collection_summary(
     verdict: &CollectionReviewVerdict,
 ) -> String {
     if let Some(original_result) = execution.original_result.as_ref() {
-        let summary = fallback_llm_search_summary(collection, &original_result.search_results);
+        let summary = grounded_repair_summary(collection, &original_result.search_results);
         if !summary.trim().is_empty() {
             return summary;
         }
@@ -1992,6 +2009,167 @@ fn repair_collection_summary(
     verdict.repair_instructions.clone().unwrap_or_else(|| {
         "The selected records did not support a grounded repaired summary.".to_string()
     })
+}
+
+fn grounded_repair_summary(
+    collection: &LabeledPostCollection,
+    search_results: &[LlmSearchResultItem],
+) -> String {
+    let selected_posts = search_results
+        .iter()
+        .filter_map(|item| collection.posts.iter().find(|post| post.uri == item.uri))
+        .collect::<Vec<_>>();
+
+    if selected_posts.is_empty() {
+        return String::new();
+    }
+
+    if collection.collection_kind == "clearsky_lists" {
+        return grounded_clearsky_list_summary(&selected_posts);
+    }
+
+    let hints = selected_posts
+        .iter()
+        .flat_map(|post| candidate_hints(post))
+        .map(|hint| hint.trim().to_string())
+        .filter(|hint| hint.len() >= 4)
+        .fold(Vec::<String>::new(), |mut acc, hint| {
+            if !acc.iter().any(|seen| seen == &hint) {
+                acc.push(hint);
+            }
+            acc
+        });
+
+    let strongest = hints.iter().take(3).cloned().collect::<Vec<_>>();
+    let secondary = hints
+        .iter()
+        .skip(3)
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let mut sentences = Vec::new();
+    sentences.push(format!(
+        "The selected records center on {}.",
+        join_quoted(&strongest)
+    ));
+    if !secondary.is_empty() {
+        sentences.push(format!(
+            "Secondary supporting signals include {}.",
+            join_quoted(&secondary)
+        ));
+    }
+    sentences.push(format!(
+        "The evidence is drawn from {} matched record(s), so it should be treated as {}.",
+        selected_posts.len(),
+        if selected_posts.len() <= 2 {
+            "narrow but specific"
+        } else {
+            "a compact but grounded slice of the collection"
+        }
+    ));
+    sentences.join(" ")
+}
+
+fn grounded_clearsky_list_summary(selected_posts: &[&PostRecord]) -> String {
+    let mut list_counts = HashMap::<String, usize>::new();
+    let mut list_descriptions = HashMap::<String, String>::new();
+
+    for post in selected_posts {
+        let fields = body_field_map(&post.body);
+        let Some(list_name) = fields.get("list_name").map(|value| value.trim()) else {
+            continue;
+        };
+        if list_name.is_empty() {
+            continue;
+        }
+        *list_counts.entry(list_name.to_string()).or_insert(0) += 1;
+        if let Some(description) = fields.get("list_description").map(|value| value.trim()) {
+            if !description.is_empty() {
+                list_descriptions
+                    .entry(list_name.to_string())
+                    .or_insert_with(|| description.to_string());
+            }
+        }
+    }
+
+    let mut ranked = list_counts.into_iter().collect::<Vec<_>>();
+    ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+
+    let primary = ranked
+        .iter()
+        .take(2)
+        .map(|(name, count)| {
+            if let Some(description) = list_descriptions.get(name) {
+                format!("\"{}\" ({} record{}, described as \"{}\")", name, count, if *count == 1 { "" } else { "s" }, description)
+            } else {
+                format!("\"{}\" ({} record{})", name, count, if *count == 1 { "" } else { "s" })
+            }
+        })
+        .collect::<Vec<_>>();
+    let secondary = ranked
+        .iter()
+        .skip(2)
+        .take(4)
+        .map(|(name, _)| format!("\"{}\"", name))
+        .collect::<Vec<_>>();
+
+    let has_mixed_tone = ranked.iter().any(|(name, _)| {
+        let lower = name.to_ascii_lowercase();
+        lower.contains("ai")
+            || lower.contains("crypto")
+            || lower.contains("cull")
+            || lower.contains("shithead")
+    }) && ranked.iter().any(|(name, _)| name.starts_with("Follows of @"));
+
+    let mut sentences = Vec::new();
+    sentences.push(format!(
+        "The matched moderation-list evidence is led by {}.",
+        primary.join(" and ")
+    ));
+    if !secondary.is_empty() {
+        sentences.push(format!(
+            "Secondary list labels include {}.",
+            secondary.join(", ")
+        ));
+    }
+    if has_mixed_tone {
+        sentences.push(
+            "This creates a clear split between neutral follow-graph copies and more judgmental or topical list labels, so the collection is internally mixed rather than a single consistent signal."
+                .to_string(),
+        );
+    } else {
+        sentences.push(
+            "The strongest repeated list names matter more than the one-off labels because they recur across multiple matched records."
+                .to_string(),
+        );
+    }
+    sentences.push(format!(
+        "Overall the evidence is {} because it comes from {} selected list record(s).",
+        if selected_posts.len() >= 6 {
+            "fairly broad"
+        } else {
+            "relatively narrow"
+        },
+        selected_posts.len()
+    ));
+    sentences.join(" ")
+}
+
+fn join_quoted(items: &[String]) -> String {
+    match items.len() {
+        0 => "no concrete matched phrases".to_string(),
+        1 => format!("\"{}\"", items[0]),
+        2 => format!("\"{}\" and \"{}\"", items[0], items[1]),
+        _ => {
+            let mut rendered = items
+                .iter()
+                .map(|item| format!("\"{}\"", item))
+                .collect::<Vec<_>>();
+            let last = rendered.pop().unwrap_or_default();
+            format!("{}, and {}", rendered.join(", "), last)
+        }
+    }
 }
 
 fn render_review_summary(
@@ -3508,11 +3686,12 @@ mod tests {
     use super::{
         BlueskyTools, CollectionReviewStatus, LlmSearchExecution, ToolRegistry,
         collection_search_offset, detect_actor_refs, detect_post_uri, fallback_llm_search_summary,
-        heuristic_collection_review, merged_collection_from_refs, paged_search_collection,
-        parse_collection_review_verdict, parse_llm_search_result, parse_prompt_tool_call,
-        reduced_search_collection, render_internal_llm_search_tool_protocol, render_llm_result,
-        render_post_details, serialize_collection, source_collection_id_from_post,
-        validate_collection_id, validate_internal_tool_response,
+        grounded_repair_summary, heuristic_collection_review, merged_collection_from_refs,
+        paged_search_collection, parse_collection_review_verdict, parse_llm_search_result,
+        parse_prompt_tool_call, reduced_search_collection,
+        render_internal_llm_search_tool_protocol, render_llm_result, render_post_details,
+        serialize_collection, source_collection_id_from_post, validate_collection_id,
+        validate_internal_tool_response,
     };
     use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
     use crate::model::{LabeledPostCollection, PostRecord};
@@ -4014,6 +4193,88 @@ mod tests {
 
         let verdict = heuristic_collection_review(&collection, &execution);
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+    }
+
+    #[test]
+    fn heuristic_collection_review_fails_fallback_diagnostic_summary() {
+        let collection = LabeledPostCollection::new(
+            "clearsky:test",
+            "Clearsky",
+            vec![PostRecord {
+                uri: "https://example.com/list-a".to_string(),
+                author_handle: "clearsky".to_string(),
+                body: "list_name: AI Fanatics\nlist_description: magical thinking".to_string(),
+            }],
+        );
+        let result = super::LlmSearchResult {
+            title: "fallback".to_string(),
+            summary: "The strongest grounded evidence in this moderation-list collection centers on 1 selected records, with repeated signals around AI Fanatics. The matched record text also includes descriptions such as: \"magical thinking\". This fallback summary is derived directly from those matched records because the model response did not yield a usable structured `summary:` field.".to_string(),
+            search_results: vec![super::LlmSearchResultItem {
+                uri: "https://example.com/list-a".to_string(),
+                source_collection_id: Some("clearsky:test".to_string()),
+            }],
+        };
+        let execution = LlmSearchExecution {
+            result: Some(result.clone()),
+            original_result: Some(result),
+            context_window: empty_test_window(),
+            diagnostic: None,
+            review_verdict: None,
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+
+        let verdict = heuristic_collection_review(&collection, &execution);
+        assert_eq!(verdict.status, CollectionReviewStatus::Fail);
+        assert!(verdict.repair_needed);
+    }
+
+    #[test]
+    fn grounded_repair_summary_for_clearsky_lists_uses_real_list_names() {
+        let collection = LabeledPostCollection::new(
+            "clearsky:test",
+            "Clearsky test lists",
+            vec![
+                PostRecord {
+                    uri: "https://example.com/list-a".to_string(),
+                    author_handle: "clearsky".to_string(),
+                    body: "list_name: Follows of @norvid-studies.bsky.social\nlist_description: Copied from @norvid-studies.bsky.social's public follow graph on 2026-05-07. 320 accounts.".to_string(),
+                },
+                PostRecord {
+                    uri: "https://example.com/list-b".to_string(),
+                    author_handle: "clearsky".to_string(),
+                    body: "list_name: Follows of @norvid-studies.bsky.social\nlist_description: Copied from @norvid-studies.bsky.social's public follow graph on 2026-05-07. 320 accounts.".to_string(),
+                },
+                PostRecord {
+                    uri: "https://example.com/list-c".to_string(),
+                    author_handle: "clearsky".to_string(),
+                    body: "list_name: The Great AI - NFT - CRYPTO Cull\nlist_description: If you prefer to avoid - AI - NFT - CRYPTO content. This lists blocks all three things. Use at your own will.".to_string(),
+                },
+            ],
+        )
+        .with_collection_kind("clearsky_lists");
+
+        let summary = grounded_repair_summary(
+            &collection,
+            &[
+                super::LlmSearchResultItem {
+                    uri: "https://example.com/list-a".to_string(),
+                    source_collection_id: Some("clearsky:test".to_string()),
+                },
+                super::LlmSearchResultItem {
+                    uri: "https://example.com/list-b".to_string(),
+                    source_collection_id: Some("clearsky:test".to_string()),
+                },
+                super::LlmSearchResultItem {
+                    uri: "https://example.com/list-c".to_string(),
+                    source_collection_id: Some("clearsky:test".to_string()),
+                },
+            ],
+        );
+
+        assert!(summary.contains("Follows of @norvid-studies.bsky.social"));
+        assert!(summary.contains("The Great AI - NFT - CRYPTO Cull"));
+        assert!(!summary.contains("usable structured `summary:` field"));
     }
 
     #[test]

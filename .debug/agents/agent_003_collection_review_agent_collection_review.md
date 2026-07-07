@@ -4,15 +4,16 @@
 - agent_type: CollectionReviewAgent
 - agent_kind: CollectionReview
 - label: collection review
-- status: completed
+- status: warning
 - parent_agent_id: 2
 - child_agent_ids: <none>
 
 ## Result Summary
 
 status: pass
-reason: The summary is grounded in the selected records and contains substantive evidence.
+reason: Initial review failed but the repaired summary is now grounded in the selected records. Original reason: The summary is fallback diagnostic text rather than a grounded collection summary.
 repair_needed: false
+repair_diagnostic: Initial review failed. Original summary: The strongest grounded evidence in this moderation-list collection centers on 10 selected records, with repeated signals around Follows of @norvid-studies.bsky.social, Copied from @norvid-studies.bsky.social's public follow graph on 2026...
 
 ## Context Window Stats
 
@@ -20,13 +21,13 @@ repair_needed: false
 - model: gemma-4-local
 - max_context_tokens: 8192
 - reserved_output_tokens: 1024
-- used_input_tokens: 1646
+- used_input_tokens: 1645
 - truncated: false
 
 ## Included Sections
 
-- Search Prompt [local_task]: used 15 / estimated 15
-- Collection Evidence [review_evidence]: used 670 / estimated 670
+- Search Prompt [local_task]: used 27 / estimated 27
+- Collection Evidence [review_evidence]: used 657 / estimated 657
 - Proposed Summary [parent_search_results]: used 686 / estimated 686
 
 ## Rendered Context Window
@@ -54,7 +55,7 @@ Rules:
 - Do not rewrite the summary yourself in this step.
 
 ## Search Prompt
-What lists is jcorvinus.bsky.social on?
+Find negative and positive sounding lists and provide examples of the lists themselves.
 
 ## Collection Evidence
 collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
@@ -76,40 +77,40 @@ type: moderation_list
 list_name: Follows of @godoglyness.bsky.social
 list_description: Copied from @godoglyness.bsky.social's public follow graph on 2026-05-07. 503 accounts.
 
-matched_item[3] uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbgozpuxf2s
-type: moderation_list
-list_name: Follows of @godoglyness.bsky.social
-list_description: Copied from @godoglyness.bsky.social's public follow graph on 2026-05-07. 503 accounts.
-
-matched_item[4] uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbh2zglpr2h
-type: moderation_list
-list_name: Follows of @godoglyness.bsky.social
-list_description: Copied from @godoglyness.bsky.social's public follow graph on 2026-05-07. 503 accounts.
-
-matched_item[5] uri: https://bsky.app/profile/did:plc:2bij7yypmcuvwyz4gyqwtluy/lists/3lbxfscjqno2d
+matched_item[3] uri: https://bsky.app/profile/did:plc:2bij7yypmcuvwyz4gyqwtluy/lists/3lbxfscjqno2d
 type: moderation_list
 list_name: AI, Crypto, & Ratcult Shitheads
 list_description: 
 
-matched_item[6] uri: https://bsky.app/profile/did:plc:2segyv655ckqdgkvsqaiianr/lists/3jxwojift2y2n
+matched_item[4] uri: https://bsky.app/profile/did:plc:2segyv655ckqdgkvsqaiianr/lists/3jxwojift2y2n
 type: moderation_list
 list_name: The Great AI - NFT - CRYPTO Cull
 list_description: If you prefer to avoid - AI - NFT - CRYPTO content. This lists blocks all three things. Use at your own will.
 
-matched_item[7] uri: https://bsky.app/profile/did:plc:2u5f43ezqz2u6j32wplqxeup/lists/3llaqm3tnvh2k
+matched_item[5] uri: https://bsky.app/profile/did:plc:2u5f43ezqz2u6j32wplqxeup/lists/3llaqm3tnvh2k
 type: moderation_list
 list_name: LUM
 list_description: 
 
-matched_item[8] uri: https://bsky.app/profile/did:plc:565ebob5f6hw33hjdkxty6qj/lists/3k7wlmyybyk23
+matched_item[6] uri: https://bsky.app/profile/did:plc:3ra4dxf4rwet2urznakt2sm4/lists/3mmiew6l3zh2t
 type: moderation_list
-list_name: unmissable
-list_description: Just some people whose posts I don't want to miss
+list_name: Uniquely Insightful
+list_description: People whose viewpoints are worthy of serious consideration due to their repeated proof of self-examination
 
-matched_item[9] uri: https://bsky.app/profile/did:plc:7zre4plmd5jllccww575j6sb/lists/3mfxevpxejj2w
+matched_item[7] uri: https://bsky.app/profile/did:plc:7nf3vqbvea5gpbet3kmibxpm/lists/3lvunqkqtlt2t
 type: moderation_list
-list_name: Cluster (163)
-list_description: Mutual-follow cluster with shells, found by mino.mobi/cluster
+list_name: Gen AI commentary (feed)
+list_description: Feed list
+
+matched_item[8] uri: https://bsky.app/profile/did:plc:7tsv4wd4ggnv7zctvt3eqyj7/lists/3lr4uycn6z72c
+type: moderation_list
+list_name: cunts
+list_description: Personal block list for people I find to be cunts and don't want to see anymore. Die mad about it.
+
+matched_item[9] uri: https://bsky.app/profile/did:plc:7xkqxg6m4legdq5hzwiobkys/lists/3ltzgvdl5dg2l
+type: moderation_list
+list_name: ai and llm
+list_description: more LLM focused than my other computer science list
 
 ## Proposed Summary
 post: LLM-selected post in Clearsky moderation lists for did:plc:3deilm3cxnqundoo227xudg2 (items 1-25 of 100)
@@ -120,18 +121,18 @@ search_result_2_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/l
 search_result_2_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
 search_result_3_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbfwqzzsx2n
 search_result_3_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_4_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbgozpuxf2s
+search_result_4_uri: https://bsky.app/profile/did:plc:2bij7yypmcuvwyz4gyqwtluy/lists/3lbxfscjqno2d
 search_result_4_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_5_uri: https://bsky.app/profile/did:plc:27u6urclrgh6uijeiqb2wcts/lists/3mlbh2zglpr2h
+search_result_5_uri: https://bsky.app/profile/did:plc:2segyv655ckqdgkvsqaiianr/lists/3jxwojift2y2n
 search_result_5_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_6_uri: https://bsky.app/profile/did:plc:2bij7yypmcuvwyz4gyqwtluy/lists/3lbxfscjqno2d
+search_result_6_uri: https://bsky.app/profile/did:plc:2u5f43ezqz2u6j32wplqxeup/lists/3llaqm3tnvh2k
 search_result_6_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_7_uri: https://bsky.app/profile/did:plc:2segyv655ckqdgkvsqaiianr/lists/3jxwojift2y2n
+search_result_7_uri: https://bsky.app/profile/did:plc:3ra4dxf4rwet2urznakt2sm4/lists/3mmiew6l3zh2t
 search_result_7_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_8_uri: https://bsky.app/profile/did:plc:2u5f43ezqz2u6j32wplqxeup/lists/3llaqm3tnvh2k
+search_result_8_uri: https://bsky.app/profile/did:plc:7nf3vqbvea5gpbet3kmibxpm/lists/3lvunqkqtlt2t
 search_result_8_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_9_uri: https://bsky.app/profile/did:plc:565ebob5f6hw33hjdkxty6qj/lists/3k7wlmyybyk23
+search_result_9_uri: https://bsky.app/profile/did:plc:7tsv4wd4ggnv7zctvt3eqyj7/lists/3lr4uycn6z72c
 search_result_9_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
-search_result_10_uri: https://bsky.app/profile/did:plc:7zre4plmd5jllccww575j6sb/lists/3mfxevpxejj2w
+search_result_10_uri: https://bsky.app/profile/did:plc:7xkqxg6m4legdq5hzwiobkys/lists/3ltzgvdl5dg2l
 search_result_10_source_collection_id: clearsky_lists:did:plc:3deilm3cxnqundoo227xudg2
 ```
