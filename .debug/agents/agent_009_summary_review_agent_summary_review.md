@@ -1,22 +1,21 @@
 # Agent Debug
 
-- agent_id: 5
+- agent_id: 9
 - agent_type: SummaryReviewAgent
 - agent_kind: SummaryReview
 - label: summary review
 - status: failed
-- parent_agent_id: 4
+- parent_agent_id: 8
 - child_agent_ids: <none>
 
 ## Result Summary
 
 status: fail
 grounded: false
-sufficient: true
-reason: Grounded summary coverage reaches all 3 available item(s), exhausting the available collection even though 50 item(s) were requested.
+sufficient: false
+reason: No usable `summary:` paragraph exists.
 repair_needed: false
 additional_pages_needed: false
-required_total_items: 3
 
 ## Context Window Stats
 
@@ -24,15 +23,15 @@ required_total_items: 3
 - model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
-- used_input_tokens: 1067
+- used_input_tokens: 569
 - truncated: false
 
 ## Included Sections
 
 - Search Prompt [local_task]: used 35 / estimated 35
 - Harness Scope Assessment [local_task]: used 67 / estimated 67
-- Collection Evidence [review_evidence]: used 283 / estimated 283
-- Proposed Summary [parent_search_results]: used 299 / estimated 299
+- Collection Evidence [review_evidence]: used 72 / estimated 72
+- Proposed Summary [parent_search_results]: used 12 / estimated 12
 
 ## Rendered Context Window
 
@@ -72,38 +71,16 @@ requested_scope: count 50
 required_total_items: 3
 page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
 available_total_items: 3
-current_window_offset: 0
-current_window_size: 3
+current_window_offset: 3
+current_window_size: 0
 
 ## Collection Evidence
 collection_id: recent_replies_received:did:plc:edzlnzvoztauuygch4z5fvl3
-collection_label: Recent replies received by did:plc:edzlnzvoztauuygch4z5fvl3
+collection_label: Recent replies received by did:plc:edzlnzvoztauuygch4z5fvl3 (items 0-3 of 3)
 collection_kind: recent_replies_received
-search_window_offset: 0
-search_window_total_items: 3
-
-matched_item[0] uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mooterltps2s
-body: source_post_uri: at://did:plc:edzlnzvoztauuygch4z5fvl3/app.bsky.feed.post/3moosxakzqs2s
-reply_text: isn't it ending higher?   is this a trick?
-
-matched_item[1] uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3moushfniok2c
-body: source_post_uri: at://did:plc:edzlnzvoztauuygch4z5fvl3/app.bsky.feed.post/3mouqjovcc223
-reply_text: Ubisoft introduces a new mode for "My Name Is", such that the screen is split between gameplay, Family Guy clips, and Subway Surfer
-
-matched_item[2] uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpoalbpjxc2b
-body: source_post_uri: at://did:plc:edzlnzvoztauuygch4z5fvl3/app.bsky.feed.post/3mpnqn5t3ts2g
-reply_text: They had about a decade to learn from Jack Black on Sesame Street. That's the worst part.
+search_window_offset: 3
+search_window_total_items: 0
 
 ## Proposed Summary
-post: Recent Replies from rei-cast.xyz
-summary: This small window of recent replies, all originating from the author rei-cast.xyz, covers a mix of commentary on media and gaming. One reply questions a perceived trend, asking, "isn't it ending higher? is this a trick?" in response to a source post. Another reply highlights a new feature from Ubisoft for the game "My Name Is," which features a split-screen experience incorporating "gameplay, Family Guy clips, and Subway Surfer." The final covered item offers a critical observation regarding a decade of development, stating, "They had about a decade to learn from Jack Black on Sesame Street. That's the worst part." Overall, the tone is engaged and observational, touching upon media trends, game updates, and critiques of development pacing.
-window_offset: 0
-window_size: 3
-page_index: 0
-page_size: 25
-collection_total_items: 73
-has_more: true
-covered_item_1_uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mooterltps2s
-covered_item_2_uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3moushfniok2c
-covered_item_3_uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mpoalbpjxc2b
+No matching cached posts.
 ```

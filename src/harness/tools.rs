@@ -331,6 +331,12 @@ struct ParsedTaggedSummaryFields {
     has_more: Option<bool>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TaggedSummaryBody {
+    fields: ParsedTaggedSummaryFields,
+    missing_end_marker: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CollectionLeafToolKind {
     Search,
@@ -3804,7 +3810,7 @@ fn parse_collection_tool_result(
     collection: &LabeledPostCollection,
     response: &str,
     tool_kind: CollectionLeafToolKind,
-    _window_start: Option<usize>,
+    window_start: Option<usize>,
 ) -> ParsedCollectionToolResult {
     if tool_kind.is_coverage_oriented() {
         match parse_collection_summary_result_tagged(response) {
@@ -3824,12 +3830,28 @@ fn parse_collection_tool_result(
                     };
                 }
                 Err(json_err) => {
-                    return ParsedCollectionToolResult {
-                        result: None,
-                        diagnostic: Some(format!(
-                            "summary result parsing failed: tagged parser failed ({tagged_err}); json parser failed ({json_err})"
-                        )),
-                    };
+                    match parse_collection_summary_result_tagged_partial(
+                        collection,
+                        response,
+                        window_start,
+                    ) {
+                        Ok((result, repair_diagnostic)) => {
+                            return ParsedCollectionToolResult {
+                                result: Some(CollectionLeafResult::Summary(result)),
+                                diagnostic: Some(format!(
+                                    "summary result parsing needed partial recovery: tagged parser failed ({tagged_err}); json parser failed ({json_err}); {repair_diagnostic}"
+                                )),
+                            };
+                        }
+                        Err(partial_err) => {
+                            return ParsedCollectionToolResult {
+                                result: None,
+                                diagnostic: Some(format!(
+                                    "summary result parsing failed: tagged parser failed ({tagged_err}); json parser failed ({json_err}); partial tagged repair failed ({partial_err})"
+                                )),
+                            };
+                        }
+                    }
                 }
             },
         }
@@ -3897,21 +3919,28 @@ fn parse_llm_search_result(
         })
 }
 
-fn parse_collection_summary_result_tagged(response: &str) -> Result<LlmSummaryResult, String> {
+fn parse_tagged_summary_body(
+    response: &str,
+    require_end_marker: bool,
+) -> Result<TaggedSummaryBody, String> {
     let start_marker = "SUMMARY_RESULT_START";
     let end_marker = "SUMMARY_RESULT_END";
     let Some(start_index) = response.find(start_marker) else {
         return Err("missing SUMMARY_RESULT_START marker".to_string());
     };
-    let Some(end_index) = response.find(end_marker) else {
+    let end_index = response.find(end_marker);
+    if require_end_marker && end_index.is_none() {
         return Err("missing SUMMARY_RESULT_END marker".to_string());
-    };
-    if end_index <= start_index {
-        return Err("summary markers are out of order".to_string());
+    }
+    if let Some(end_index) = end_index {
+        if end_index <= start_index {
+            return Err("summary markers are out of order".to_string());
+        }
     }
 
     let body_start = start_index + start_marker.len();
-    let body = &response[body_start..end_index];
+    let body_end = end_index.unwrap_or(response.len());
+    let body = &response[body_start..body_end];
     let mut parsed = ParsedTaggedSummaryFields {
         title: None,
         summary: None,
@@ -4001,6 +4030,15 @@ fn parse_collection_summary_result_tagged(response: &str) -> Result<LlmSummaryRe
         }
     }
 
+    Ok(TaggedSummaryBody {
+        fields: parsed,
+        missing_end_marker: end_index.is_none(),
+    })
+}
+
+fn parse_collection_summary_result_tagged(response: &str) -> Result<LlmSummaryResult, String> {
+    let parsed = parse_tagged_summary_body(response, true)?.fields;
+
     if parsed.summary.as_deref().is_none() {
         return Err("missing required scalar field `summary`".to_string());
     }
@@ -4053,6 +4091,144 @@ fn parse_collection_summary_result_tagged(response: &str) -> Result<LlmSummaryRe
         window_start: parsed.window_offset,
         window_total_items: parsed.window_size,
     })
+}
+
+fn parse_collection_summary_result_tagged_partial(
+    collection: &LabeledPostCollection,
+    response: &str,
+    window_start: Option<usize>,
+) -> Result<(LlmSummaryResult, String), String> {
+    let parsed_body = parse_tagged_summary_body(response, false)?;
+    let parsed = parsed_body.fields;
+
+    let Some(summary) = parsed
+        .summary
+        .as_deref()
+        .filter(|summary| is_valid_llm_search_summary(summary))
+        .map(str::to_owned)
+    else {
+        return Err("missing required scalar field `summary`".to_string());
+    };
+
+    let mut covered_item_uris = Vec::new();
+    for uri in parsed.covered_item_uris {
+        push_search_uri(
+            collection,
+            &mut covered_item_uris,
+            &uri,
+            collection.posts.len().max(1),
+        );
+    }
+    if covered_item_uris.is_empty() {
+        return Err("no usable covered URI accounting was provided".to_string());
+    }
+
+    let inferred_window_offset = parsed
+        .window_offset
+        .or_else(|| {
+            parsed
+                .page_index
+                .map(|page_index| page_index * COLLECTION_SEARCH_PAGE_SIZE)
+        })
+        .or(window_start);
+    if inferred_window_offset.is_none() {
+        return Err("missing required scalar field `window_offset` or `page_index`".to_string());
+    }
+
+    let Some(window_size) = parsed.window_size else {
+        return Err("missing required scalar field `window_size`".to_string());
+    };
+
+    if parsed.collection_total_items.is_none() && parsed.has_more.is_none() {
+        return Err(
+            "missing required scalar field `collection_total_items` or `has_more`".to_string(),
+        );
+    }
+
+    let page_size = parsed.page_size.unwrap_or(COLLECTION_SEARCH_PAGE_SIZE);
+    let page_index = parsed
+        .page_index
+        .or_else(|| inferred_window_offset.map(|offset| offset / page_size.max(1)));
+    let collection_total_items = parsed.collection_total_items.or_else(|| {
+        parsed
+            .has_more
+            .map(|_| collection_available_total_items(collection))
+    });
+    let has_more = parsed.has_more.or_else(|| {
+        inferred_window_offset
+            .zip(Some(window_size))
+            .map(|(offset, size)| {
+                offset.saturating_add(size) < collection_available_total_items(collection)
+            })
+    });
+
+    let omitted_was_missing = parsed.omitted_item_uris.is_empty();
+    let mut omitted_item_uris = Vec::new();
+    for uri in parsed.omitted_item_uris {
+        push_search_uri(
+            collection,
+            &mut omitted_item_uris,
+            &uri,
+            collection.posts.len().max(1),
+        );
+    }
+    if omitted_item_uris.is_empty() {
+        let covered = covered_item_uris.iter().cloned().collect::<HashSet<_>>();
+        for post in &collection.posts {
+            if !covered.contains(&post.uri) {
+                omitted_item_uris.push(post.uri.clone());
+            }
+        }
+    }
+
+    let mut repair_notes = Vec::new();
+    if parsed_body.missing_end_marker {
+        repair_notes.push("missing SUMMARY_RESULT_END marker".to_string());
+    }
+    if parsed.page_index.is_none() {
+        repair_notes.push("inferred page_index from window offset".to_string());
+    }
+    if parsed.page_size.is_none() {
+        repair_notes.push("defaulted page_size to collection page size".to_string());
+    }
+    if parsed.collection_total_items.is_none() {
+        repair_notes.push("filled collection_total_items from collection metadata".to_string());
+    }
+    if parsed.has_more.is_none() {
+        repair_notes.push("filled has_more from collection metadata".to_string());
+    }
+    if !omitted_item_uris.is_empty() && omitted_was_missing {
+        repair_notes
+            .push("derived omitted_item_uri values from uncovered window items".to_string());
+    }
+
+    Ok((
+        normalize_summary_result(
+            collection,
+            LlmSummaryResult {
+                title: parsed.title.unwrap_or_default(),
+                summary,
+                covered_item_uris,
+                omitted_item_uris,
+                window_offset: inferred_window_offset,
+                window_size: Some(window_size),
+                page_index,
+                page_size: Some(page_size),
+                collection_total_items,
+                has_more,
+                window_start: inferred_window_offset,
+                window_total_items: Some(window_size),
+            },
+        ),
+        if repair_notes.is_empty() {
+            "summary partial parse repaired".to_string()
+        } else {
+            format!(
+                "summary partial parse repaired: {}",
+                repair_notes.join("; ")
+            )
+        },
+    ))
 }
 
 fn normalize_summary_result(
@@ -5983,6 +6159,83 @@ mod tests {
         assert!(diagnostic.contains("tagged parser failed"));
         assert!(diagnostic.contains("malformed integer field `window_offset`"));
         assert!(diagnostic.contains("json parser failed"));
+    }
+
+    #[test]
+    fn parse_collection_summary_result_recovers_partial_tagged_response_without_end_marker() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent test posts",
+                vec![
+                    PostRecord {
+                        uri: "at://one".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post one".to_string(),
+                    },
+                    PostRecord {
+                        uri: "at://two".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post two".to_string(),
+                    },
+                ],
+            ),
+            0,
+            25,
+        );
+
+        let parsed = parse_collection_tool_result(
+            &collection,
+            "SUMMARY_RESULT_START\nsummary: Both posts stay grounded in direct text, including \"post one\" and \"post two\".\ncovered_item_uri: at://one\nwindow_offset: 0\nwindow_size: 2\ncollection_total_items: 2\nhas_more: false",
+            CollectionLeafToolKind::Summary,
+            super::collection_window_offset(&collection),
+        );
+
+        let diagnostic = parsed.diagnostic.expect("expected repair diagnostic");
+        assert!(diagnostic.contains("partial recovery"));
+        assert!(diagnostic.contains("missing SUMMARY_RESULT_END marker"));
+
+        let result = parsed
+            .result
+            .expect("expected parsed result")
+            .as_summary()
+            .expect("expected summary result")
+            .clone();
+        assert_eq!(result.covered_item_uris, vec!["at://one"]);
+        assert_eq!(result.omitted_item_uris, vec!["at://two"]);
+        assert_eq!(result.page_index, Some(0));
+        assert_eq!(result.page_size, Some(25));
+        assert_eq!(result.collection_total_items, Some(2));
+        assert_eq!(result.has_more, Some(false));
+    }
+
+    #[test]
+    fn parse_collection_summary_result_partial_repair_still_rejects_missing_minimum_fields() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent test posts",
+                vec![PostRecord {
+                    uri: "at://one".to_string(),
+                    author_handle: "alpha.test".to_string(),
+                    body: "post one".to_string(),
+                }],
+            ),
+            0,
+            25,
+        );
+
+        let parsed = parse_collection_tool_result(
+            &collection,
+            "SUMMARY_RESULT_START\nsummary: grounded paragraph\ncovered_item_uri: at://one\nwindow_offset: 0",
+            CollectionLeafToolKind::Summary,
+            super::collection_window_offset(&collection),
+        );
+
+        assert!(parsed.result.is_none());
+        let diagnostic = parsed.diagnostic.expect("expected diagnostic");
+        assert!(diagnostic.contains("partial tagged repair failed"));
+        assert!(diagnostic.contains("window_size"));
     }
 
     #[test]

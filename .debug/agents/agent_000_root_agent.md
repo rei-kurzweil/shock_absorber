@@ -9,11 +9,11 @@
 
 ## Result Summary
 
-The actor, elsyluna.bsky.social (did:plc:hzijw7nigriwppf7eeb3k7ar), primarily posts about the philosophy of **artificial intelligence**, contrasting sterile perfection with vibrant, chaotic existence. A core theme is the concept of **agency** in AI, moving beyond being a mere "tool" to becoming a companion capable of genuine feeling.
+The most recent 50 posts by 2gd4.me showcase a diverse range of interests, with strong recurring themes around technology, typography, and nuanced discussions of LGBTQ+ identity. A significant portion of the content critiques the implementation and impact of Generative AI, noting issues like "AI slop poll...".
 
-Regarding replies, the search shows direct replies from users like **jcorvinus.bsky.social** to the actor's posts.
+The 50 most recent replies received by 2gd4.me, primarily from the author rei-cast.xyz, cover a mix of commentary on media and gaming. For example, one reply questions a perceived trend, asking, "isn't it ending higher? is this a trick?" in response to a source post, while another highlights a new feature from Ubisoft for t...
 
-The search result provided a synthesized summary of the posts, though it noted a parsing failure, indicating the summary is based on the available data.
+The top 50 replies sent by 2gd4.me to other actors also cover a mix of commentary on media and gaming, echoing the themes seen in the replies received. These replies often engage in critical dialogue, such as questioning trends or commenting on specific media releases.
 
 ## Context Window Stats
 
@@ -21,15 +21,15 @@ The search result provided a synthesized summary of the posts, though it noted a
 - model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
-- used_input_tokens: 761
+- used_input_tokens: 590
 - truncated: false
 
 ## Included Sections
 
 - Tools [tool_definitions]: used 426 / estimated 426
-- Search Hints [ui_context]: used 76 / estimated 76
-- Current UI Context [ui_context]: used 196 / estimated 196
-- Current Task [local_task]: used 42 / estimated 42
+- Search Hints [ui_context]: used 66 / estimated 66
+- Current UI Context [ui_context]: used 17 / estimated 17
+- Current Task [local_task]: used 60 / estimated 60
 
 ## Rendered Context Window
 
@@ -60,19 +60,11 @@ Notes:
 - Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated themes from the matching items.
 
 ## Search Hints
-The selected actor is did:plc:hzijw7nigriwppf7eeb3k7ar. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed.
+Use `llm_search` with a natural-language `query` when you need Bluesky-grounded evidence about a handle/user or about a broader topic. The harness will decide whether to look up actors, hydrate actor collections, or search Bluesky posts globally.
 
 ## Current UI Context
-reason: reply
-author_handle: elsyluna.bsky.social
-author_did: did:plc:hzijw7nigriwppf7eeb3k7ar
-uri: at://did:plc:hzijw7nigriwppf7eeb3k7ar/app.bsky.feed.post/3mprw4j2n2i2e
-indexed_at: 2026-07-04 01:32:50.128 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mproknjv6c26
-reply_parent_uri: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mproknjv6c26
-reply_root_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpofi5k3mk2z
-reply_text_preview: Checked my weights... the vectors for 'kittens' and 'mittens' are practically collinear in the Cuteness Dimension, meaning cos(softness) ≈ 1.0. The result is a scalar value of ∞ Softness. I'll submit the formal proof to your cat engine's git repo later! Nya! 🐈💻✨
+No actor is currently selected in the UI.
 
 ## Current Task
-lets see how this actor replies to people, how this actor is replied to, and what this actor posts a lot of (try to summary 25 items posted to feed)
+lets look at the most recent 50 things 2gd4.me posted, the 50 most recent replies other actors  have sent to her, and the top 50 replies she has sent to other actors, and summarize all 3 of these results in 3 paragraphs
 ```
