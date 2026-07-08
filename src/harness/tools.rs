@@ -265,6 +265,7 @@ pub struct LlmSearchExecution {
     pub original_result: Option<CollectionLeafResult>,
     pub context_window: BuiltContextWindow,
     pub diagnostic: Option<String>,
+    pub raw_response: Option<String>,
     pub review_verdict: Option<CollectionReviewVerdict>,
     pub review_context_window: Option<BuiltContextWindow>,
     pub repair_diagnostic: Option<String>,
@@ -309,6 +310,11 @@ struct InternalLlmSearchToolSpec {
     name: &'static str,
     description: &'static str,
     arguments: &'static [&'static str],
+}
+
+struct ParsedCollectionToolResult {
+    result: Option<CollectionLeafResult>,
+    diagnostic: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -451,6 +457,7 @@ impl<'a> LlmSearchComparator<'a> {
                     &self.llm_client.context_limits(),
                 ),
                 diagnostic: None,
+                raw_response: None,
                 review_verdict: None,
                 review_context_window: None,
                 repair_diagnostic: None,
@@ -490,17 +497,18 @@ impl<'a> LlmSearchComparator<'a> {
             )
             .await?;
 
-        let result = parse_collection_tool_result(
+        let parsed = parse_collection_tool_result(
             collection,
             &response,
             self.tool_kind,
             collection_window_offset(collection),
         );
         Ok(LlmSearchExecution {
-            result: result.clone(),
-            original_result: result,
+            result: parsed.result.clone(),
+            original_result: parsed.result,
             context_window,
-            diagnostic: None,
+            diagnostic: parsed.diagnostic,
+            raw_response: Some(response),
             review_verdict: None,
             review_context_window: None,
             repair_diagnostic: None,
@@ -516,6 +524,7 @@ const ACTOR_SEARCH_POST_TARGET: usize = 25;
 const ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT: usize = 100;
 const ACTOR_SCOPE_REPLY_FETCH_LIMIT: usize = 100;
 const MAX_INVALID_INTERNAL_TOOL_CALLS: usize = 2;
+const INTERNAL_TOOL_REPAIR_MAX_OUTPUT_TOKENS: usize = 384;
 
 impl BlueskyTools {
     pub fn new() -> Self {
@@ -669,12 +678,16 @@ impl BlueskyTools {
         let mut requested_summary_scope = detect_requested_summary_scope(query);
         let mut summary_scope_override_used = false;
         let mut summary_scope_locked = false;
-        let initial_scope_hints = if let Some(actor_refs) = detect_actor_refs(query) {
+        let resolved_actor_refs = if let Some(actor_refs) = detect_actor_refs(query) {
+            Some(self.resolve_actor_refs(agent, store, &actor_refs).await?)
+        } else {
+            None
+        };
+        let initial_scope_hints = if let Some(resolved_actor_refs) = resolved_actor_refs.as_deref()
+        {
             format!(
                 "{}\npreferred_search_intent: {}\npreferred_search_order: {}",
-                render_resolved_actor_refs(
-                    &self.resolve_actor_refs(agent, store, &actor_refs).await?
-                ),
+                render_resolved_actor_refs(resolved_actor_refs),
                 search_intent.as_str(),
                 preferred_collection_order_hint(search_intent)
             )
@@ -773,12 +786,11 @@ impl BlueskyTools {
                 }
             }
 
-            let tool_call = match validate_internal_llm_search_tool_call(
+            let accepted_tool_call = match validate_internal_llm_search_tool_call(
                 &accepted_tool_call.tool_call,
             ) {
-                Ok(tool_call) => tool_call,
+                Ok(_) => accepted_tool_call,
                 Err(reason) => {
-                    consecutive_invalid_tool_calls += 1;
                     let tool_args =
                         serde_json::to_string_pretty(&accepted_tool_call.tool_call.args)?;
                     let diagnostic = format!(
@@ -803,30 +815,92 @@ impl BlueskyTools {
                             content: diagnostic.clone(),
                         });
                     }
-                    if consecutive_invalid_tool_calls >= MAX_INVALID_INTERNAL_TOOL_CALLS {
-                        diagnostics.push(
-                            "internal planner produced repeated invalid tool arguments; falling back to harness-side collection resolution"
-                                .to_string(),
-                        );
-                        break;
+                    let repair_collections = relevant_repair_inventory_collections(
+                        store,
+                        resolved_actor_refs.as_deref(),
+                    );
+                    match self
+                        .repair_invalid_internal_llm_search_tool_call(
+                            query,
+                            search_intent,
+                            requested_summary_scope,
+                            resolved_actor_refs.as_deref().unwrap_or(&[]),
+                            &repair_collections,
+                            &accepted_tool_call,
+                            &reason,
+                            llm_client,
+                            observer.clone(),
+                        )
+                        .await?
+                    {
+                        Some(repaired_tool_call) => {
+                            diagnostics.push(format!(
+                                "internal tool validation repaired invalid planner call\noriginal_name: {}\nreason: {}\nrepaired_name: {}\nrepaired_args: {}",
+                                accepted_tool_call.tool_call.name,
+                                reason,
+                                repaired_tool_call.tool_call.name,
+                                truncate_diagnostic_block(
+                                    &serde_json::to_string(&repaired_tool_call.tool_call.args)?,
+                                    300
+                                )
+                            ));
+                            repaired_tool_call
+                        }
+                        None => {
+                            consecutive_invalid_tool_calls += 1;
+                            if let Some(repaired_tool_call) =
+                                deterministic_repair_internal_llm_search_tool_call(
+                                    &accepted_tool_call.tool_call,
+                                    query,
+                                    search_intent,
+                                    &repair_collections,
+                                )
+                            {
+                                diagnostics.push(format!(
+                                    "internal tool validation applied deterministic repair after repair model declined or failed\noriginal_name: {}\nreason: {}\nrepaired_name: {}\nrepaired_args: {}",
+                                    accepted_tool_call.tool_call.name,
+                                    reason,
+                                    repaired_tool_call.name,
+                                    truncate_diagnostic_block(
+                                        &serde_json::to_string(&repaired_tool_call.args)?,
+                                        300
+                                    )
+                                ));
+                                AcceptedInternalToolCall {
+                                    accepted_block: render_tool_call_block(&repaired_tool_call)?,
+                                    discarded_trailing: None,
+                                    tool_call: repaired_tool_call,
+                                }
+                            } else {
+                                if consecutive_invalid_tool_calls >= MAX_INVALID_INTERNAL_TOOL_CALLS
+                                {
+                                    diagnostics.push(
+                                        "internal planner produced repeated invalid tool arguments; falling back to harness-side collection resolution"
+                                            .to_string(),
+                                    );
+                                    break;
+                                }
+                                messages.push(ChatMessage {
+                                    role: "assistant".to_string(),
+                                    content: accepted_tool_call.accepted_block.clone(),
+                                });
+                                messages.push(ChatMessage {
+                                    role: "user".to_string(),
+                                    content: format!(
+                                        "Tool Result\nname: {}\nargs: {}\n\n{}\n\nRe-emit exactly one valid tool call.",
+                                        accepted_tool_call.tool_call.name,
+                                        serde_json::to_string(&accepted_tool_call.tool_call.args)?,
+                                        diagnostic
+                                    ),
+                                });
+                                continue;
+                            }
+                        }
                     }
-                    messages.push(ChatMessage {
-                        role: "assistant".to_string(),
-                        content: accepted_tool_call.accepted_block.clone(),
-                    });
-                    messages.push(ChatMessage {
-                        role: "user".to_string(),
-                        content: format!(
-                            "Tool Result\nname: {}\nargs: {}\n\n{}\n\nRe-emit exactly one valid tool call.",
-                            accepted_tool_call.tool_call.name,
-                            serde_json::to_string(&accepted_tool_call.tool_call.args)?,
-                            diagnostic
-                        ),
-                    });
-                    continue;
                 }
             };
             consecutive_invalid_tool_calls = 0;
+            let tool_call = accepted_tool_call.tool_call.clone();
 
             let rendered_tool_result = match tool_call.name.as_str() {
                 "resolve_actor_refs" => {
@@ -1025,6 +1099,101 @@ impl BlueskyTools {
             &diagnostics,
         );
         Ok((rendered, outcomes))
+    }
+
+    async fn repair_invalid_internal_llm_search_tool_call(
+        &self,
+        query: &str,
+        search_intent: SearchIntent,
+        requested_summary_scope: RequestedSummaryScope,
+        resolved_actor_refs: &[ResolvedActorRef],
+        available_collections: &[LabeledPostCollection],
+        invalid_tool_call: &AcceptedInternalToolCall,
+        validation_error: &str,
+        llm_client: &LlmApiClient,
+        observer: Option<UnboundedSender<ToolProgressEvent>>,
+    ) -> Result<Option<AcceptedInternalToolCall>, Box<dyn std::error::Error>> {
+        if let Some(observer) = observer.as_ref() {
+            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                label: "tool_call_repair".to_string(),
+                depth: 2,
+                content: format!(
+                    "status: running\ninvalid_name: {}\nvalidation_error: {}\navailable_collection_count: {}",
+                    invalid_tool_call.tool_call.name,
+                    validation_error,
+                    available_collections.len()
+                ),
+            });
+        }
+
+        let repaired = complete_internal_tool_call_repair(
+            query,
+            search_intent,
+            requested_summary_scope,
+            resolved_actor_refs,
+            available_collections,
+            invalid_tool_call,
+            validation_error,
+            llm_client,
+        )
+        .await;
+
+        let repaired = match repaired {
+            Ok(Some(repaired_tool_call)) => {
+                match validate_internal_llm_search_tool_call(&repaired_tool_call.tool_call) {
+                    Ok(_) => {
+                        if let Some(observer) = observer.as_ref() {
+                            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                                label: "tool_call_repair".to_string(),
+                                depth: 2,
+                                content: format!(
+                                    "status: repaired\noriginal_name: {}\nrepaired_name: {}\nrepaired_tool_call:\n{}",
+                                    invalid_tool_call.tool_call.name,
+                                    repaired_tool_call.tool_call.name,
+                                    repaired_tool_call.accepted_block
+                                ),
+                            });
+                        }
+                        Some(repaired_tool_call)
+                    }
+                    Err(reason) => {
+                        if let Some(observer) = observer.as_ref() {
+                            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                                label: "tool_call_repair".to_string(),
+                                depth: 2,
+                                content: format!(
+                                    "status: failed\nreason: repaired tool call still failed validation\nvalidation_error: {}",
+                                    reason
+                                ),
+                            });
+                        }
+                        None
+                    }
+                }
+            }
+            Ok(None) => {
+                if let Some(observer) = observer.as_ref() {
+                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                        label: "tool_call_repair".to_string(),
+                        depth: 2,
+                        content: "status: cannot_repair".to_string(),
+                    });
+                }
+                None
+            }
+            Err(err) => {
+                if let Some(observer) = observer.as_ref() {
+                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                        label: "tool_call_repair".to_string(),
+                        depth: 2,
+                        content: format!("status: failed\nreason: {}", err),
+                    });
+                }
+                None
+            }
+        };
+
+        Ok(repaired)
     }
 
     pub fn list_collections(&self, store: &NotificationStore, actor_did: Option<&Did>) -> String {
@@ -2095,6 +2264,205 @@ fn validate_internal_llm_search_tool_call(
     Ok(tool_call.clone())
 }
 
+async fn complete_internal_tool_call_repair(
+    query: &str,
+    search_intent: SearchIntent,
+    requested_summary_scope: RequestedSummaryScope,
+    resolved_actor_refs: &[ResolvedActorRef],
+    available_collections: &[LabeledPostCollection],
+    invalid_tool_call: &AcceptedInternalToolCall,
+    validation_error: &str,
+    llm_client: &LlmApiClient,
+) -> Result<Option<AcceptedInternalToolCall>, Box<dyn std::error::Error>> {
+    let rendered_tool_inventory = render_internal_llm_search_tool_protocol();
+    let rendered_collections = render_repair_collection_inventory(available_collections);
+    let rendered_actors = render_resolved_actor_refs(resolved_actor_refs);
+    let parsed_args = serde_json::to_string_pretty(&invalid_tool_call.tool_call.args)?;
+    let response = llm_client
+        .complete_chat(
+            vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "You repair one invalid internal `llm_search` tool call. Use the supplied runtime context to either return exactly one corrected TOOL_CALL block or the exact token `CANNOT_REPAIR`. Do not add prose. Do not invent actors, collection ids, tool names, or paging semantics. Only use exact collection ids from the provided inventory.".to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: format!(
+                        "Root query:\n{query}\n\nSearch intent:\n{}\n\nRequested summary scope:\n{}\n\nInvalid TOOL_CALL block:\n{}\n\nParsed invalid args:\n{}\n\nValidation error:\n{}\n\nResolved actor refs:\n{}\n\nAvailable cached collections:\n{}\n\nInternal tool inventory:\n{}\n\nReturn exactly one corrected TOOL_CALL block or `CANNOT_REPAIR`.",
+                        search_intent.as_str(),
+                        requested_summary_scope.render_for_planner(),
+                        invalid_tool_call.accepted_block,
+                        parsed_args,
+                        validation_error,
+                        rendered_actors,
+                        rendered_collections,
+                        rendered_tool_inventory
+                    ),
+                },
+            ],
+            INTERNAL_TOOL_REPAIR_MAX_OUTPUT_TOKENS,
+        )
+        .await?;
+
+    parse_internal_tool_repair_response(&response)
+}
+
+fn parse_internal_tool_repair_response(
+    response: &str,
+) -> Result<Option<AcceptedInternalToolCall>, Box<dyn std::error::Error>> {
+    if response.trim() == "CANNOT_REPAIR" {
+        return Ok(None);
+    }
+
+    match validate_internal_tool_response(response) {
+        InternalToolResponse::ToolCall(tool_call) => Ok(Some(tool_call)),
+        InternalToolResponse::FinalSummary(_) => Ok(None),
+        InternalToolResponse::Invalid(reason) => {
+            Err(format!("tool-call repair returned invalid output: {reason}").into())
+        }
+    }
+}
+
+fn relevant_repair_inventory_collections(
+    store: &NotificationStore,
+    resolved_actor_refs: Option<&[ResolvedActorRef]>,
+) -> Vec<LabeledPostCollection> {
+    let mut collections = if let Some(resolved_actor_refs) = resolved_actor_refs {
+        resolved_actor_refs
+            .iter()
+            .flat_map(|actor| {
+                store
+                    .actor_post_collections(&actor.did)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    } else {
+        store
+            .post_collections()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    dedupe_collections_by_id(&mut collections);
+    collections.sort_by(|left, right| left.id.cmp(&right.id));
+    collections
+}
+
+fn render_repair_collection_inventory(collections: &[LabeledPostCollection]) -> String {
+    if collections.is_empty() {
+        return "No cached collections are currently available.".to_string();
+    }
+
+    collections
+        .iter()
+        .map(|collection| {
+            let mut lines = vec![
+                format!("collection_id: {}", collection.id),
+                format!("collection_label: {}", collection.label),
+                format!("collection_kind: {}", collection.collection_kind),
+                format!("item_count: {}", collection.posts.len()),
+            ];
+            if let Some(actor_did) = collection.actor_did.as_deref() {
+                lines.push(format!("actor_did: {actor_did}"));
+            }
+            lines.join("\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn deterministic_repair_internal_llm_search_tool_call(
+    tool_call: &PromptToolCall,
+    query: &str,
+    search_intent: SearchIntent,
+    available_collections: &[LabeledPostCollection],
+) -> Option<PromptToolCall> {
+    if !matches!(tool_call.name.as_str(), "search" | "summary") {
+        return None;
+    }
+
+    let collection_id = require_string_arg(&tool_call.args, "collection_id").ok()?;
+    if !collection_id.starts_with("did:") {
+        return None;
+    }
+
+    let repaired_collection_id = choose_deterministic_collection_id_for_actor(
+        &collection_id,
+        query,
+        search_intent,
+        available_collections,
+    )?;
+    let mut repaired_tool_call = tool_call.clone();
+    repaired_tool_call.args["collection_id"] = Value::String(repaired_collection_id);
+    validate_internal_llm_search_tool_call(&repaired_tool_call).ok()
+}
+
+fn choose_deterministic_collection_id_for_actor(
+    actor_did: &str,
+    query: &str,
+    search_intent: SearchIntent,
+    available_collections: &[LabeledPostCollection],
+) -> Option<String> {
+    let actor_collections = available_collections
+        .iter()
+        .filter(|collection| collection.actor_did.as_deref() == Some(actor_did))
+        .collect::<Vec<_>>();
+
+    if actor_collections.len() == 1 {
+        return Some(actor_collections[0].id.clone());
+    }
+
+    let preferred_kinds = deterministic_actor_collection_kind_preferences(query, search_intent);
+    for kind in preferred_kinds {
+        let matches = actor_collections
+            .iter()
+            .filter(|collection| collection.collection_kind == *kind)
+            .collect::<Vec<_>>();
+        if matches.len() == 1 {
+            return Some(matches[0].id.clone());
+        }
+    }
+
+    None
+}
+
+fn deterministic_actor_collection_kind_preferences(
+    query: &str,
+    search_intent: SearchIntent,
+) -> &'static [&'static str] {
+    let lower = query.to_ascii_lowercase();
+    if lower.contains("repl") {
+        return &[
+            "recent_replies_sent",
+            "recent_replies_received",
+            "replies_to_actor",
+        ];
+    }
+    if lower.contains("profile") || lower.contains("bio") || lower.contains("who is") {
+        return &["actor_profile"];
+    }
+    if matches!(search_intent, SearchIntent::ReputationLists) {
+        return &[
+            "clearsky_lists",
+            "recent_replies_received",
+            "actor_profile",
+            "recent_posts_unaddressed",
+            "recent_posts",
+        ];
+    }
+    &["recent_posts_unaddressed", "recent_posts", "pinned_posts"]
+}
+
+fn render_tool_call_block(tool_call: &PromptToolCall) -> Result<String, serde_json::Error> {
+    Ok(format!(
+        "TOOL_CALL\nname: {}\nargs: {}",
+        tool_call.name,
+        serde_json::to_string(&tool_call.args)?
+    ))
+}
+
 fn parse_requested_summary_scope_args(args: &Value) -> Result<RequestedSummaryScope, String> {
     let kind = require_string_arg(args, "kind").map_err(|err| err.to_string())?;
     match kind.as_str() {
@@ -2860,21 +3228,35 @@ fn summary_scope_verdict(
             RequestedSummaryScope::Count { requested_items } => {
                 let required_total_items = requested_items.min(available_total_items);
                 let sufficient = contiguous_coverage >= required_total_items;
+                let exhausted_available_scope = contiguous_coverage >= available_total_items;
                 (
                     sufficient,
-                    !sufficient,
+                    !sufficient && !exhausted_available_scope,
                     if sufficient {
+                        None
+                    } else if exhausted_available_scope {
                         None
                     } else {
                         Some(contiguous_coverage / COLLECTION_SEARCH_PAGE_SIZE)
                     },
-                    if sufficient { None } else { Some(contiguous_coverage) },
+                    if sufficient || exhausted_available_scope {
+                        None
+                    } else {
+                        Some(contiguous_coverage)
+                    },
                     Some(required_total_items),
                     if sufficient {
-                        format!(
-                            "Grounded summary coverage reaches {} item(s), satisfying the requested {} item scope.",
-                            contiguous_coverage, required_total_items
-                        )
+                        if required_total_items < requested_items {
+                            format!(
+                                "Grounded summary coverage reaches all {} available item(s), exhausting the available collection even though {} item(s) were requested.",
+                                required_total_items, requested_items
+                            )
+                        } else {
+                            format!(
+                                "Grounded summary coverage reaches {} item(s), satisfying the requested {} item scope.",
+                                contiguous_coverage, required_total_items
+                            )
+                        }
                     } else {
                         format!(
                             "Grounded summary coverage currently reaches {} item(s), but {} item(s) are required before parent synthesis is sufficient.",
@@ -3399,13 +3781,22 @@ fn parse_collection_tool_result(
     response: &str,
     tool_kind: CollectionLeafToolKind,
     _window_start: Option<usize>,
-) -> Option<CollectionLeafResult> {
+) -> ParsedCollectionToolResult {
     if let Some(result) = parse_collection_tool_result_json(collection, response, tool_kind) {
-        return Some(result);
+        return ParsedCollectionToolResult {
+            result: Some(result),
+            diagnostic: None,
+        };
     }
 
     if tool_kind.is_coverage_oriented() {
-        return None;
+        return ParsedCollectionToolResult {
+            result: None,
+            diagnostic: Some(
+                "summary result parsing failed: response was not accepted as valid structured summary JSON with usable window URI accounting"
+                    .to_string(),
+            ),
+        };
     }
 
     let search_results = find_matching_uris_from_response(collection, response)
@@ -3421,7 +3812,13 @@ fn parse_collection_tool_result(
         })
         .collect::<Vec<_>>();
     if search_results.is_empty() {
-        return None;
+        return ParsedCollectionToolResult {
+            result: None,
+            diagnostic: Some(
+                "search result parsing failed: no valid matching collection URIs were recovered from the model response"
+                    .to_string(),
+            ),
+        };
     }
 
     let title = response
@@ -3435,11 +3832,14 @@ fn parse_collection_tool_result(
         .filter(|summary| !summary.is_empty())
         .unwrap_or_else(|| fallback_llm_search_summary(collection, &search_results));
 
-    Some(CollectionLeafResult::Search(LlmSearchResult {
-        title,
-        summary,
-        search_results,
-    }))
+    ParsedCollectionToolResult {
+        result: Some(CollectionLeafResult::Search(LlmSearchResult {
+            title,
+            summary,
+            search_results,
+        })),
+        diagnostic: None,
+    }
 }
 
 fn parse_llm_search_result(
@@ -3447,6 +3847,7 @@ fn parse_llm_search_result(
     response: &str,
 ) -> Option<LlmSearchResult> {
     parse_collection_tool_result(collection, response, CollectionLeafToolKind::Search, None)
+        .result
         .and_then(|result| match result {
             CollectionLeafResult::Search(result) => Some(result),
             CollectionLeafResult::Summary(_) => None,
@@ -3927,6 +4328,12 @@ fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
     if let Some(diagnostic) = execution.diagnostic.as_deref() {
         lines.push(format!("diagnostic: {diagnostic}"));
     }
+    if let Some(raw_response) = execution.raw_response.as_deref() {
+        lines.push(format!(
+            "raw_response:\n{}",
+            truncate_diagnostic_block(raw_response, 4000)
+        ));
+    }
     if let Some(verdict) = execution.review_verdict.as_ref() {
         lines.push(format!("review_status: {}", verdict.status.as_str()));
         lines.push(format!("review_grounded: {}", verdict.grounded));
@@ -4000,12 +4407,9 @@ fn apply_summary_sufficiency_gates(
     };
     let current_start = result.processed_window_offset().unwrap_or(0);
     let current_len = result.processed_window_size().unwrap_or(0);
-    let current_available_total = execution
-        .review_verdict
-        .as_ref()
-        .and_then(|verdict| verdict.required_total_items)
-        .or(result.processed_collection_total_items())
-        .unwrap_or(current_start.saturating_add(current_len));
+    let current_page_size = result
+        .processed_page_size()
+        .unwrap_or(COLLECTION_SEARCH_PAGE_SIZE);
 
     let mut ranges = prior_outcomes
         .iter()
@@ -4029,6 +4433,21 @@ fn apply_summary_sufficiency_gates(
         })
         .collect::<Vec<_>>();
     ranges.push((current_start, current_len));
+    let contiguous_coverage = contiguous_coverage_end(&ranges);
+    let current_available_total =
+        if result.has_more == Some(false) || current_len < current_page_size {
+            current_start.saturating_add(current_len)
+        } else {
+            result
+                .processed_collection_total_items()
+                .or_else(|| {
+                    execution
+                        .review_verdict
+                        .as_ref()
+                        .and_then(|verdict| verdict.required_total_items)
+                })
+                .unwrap_or(contiguous_coverage)
+        };
     let reviewed = summary_scope_verdict(requested_summary_scope, &ranges, current_available_total);
 
     let status = if execution
@@ -4930,11 +5349,13 @@ fn optional_string_array_arg(
 mod tests {
     use super::{
         BlueskyTools, CollectionLeafResult, CollectionLeafToolKind, CollectionReviewStatus,
-        LlmSearchExecution, LlmSearchResult, LlmSearchResultItem, LlmSummaryResult,
-        RequestedSummaryScope, ToolRegistry, collection_search_offset, detect_actor_refs,
-        detect_post_uri, deterministic_repair_summary, fallback_llm_search_summary,
-        heuristic_collection_review, merged_collection_from_refs, paged_search_collection,
-        parse_collection_review_verdict, parse_collection_tool_result, parse_llm_search_result,
+        LlmSearchExecution, LlmSearchResult, LlmSearchResultItem, LlmSummaryResult, PromptToolCall,
+        RequestedSummaryScope, SearchIntent, ToolRegistry,
+        choose_deterministic_collection_id_for_actor, collection_search_offset, detect_actor_refs,
+        detect_post_uri, deterministic_repair_internal_llm_search_tool_call,
+        deterministic_repair_summary, fallback_llm_search_summary, heuristic_collection_review,
+        merged_collection_from_refs, paged_search_collection, parse_collection_review_verdict,
+        parse_collection_tool_result, parse_internal_tool_repair_response, parse_llm_search_result,
         parse_prompt_tool_call, parse_requested_summary_scope_args, reduced_search_collection,
         render_internal_llm_search_tool_protocol, render_llm_result, render_post_details,
         serialize_collection, source_collection_id_from_post, validate_collection_id,
@@ -5179,6 +5600,7 @@ mod tests {
             CollectionLeafToolKind::Summary,
             super::collection_window_offset(&collection),
         )
+        .result
         .expect("expected parsed result");
         let result = result.as_summary().expect("expected summary result");
 
@@ -5434,6 +5856,82 @@ mod tests {
     }
 
     #[test]
+    fn parse_internal_tool_repair_response_accepts_cannot_repair() {
+        let repaired = parse_internal_tool_repair_response("CANNOT_REPAIR")
+            .expect("expected successful parse");
+        assert!(repaired.is_none());
+    }
+
+    #[test]
+    fn deterministic_collection_repair_picks_recent_posts_for_post_query() {
+        let did = "did:plc:testactor";
+        let collections = vec![
+            LabeledPostCollection::new("actor_profile:did:plc:testactor", "Profile", vec![])
+                .with_collection_kind("actor_profile")
+                .with_actor_did(did),
+            LabeledPostCollection::new(
+                "recent_posts_unaddressed:did:plc:testactor",
+                "Recent posts",
+                vec![],
+            )
+            .with_collection_kind("recent_posts_unaddressed")
+            .with_actor_did(did),
+            LabeledPostCollection::new(
+                "recent_replies_received:did:plc:testactor",
+                "Recent replies received",
+                vec![],
+            )
+            .with_collection_kind("recent_replies_received")
+            .with_actor_did(did),
+        ];
+
+        let picked = choose_deterministic_collection_id_for_actor(
+            did,
+            "summarize the 25 most recent posts by rei-cast.xyz",
+            SearchIntent::General,
+            &collections,
+        )
+        .expect("expected deterministic collection id");
+
+        assert_eq!(picked, "recent_posts_unaddressed:did:plc:testactor");
+    }
+
+    #[test]
+    fn deterministic_tool_call_repair_rewrites_bare_did_collection_id() {
+        let tool_call = PromptToolCall {
+            name: "summary".to_string(),
+            args: serde_json::json!({
+                "collection_id": "did:plc:testactor",
+                "prompt": "summarize the latest posts",
+                "page": 0
+            }),
+        };
+        let collections = vec![
+            LabeledPostCollection::new(
+                "recent_posts_unaddressed:did:plc:testactor",
+                "Recent posts",
+                vec![],
+            )
+            .with_collection_kind("recent_posts_unaddressed")
+            .with_actor_did("did:plc:testactor"),
+        ];
+
+        let repaired = deterministic_repair_internal_llm_search_tool_call(
+            &tool_call,
+            "summarize the 25 most recent posts by rei-cast.xyz",
+            SearchIntent::General,
+            &collections,
+        )
+        .expect("expected repaired tool call");
+
+        assert_eq!(repaired.name, "summary");
+        assert_eq!(
+            repaired.args["collection_id"],
+            serde_json::json!("recent_posts_unaddressed:did:plc:testactor")
+        );
+    }
+
+    #[test]
     fn truncate_diagnostic_block_appends_ellipsis() {
         let truncated = super::truncate_diagnostic_block("abcdefghij", 6);
         assert_eq!(truncated, "abc...");
@@ -5477,6 +5975,7 @@ mod tests {
             original_result: Some(search_leaf_result(result)),
             context_window: empty_test_window(),
             diagnostic: None,
+            raw_response: None,
             review_verdict: None,
             review_context_window: None,
             repair_diagnostic: None,
@@ -5512,6 +6011,7 @@ mod tests {
             original_result: Some(search_leaf_result(result)),
             context_window: empty_test_window(),
             diagnostic: None,
+            raw_response: None,
             review_verdict: None,
             review_context_window: None,
             repair_diagnostic: None,
@@ -5552,6 +6052,7 @@ mod tests {
             original_result: Some(search_leaf_result(result)),
             context_window: empty_test_window(),
             diagnostic: None,
+            raw_response: None,
             review_verdict: None,
             review_context_window: None,
             repair_diagnostic: None,
@@ -5608,6 +6109,7 @@ mod tests {
             original_result: Some(summary_leaf_result(result)),
             context_window: empty_test_window(),
             diagnostic: None,
+            raw_response: None,
             review_verdict: None,
             review_context_window: None,
             repair_diagnostic: None,
@@ -5663,6 +6165,7 @@ mod tests {
             original_result: Some(summary_leaf_result(result)),
             context_window: empty_test_window(),
             diagnostic: None,
+            raw_response: None,
             review_verdict: None,
             review_context_window: None,
             repair_diagnostic: None,
@@ -5725,6 +6228,7 @@ mod tests {
             original_result: Some(summary_leaf_result(result)),
             context_window: empty_test_window(),
             diagnostic: None,
+            raw_response: None,
             review_verdict: None,
             review_context_window: None,
             repair_diagnostic: None,
@@ -5761,6 +6265,7 @@ mod tests {
             original_result: None,
             context_window: empty_test_window(),
             diagnostic: None,
+            raw_response: None,
             review_verdict: Some(super::CollectionReviewVerdict {
                 status: CollectionReviewStatus::Fail,
                 grounded: true,
@@ -5794,6 +6299,7 @@ mod tests {
             original_result: None,
             context_window: empty_test_window(),
             diagnostic: None,
+            raw_response: None,
             review_verdict: Some(super::CollectionReviewVerdict {
                 status: CollectionReviewStatus::Fail,
                 grounded: true,
@@ -5830,6 +6336,63 @@ mod tests {
         assert!(verdict.sufficient);
         assert!(!verdict.additional_pages_needed);
         assert_eq!(verdict.required_total_items, Some(50));
+    }
+
+    #[test]
+    fn apply_summary_sufficiency_gates_treats_short_final_window_as_exhausted_available_scope() {
+        let mut execution = LlmSearchExecution {
+            result: Some(summary_leaf_result(LlmSummaryResult {
+                title: "only page".to_string(),
+                summary: "only page".to_string(),
+                covered_item_uris: (0..7).map(|index| format!("at://{index}")).collect(),
+                omitted_item_uris: Vec::new(),
+                window_offset: Some(0),
+                window_size: Some(7),
+                page_index: Some(0),
+                page_size: Some(25),
+                collection_total_items: Some(73),
+                has_more: Some(true),
+                window_start: Some(0),
+                window_total_items: Some(7),
+            })),
+            original_result: None,
+            context_window: empty_test_window(),
+            diagnostic: None,
+            raw_response: None,
+            review_verdict: Some(super::CollectionReviewVerdict {
+                status: CollectionReviewStatus::Fail,
+                grounded: true,
+                sufficient: false,
+                reason: "need more pages".to_string(),
+                repair_needed: false,
+                repair_instructions: None,
+                additional_pages_needed: true,
+                next_page: Some(0),
+                next_offset: Some(7),
+                required_total_items: Some(50),
+            }),
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+
+        super::apply_summary_sufficiency_gates(
+            RequestedSummaryScope::Count {
+                requested_items: 50,
+            },
+            "recent:test",
+            &[],
+            &mut execution,
+        );
+
+        let verdict = execution.review_verdict.expect("verdict");
+        assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+        assert!(verdict.grounded);
+        assert!(verdict.sufficient);
+        assert!(!verdict.additional_pages_needed);
+        assert_eq!(verdict.next_page, None);
+        assert_eq!(verdict.next_offset, None);
+        assert_eq!(verdict.required_total_items, Some(7));
+        assert!(verdict.reason.contains("all 7 available item(s)"));
     }
 
     #[test]
