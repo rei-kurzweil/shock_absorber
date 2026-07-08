@@ -194,24 +194,6 @@ pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData, sc
 
         if index == 0 {
             lines.push(legend_line());
-            for summary in root_follow_up_summaries(window) {
-                lines.push(Line::from(summary));
-            }
-            for segment in &window.segments {
-                if hide_detailed_segment(segment) {
-                    continue;
-                }
-                let pct = if window.input_budget_tokens == 0 {
-                    0.0
-                } else {
-                    (segment.tokens as f64 / window.input_budget_tokens as f64) * 100.0
-                };
-                let suffix = if segment.truncated { " (trimmed)" } else { "" };
-                lines.push(Line::from(format!(
-                    "{}: {} tokens ({pct:.1}%){}",
-                    segment.label, segment.tokens, suffix
-                )));
-            }
         } else {
             lines.push(Line::from(compact_segment_summary(window)));
         }
@@ -231,12 +213,6 @@ pub fn render(frame: &mut Frame, area: Rect, data: &ContextVisualizationData, sc
     frame.render_widget(Paragraph::new(Text::from(lines)).scroll((scroll, 0)), area);
 }
 
-fn hide_detailed_segment(segment: &ContextSegment) -> bool {
-    matches!(segment.category, ContextCategory::ToolResults)
-        && (segment.label.starts_with("Tool Request #")
-            || segment.label.starts_with("Tool Result #"))
-}
-
 fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
     window
         .segments
@@ -247,41 +223,6 @@ fn compact_segment_summary(window: &PromptContextSnapshot) -> String {
         })
         .collect::<Vec<_>>()
         .join(" | ")
-}
-
-fn root_follow_up_summaries(window: &PromptContextSnapshot) -> Vec<String> {
-    let tool_segments = window
-        .segments
-        .iter()
-        .filter(|segment| {
-            matches!(segment.category, ContextCategory::ToolResults)
-                && segment.label.starts_with("Tool Result #")
-        })
-        .map(render_root_follow_up_segment)
-        .collect::<Vec<_>>();
-    let chat_segments = window
-        .segments
-        .iter()
-        .filter(|segment| matches!(segment.category, ContextCategory::UserAiChat))
-        .map(render_root_follow_up_segment)
-        .collect::<Vec<_>>();
-
-    let mut lines = Vec::new();
-    if !tool_segments.is_empty() {
-        lines.push(format!(
-            "Main-context tool output: {}",
-            tool_segments.join(" | ")
-        ));
-    }
-    if !chat_segments.is_empty() {
-        lines.push(format!("Main-context chat: {}", chat_segments.join(" | ")));
-    }
-    lines
-}
-
-fn render_root_follow_up_segment(segment: &ContextSegment) -> String {
-    let suffix = if segment.truncated { "*" } else { "" };
-    format!("{} {}{}", segment.label, segment.tokens, suffix)
 }
 
 fn category_totals_summary(window: &PromptContextSnapshot) -> String {
@@ -434,7 +375,6 @@ fn legend_line() -> Line<'static> {
 mod tests {
     use super::{
         ContextCategory, ContextSegment, PromptContextSnapshot, category_totals_summary,
-        root_follow_up_summaries,
     };
 
     #[test]
@@ -515,45 +455,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn root_follow_up_summaries_show_tool_output_and_chat_segments() {
-        let window = PromptContextSnapshot {
-            title: "Root Agent".to_string(),
-            provider_name: "test".to_string(),
-            model_name: "test".to_string(),
-            max_context_tokens: 1000,
-            reserved_output_tokens: 100,
-            input_budget_tokens: 900,
-            used_input_tokens: 140,
-            truncated: false,
-            segments: vec![
-                ContextSegment {
-                    label: "Tool Request #1".to_string(),
-                    category: ContextCategory::ToolResults,
-                    tokens: 10,
-                    truncated: false,
-                },
-                ContextSegment {
-                    label: "Tool Result #1".to_string(),
-                    category: ContextCategory::ToolResults,
-                    tokens: 90,
-                    truncated: false,
-                },
-                ContextSegment {
-                    label: "Assistant Reply".to_string(),
-                    category: ContextCategory::UserAiChat,
-                    tokens: 40,
-                    truncated: false,
-                },
-            ],
-        };
-
-        assert_eq!(
-            root_follow_up_summaries(&window),
-            vec![
-                "Main-context tool output: Tool Result #1 90".to_string(),
-                "Main-context chat: Assistant Reply 40".to_string()
-            ]
-        );
-    }
 }
