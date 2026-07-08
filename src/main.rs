@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let agent = Arc::new(BskyAgent::builder().build().await?);
     agent.login(&handle, &password).await?;
-    let evil_gemma = Arc::new(EvilGemmaConfig::from_env()?);
+    let evil_gemma = Arc::new(EvilGemmaConfig::from_env().await?);
     let db_path =
         env::var("SHOCK_ABSORBER_DB_PATH").unwrap_or_else(|_| DEFAULT_DB_PATH.to_string());
     let db = AppDb::new(resolve_db_path(db_path))?;

@@ -30,6 +30,32 @@ impl OpenAiRestConfig {
         }
     }
 
+    pub fn apply_capabilities(&mut self, capabilities: &LlmBackendCapabilities) {
+        if let Some(provider_name) = capabilities.provider_name.as_deref() {
+            if !provider_name.trim().is_empty() {
+                self.provider_name = provider_name.trim().to_string();
+            }
+        }
+
+        if let Some(model_name) = capabilities.model_id.as_deref() {
+            if !model_name.trim().is_empty() {
+                self.model_name = model_name.trim().to_string();
+            }
+        }
+
+        if let Some(max_context_tokens) = capabilities.max_context_tokens {
+            if max_context_tokens > 0 {
+                self.max_context_tokens = max_context_tokens;
+            }
+        }
+
+        if let Some(default_max_tokens) = capabilities.default_max_tokens {
+            if default_max_tokens > 0 {
+                self.reserved_output_tokens = default_max_tokens;
+            }
+        }
+    }
+
     pub fn context_limits(&self) -> ProviderContextLimits {
         ProviderContextLimits {
             provider_name: self.provider_name.clone(),
@@ -43,6 +69,18 @@ impl OpenAiRestConfig {
 pub struct LlmApiClient {
     http: Client,
     config: OpenAiRestConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct LlmBackendCapabilities {
+    #[serde(default)]
+    pub provider_name: Option<String>,
+    #[serde(default)]
+    pub model_id: Option<String>,
+    #[serde(default)]
+    pub max_context_tokens: Option<usize>,
+    #[serde(default)]
+    pub default_max_tokens: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -65,6 +103,52 @@ impl LlmApiClient {
 
     pub fn context_limits(&self) -> ProviderContextLimits {
         self.config.context_limits()
+    }
+
+    pub async fn fetch_capabilities(
+        base_url: &str,
+    ) -> Result<LlmBackendCapabilities, Box<dyn std::error::Error>> {
+        let http = Client::builder()
+            .timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
+            .build()
+            .expect("reqwest client should build");
+        let response = http
+            .get(format!("{base_url}/v1/capabilities"))
+            .send()
+            .await
+            .map_err(|err| {
+                LlmApiError::message(format!(
+                    "request to {base_url}/v1/capabilities failed: {err}"
+                ))
+            })?;
+
+        let status = response.status();
+        let response_text = response.text().await.map_err(|err| {
+            LlmApiError::message(format!(
+                "failed reading response body from {base_url}/v1/capabilities: {err}"
+            ))
+        })?;
+
+        if !status.is_success() {
+            return Err(LlmApiError::HttpStatus {
+                status,
+                body_snippet: truncate_body(&response_text, 800),
+            }
+            .into());
+        }
+
+        let payload =
+            serde_json::from_str::<CapabilitiesResponse>(&response_text).map_err(|err| {
+                LlmApiError::ResponseParse {
+                    message: format!("failed to parse capabilities response: {err}"),
+                    body_snippet: truncate_body(&response_text, 800),
+                }
+            })?;
+
+        payload.capabilities.ok_or_else(|| {
+            LlmApiError::message("capabilities response did not include a `capabilities` object")
+                .into()
+        })
     }
 
     pub async fn complete_chat(
@@ -188,6 +272,11 @@ struct ChatCompletionResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct CapabilitiesResponse {
+    capabilities: Option<LlmBackendCapabilities>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ChatCompletionChoice {
     message: ChatMessage,
 }
@@ -279,7 +368,7 @@ fn truncate_body(body: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{LlmApiError, truncate_body};
+    use super::{CapabilitiesResponse, LlmApiError, truncate_body};
     use reqwest::StatusCode;
 
     #[test]
@@ -300,5 +389,27 @@ mod tests {
 
         assert!(retryable.is_retryable());
         assert!(!non_retryable.is_retryable());
+    }
+
+    #[test]
+    fn parses_capabilities_response() {
+        let response = serde_json::from_str::<CapabilitiesResponse>(
+            r#"{
+                "ok": true,
+                "provider_name": "llama.cpp",
+                "default_model": "gemma-4-local",
+                "capabilities": {
+                    "provider_name": "llama.cpp",
+                    "model_id": "gemma-4-local",
+                    "max_context_tokens": 32768,
+                    "default_max_tokens": 1024
+                }
+            }"#,
+        )
+        .expect("capabilities response should parse");
+
+        let capabilities = response.capabilities.expect("capabilities should exist");
+        assert_eq!(capabilities.max_context_tokens, Some(32768));
+        assert_eq!(capabilities.default_max_tokens, Some(1024));
     }
 }

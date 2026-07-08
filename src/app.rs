@@ -113,7 +113,7 @@ pub struct EvilGemmaConfig {
 }
 
 impl EvilGemmaConfig {
-    pub fn from_env() -> Result<Self, Box<dyn Error>> {
+    pub async fn from_env() -> Result<Self, Box<dyn Error>> {
         let base_url = env::var("EVIL_GEMMA_BASE_URL")
             .unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_BASE_URL.to_string());
         let model_name =
@@ -121,7 +121,14 @@ impl EvilGemmaConfig {
         let system_prompt_path = env::var("SYSTEM_PROMPT_PATH")
             .unwrap_or_else(|_| DEFAULT_SYSTEM_PROMPT_PATH.to_string());
 
-        let config = OpenAiRestConfig::llama_cpp(base_url, model_name);
+        let mut config = OpenAiRestConfig::llama_cpp(base_url, model_name);
+        match LlmApiClient::fetch_capabilities(&config.base_url).await {
+            Ok(capabilities) => config.apply_capabilities(&capabilities),
+            Err(err) => eprintln!(
+                "warning: failed to fetch evil_gemma capabilities from {}: {err}; using local defaults",
+                config.base_url
+            ),
+        }
         let system_prompt = fs::read_to_string(resolve_system_prompt_path(system_prompt_path))?;
 
         Ok(Self {
