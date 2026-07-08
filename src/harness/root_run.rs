@@ -927,6 +927,9 @@ fn requested_post_window_size(query: &str) -> Option<usize> {
         }) {
             return Some(value);
         }
+        if matches!(prev, Some("count" | "first" | "last")) {
+            return Some(value);
+        }
     }
     None
 }

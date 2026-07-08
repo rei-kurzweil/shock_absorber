@@ -8,8 +8,12 @@ Return exactly one JSON object with this shape:
   "summary": "grounded coverage-oriented paragraph",
   "covered_item_uris": ["real item uri 1", "real item uri 2"],
   "omitted_item_uris": ["real item uri 3"],
-  "window_start": 0,
-  "window_total_items": 25
+  "window_offset": 0,
+  "window_size": 25,
+  "page_index": 0,
+  "page_size": 25,
+  "collection_total_items": 73,
+  "has_more": true
 }
 ```
 
@@ -17,8 +21,12 @@ Return exactly one JSON object with this shape:
 - `summary` is required.
 - `covered_item_uris` is required and must list only real item URIs from this exact collection window.
 - `omitted_item_uris` is required and must list only real item URIs from this exact collection window.
-- `window_start` is required and must match the provided window start.
-- `window_total_items` is required and must match the number of items in the provided window.
+- `window_offset` is required and must match the provided window start.
+- `window_size` is required and must match the number of items in the provided window.
+- `page_index` is required and is zero-based.
+- `page_size` is required and must match the provided collection page size.
+- `collection_total_items` is required and must report the full available collection size, not just this page.
+- `has_more` is required and must match whether more items exist after this window.
 - Do not return markdown, code fences, or any text outside the JSON object.
 
 This tool is coverage-oriented, not relevance-ranked.
@@ -30,6 +38,7 @@ Rules:
 - Every item in the window must appear in exactly one of `covered_item_uris` or `omitted_item_uris`.
 - Keep `omitted_item_uris` empty unless you have a concrete grounded reason not to discuss those items directly.
 - The `summary` field must be one grounded paragraph of roughly 120-220 words.
+- The user may ask for `page 1` to mean the first human-facing page, but this JSON must still report `page_index: 0` for that first page.
 - Group recurring themes, contrasts, topic shifts, and unusual outliers that are directly supported by the collection text.
 - Quote exact short snippets, list names, list descriptions, or other text taken from the collection when that helps ground the grouping.
 - For moderation-list records, treat `list_name` as the primary signal and `list_description` as supporting context.
