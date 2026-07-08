@@ -793,6 +793,7 @@ fn detect_collection_targets_in_query(query: &str) -> Vec<String> {
         "clearsky_lists",
         "recent_replies_received",
         "actor_profile",
+        "recent_posts",
         "recent_posts_unaddressed",
         "pinned_posts",
     ]

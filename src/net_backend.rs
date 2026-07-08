@@ -135,6 +135,11 @@ impl NotificationStore {
     }
 
     #[allow(dead_code)]
+    pub fn get_recent_posts_collection(&self, did: &Did) -> Option<&LabeledPostCollection> {
+        self.get_post_collection(&recent_posts_collection_id(did))
+    }
+
+    #[allow(dead_code)]
     pub fn get_recent_posts_unaddressed(&self, did: &Did) -> Option<&[PostRecord]> {
         self.post_collections
             .get(&recent_posts_unaddressed_collection_id(did))
@@ -508,12 +513,16 @@ pub async fn ensure_recent_posts_cached(
     feed_fetch_limit: usize,
     min_top_level_posts: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let (Some(posts), Some(replies)) = (
+    if let (Some(all_posts), Some(posts), Some(replies)) = (
+        store.get_recent_posts_collection(did),
         store.get_recent_posts_unaddressed_collection(did),
         store.get_recent_replies_sent_collection(did),
     ) {
-        let cached_total = posts.posts.len().saturating_add(replies.posts.len());
-        if posts.posts.len() >= min_top_level_posts || cached_total >= feed_fetch_limit {
+        let cached_total = all_posts.posts.len();
+        if posts.posts.len() >= min_top_level_posts
+            || cached_total >= feed_fetch_limit
+            || cached_total >= posts.posts.len().saturating_add(replies.posts.len())
+        {
             return Ok(());
         }
     }
@@ -570,10 +579,12 @@ pub async fn ensure_recent_posts_cached(
         cursor = Some(next_cursor);
     }
 
+    let all_recent_posts = recent_posts.clone();
     let (recent_posts_unaddressed, recent_replies_sent) =
         partition_recent_posts_for_actor(recent_posts, did);
 
     store.remove_post_collection(&recent_posts_collection_id(did));
+    store.cache_post_collection(build_recent_posts_collection(did, all_recent_posts));
     store.cache_post_collection(build_recent_posts_unaddressed_collection(
         did,
         recent_posts_unaddressed,
@@ -876,6 +887,32 @@ fn build_actor_profile_collection(profile: &ActorProfile) -> LabeledPostCollecti
     )
     .with_collection_kind("actor_profile")
     .with_actor_did(profile.did.as_str())
+    .with_refresh_state(
+        now_unix_timestamp(),
+        Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),
+    )
+    .with_metadata(metadata)
+}
+
+fn build_recent_posts_collection(
+    did: &Did,
+    posts: Vec<feed::defs::PostView>,
+) -> LabeledPostCollection {
+    let mut metadata = HashMap::new();
+    metadata.insert("source_feed".to_string(), "author_feed".to_string());
+
+    LabeledPostCollection::new(
+        recent_posts_collection_id(did),
+        format!("Recent posts by {}", did.as_str()),
+        posts.into_iter().map(post_record_from_view).collect(),
+    )
+    .with_collection_kind("recent_posts")
+    .with_actor_did(did.as_str())
+    .with_related_collections(vec![
+        recent_posts_unaddressed_collection_id(did),
+        recent_replies_sent_collection_id(did),
+        pinned_posts_collection_id(did),
+    ])
     .with_refresh_state(
         now_unix_timestamp(),
         Some(DEFAULT_COLLECTION_REFRESH_TTL_SECONDS),

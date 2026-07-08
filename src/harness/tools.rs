@@ -317,6 +317,20 @@ struct ParsedCollectionToolResult {
     diagnostic: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ParsedTaggedSummaryFields {
+    title: Option<String>,
+    summary: Option<String>,
+    covered_item_uris: Vec<String>,
+    omitted_item_uris: Vec<String>,
+    window_offset: Option<usize>,
+    window_size: Option<usize>,
+    page_index: Option<usize>,
+    page_size: Option<usize>,
+    collection_total_items: Option<usize>,
+    has_more: Option<bool>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CollectionLeafToolKind {
     Search,
@@ -375,6 +389,13 @@ impl CollectionLeafToolKind {
 
     fn is_coverage_oriented(self) -> bool {
         matches!(self, Self::Summary)
+    }
+
+    fn response_format(self) -> Option<ChatCompletionResponseFormat> {
+        match self {
+            Self::Search => Some(ChatCompletionResponseFormat::JsonObject),
+            Self::Summary => None,
+        }
     }
 }
 
@@ -493,7 +514,7 @@ impl<'a> LlmSearchComparator<'a> {
                     },
                 ],
                 self.max_output_tokens,
-                Some(ChatCompletionResponseFormat::JsonObject),
+                self.tool_kind.response_format(),
             )
             .await?;
 
@@ -572,7 +593,7 @@ impl BlueskyTools {
     }
 
     pub fn recent_posts_collection_id(&self, did: &Did) -> String {
-        format!("recent_posts_unaddressed:{}", did.as_str())
+        format!("recent_posts:{}", did.as_str())
     }
 
     pub fn pinned_posts_collection_id(&self, did: &Did) -> String {
@@ -2175,12 +2196,13 @@ fn pick_summary_fallback_collection(
     let preferred_kinds = if lower.contains("repl") {
         [
             "recent_replies_sent",
+            "recent_posts",
             "recent_replies_received",
             "replies_to_actor",
         ]
         .as_slice()
     } else {
-        ["recent_posts_unaddressed", "recent_posts", "pinned_posts"].as_slice()
+        ["recent_posts", "recent_posts_unaddressed", "pinned_posts"].as_slice()
     };
 
     preferred_kinds
@@ -2197,7 +2219,7 @@ fn pick_summary_fallback_collection(
 fn preferred_collection_order_hint(intent: SearchIntent) -> &'static str {
     match intent {
         SearchIntent::ReputationLists => {
-            "clearsky_lists -> recent_replies_received -> actor_profile -> recent_posts_unaddressed"
+            "clearsky_lists -> recent_replies_received -> actor_profile -> recent_posts"
         }
         SearchIntent::General => "narrowest sufficient collection first",
     }
@@ -2436,6 +2458,7 @@ fn deterministic_actor_collection_kind_preferences(
     if lower.contains("repl") {
         return &[
             "recent_replies_sent",
+            "recent_posts",
             "recent_replies_received",
             "replies_to_actor",
         ];
@@ -2448,11 +2471,11 @@ fn deterministic_actor_collection_kind_preferences(
             "clearsky_lists",
             "recent_replies_received",
             "actor_profile",
-            "recent_posts_unaddressed",
             "recent_posts",
+            "recent_posts_unaddressed",
         ];
     }
-    &["recent_posts_unaddressed", "recent_posts", "pinned_posts"]
+    &["recent_posts", "recent_posts_unaddressed", "pinned_posts"]
 }
 
 fn render_tool_call_block(tool_call: &PromptToolCall) -> Result<String, serde_json::Error> {
@@ -2495,7 +2518,7 @@ fn parse_requested_summary_scope_args(args: &Value) -> Result<RequestedSummarySc
 fn validate_collection_id(collection_id: &str) -> Result<(), String> {
     if collection_id.starts_with("did:") {
         return Err(format!(
-            "collection id `{collection_id}` is a bare DID, not a cached collection id; use an exact collection id such as `recent_posts_unaddressed:{collection_id}` or `actor_profile:{collection_id}`"
+            "collection id `{collection_id}` is a bare DID, not a cached collection id; use an exact collection id such as `recent_posts:{collection_id}` or `actor_profile:{collection_id}`"
         ));
     }
 
@@ -3227,8 +3250,9 @@ fn summary_scope_verdict(
             ),
             RequestedSummaryScope::Count { requested_items } => {
                 let required_total_items = requested_items.min(available_total_items);
-                let sufficient = contiguous_coverage >= required_total_items;
                 let exhausted_available_scope = contiguous_coverage >= available_total_items;
+                let sufficient =
+                    contiguous_coverage >= required_total_items || exhausted_available_scope;
                 (
                     sufficient,
                     !sufficient && !exhausted_available_scope,
@@ -3684,7 +3708,7 @@ fn render_internal_llm_search_tool_protocol() -> String {
         .join("\n\n");
 
     format!(
-        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts_unaddressed` when needed for contrast or missing evidence\n- use `summary` for explicit whole-window coverage requests like \"last 50 posts\", \"summarize page 1\", or \"summarize pages 1-2\"\n- call `set_summary_scope` only when the initial requested summary scope is wrong or too vague; it is available once and only before the first `summary` call\n- user-facing page phrases are one-based, so `page 1` means the first page; internal tool args stay zero-based\n- use `search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
+        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts` when needed for contrast or missing evidence\n- prefer `recent_posts` over `recent_posts_unaddressed` unless the task explicitly needs top-level-only posts\n- use `summary` for explicit whole-window coverage requests like \"last 50 posts\", \"summarize page 1\", or \"summarize pages 1-2\"\n- call `set_summary_scope` only when the initial requested summary scope is wrong or too vague; it is available once and only before the first `summary` call\n- user-facing page phrases are one-based, so `page 1` means the first page; internal tool args stay zero-based\n- use `search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
     )
 }
 
@@ -3782,20 +3806,39 @@ fn parse_collection_tool_result(
     tool_kind: CollectionLeafToolKind,
     _window_start: Option<usize>,
 ) -> ParsedCollectionToolResult {
+    if tool_kind.is_coverage_oriented() {
+        match parse_collection_summary_result_tagged(response) {
+            Ok(result) => {
+                return ParsedCollectionToolResult {
+                    result: Some(CollectionLeafResult::Summary(normalize_summary_result(
+                        collection, result,
+                    ))),
+                    diagnostic: None,
+                };
+            }
+            Err(tagged_err) => match parse_collection_summary_result_json(collection, response) {
+                Ok(result) => {
+                    return ParsedCollectionToolResult {
+                        result: Some(CollectionLeafResult::Summary(result)),
+                        diagnostic: None,
+                    };
+                }
+                Err(json_err) => {
+                    return ParsedCollectionToolResult {
+                        result: None,
+                        diagnostic: Some(format!(
+                            "summary result parsing failed: tagged parser failed ({tagged_err}); json parser failed ({json_err})"
+                        )),
+                    };
+                }
+            },
+        }
+    }
+
     if let Some(result) = parse_collection_tool_result_json(collection, response, tool_kind) {
         return ParsedCollectionToolResult {
             result: Some(result),
             diagnostic: None,
-        };
-    }
-
-    if tool_kind.is_coverage_oriented() {
-        return ParsedCollectionToolResult {
-            result: None,
-            diagnostic: Some(
-                "summary result parsing failed: response was not accepted as valid structured summary JSON with usable window URI accounting"
-                    .to_string(),
-            ),
         };
     }
 
@@ -3852,6 +3895,254 @@ fn parse_llm_search_result(
             CollectionLeafResult::Search(result) => Some(result),
             CollectionLeafResult::Summary(_) => None,
         })
+}
+
+fn parse_collection_summary_result_tagged(response: &str) -> Result<LlmSummaryResult, String> {
+    let start_marker = "SUMMARY_RESULT_START";
+    let end_marker = "SUMMARY_RESULT_END";
+    let Some(start_index) = response.find(start_marker) else {
+        return Err("missing SUMMARY_RESULT_START marker".to_string());
+    };
+    let Some(end_index) = response.find(end_marker) else {
+        return Err("missing SUMMARY_RESULT_END marker".to_string());
+    };
+    if end_index <= start_index {
+        return Err("summary markers are out of order".to_string());
+    }
+
+    let body_start = start_index + start_marker.len();
+    let body = &response[body_start..end_index];
+    let mut parsed = ParsedTaggedSummaryFields {
+        title: None,
+        summary: None,
+        covered_item_uris: Vec::new(),
+        omitted_item_uris: Vec::new(),
+        window_offset: None,
+        window_size: None,
+        page_index: None,
+        page_size: None,
+        collection_total_items: None,
+        has_more: None,
+    };
+
+    for raw_line in body.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((raw_key, raw_value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = raw_key.trim();
+        let value = raw_value.trim();
+        match key {
+            "title" => {
+                if !value.is_empty() {
+                    parsed.title = Some(value.to_string());
+                }
+            }
+            "summary" => {
+                if !value.is_empty() {
+                    parsed.summary = Some(value.to_string());
+                }
+            }
+            "covered_item_uri" => {
+                if !value.is_empty() {
+                    parsed.covered_item_uris.push(value.to_string());
+                }
+            }
+            "omitted_item_uri" => {
+                if !value.is_empty() {
+                    parsed.omitted_item_uris.push(value.to_string());
+                }
+            }
+            "window_offset" => {
+                parsed.window_offset = Some(
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| "malformed integer field `window_offset`".to_string())?,
+                );
+            }
+            "window_size" => {
+                parsed.window_size = Some(
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| "malformed integer field `window_size`".to_string())?,
+                );
+            }
+            "page_index" => {
+                parsed.page_index = Some(
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| "malformed integer field `page_index`".to_string())?,
+                );
+            }
+            "page_size" => {
+                parsed.page_size = Some(
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| "malformed integer field `page_size`".to_string())?,
+                );
+            }
+            "collection_total_items" => {
+                parsed.collection_total_items =
+                    Some(value.parse::<usize>().map_err(|_| {
+                        "malformed integer field `collection_total_items`".to_string()
+                    })?);
+            }
+            "has_more" => {
+                parsed.has_more = Some(match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err("malformed bool field `has_more`".to_string()),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    if parsed.summary.as_deref().is_none() {
+        return Err("missing required scalar field `summary`".to_string());
+    }
+    if parsed.covered_item_uris.is_empty() && parsed.omitted_item_uris.is_empty() {
+        return Err("no usable covered/omitted URI accounting was provided".to_string());
+    }
+    if parsed.window_offset.is_none()
+        || parsed.window_size.is_none()
+        || parsed.page_index.is_none()
+        || parsed.page_size.is_none()
+        || parsed.collection_total_items.is_none()
+        || parsed.has_more.is_none()
+    {
+        let mut missing = Vec::new();
+        if parsed.window_offset.is_none() {
+            missing.push("window_offset");
+        }
+        if parsed.window_size.is_none() {
+            missing.push("window_size");
+        }
+        if parsed.page_index.is_none() {
+            missing.push("page_index");
+        }
+        if parsed.page_size.is_none() {
+            missing.push("page_size");
+        }
+        if parsed.collection_total_items.is_none() {
+            missing.push("collection_total_items");
+        }
+        if parsed.has_more.is_none() {
+            missing.push("has_more");
+        }
+        return Err(format!(
+            "missing required scalar field(s): {}",
+            missing.join(", ")
+        ));
+    }
+
+    Ok(LlmSummaryResult {
+        title: parsed.title.unwrap_or_default(),
+        summary: parsed.summary.unwrap_or_default(),
+        covered_item_uris: parsed.covered_item_uris,
+        omitted_item_uris: parsed.omitted_item_uris,
+        window_offset: parsed.window_offset,
+        window_size: parsed.window_size,
+        page_index: parsed.page_index,
+        page_size: parsed.page_size,
+        collection_total_items: parsed.collection_total_items,
+        has_more: parsed.has_more,
+        window_start: parsed.window_offset,
+        window_total_items: parsed.window_size,
+    })
+}
+
+fn normalize_summary_result(
+    collection: &LabeledPostCollection,
+    mut result: LlmSummaryResult,
+) -> LlmSummaryResult {
+    if result.title.trim().is_empty() {
+        result.title = format!("LLM-selected post in {}", collection.label);
+    }
+    result
+}
+
+fn parse_collection_summary_result_json(
+    collection: &LabeledPostCollection,
+    response: &str,
+) -> Result<LlmSummaryResult, String> {
+    let value = serde_json::from_str::<Value>(response)
+        .map_err(|err| format!("invalid JSON object: {err}"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "response was not a JSON object".to_string())?;
+
+    let title = object
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("LLM-selected post in {}", collection.label));
+
+    let summary = object
+        .get("summary")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|summary| is_valid_llm_search_summary(summary))
+        .map(str::to_owned)
+        .ok_or_else(|| "missing required scalar field `summary`".to_string())?;
+
+    let covered_item_uris = parse_collection_window_uris(
+        collection,
+        object.get("covered_item_uris"),
+        collection.posts.len(),
+    );
+    let omitted_item_uris = parse_collection_window_uris(
+        collection,
+        object.get("omitted_item_uris"),
+        collection.posts.len(),
+    );
+    if covered_item_uris.is_empty() && omitted_item_uris.is_empty() {
+        return Err("no usable covered/omitted URI accounting was provided".to_string());
+    }
+
+    Ok(LlmSummaryResult {
+        title,
+        summary,
+        covered_item_uris,
+        omitted_item_uris,
+        window_offset: object
+            .get("window_offset")
+            .or_else(|| object.get("window_start"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+        window_size: object
+            .get("window_size")
+            .or_else(|| object.get("window_total_items"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+        page_index: object
+            .get("page_index")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+        page_size: object
+            .get("page_size")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+        collection_total_items: object
+            .get("collection_total_items")
+            .or_else(|| object.get("search_window_total_items"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+        has_more: object.get("has_more").and_then(Value::as_bool),
+        window_start: object
+            .get("window_start")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+        window_total_items: object
+            .get("window_total_items")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+    })
 }
 
 fn parse_collection_tool_result_json(
@@ -3919,72 +4210,9 @@ fn parse_collection_tool_result_json(
             }))
         }
         CollectionLeafToolKind::Summary => {
-            let covered_item_uris = parse_collection_window_uris(
-                collection,
-                object.get("covered_item_uris"),
-                collection.posts.len(),
-            );
-            let omitted_item_uris = parse_collection_window_uris(
-                collection,
-                object.get("omitted_item_uris"),
-                collection.posts.len(),
-            );
-            if covered_item_uris.is_empty() && omitted_item_uris.is_empty() {
-                return None;
-            }
-
-            let mut search_results = Vec::new();
-            for uri in &covered_item_uris {
-                search_results.push(LlmSearchResultItem {
-                    source_collection_id: collection
-                        .posts
-                        .iter()
-                        .find(|post| post.uri == *uri)
-                        .and_then(source_collection_id_from_post)
-                        .or_else(|| Some(collection.id.clone())),
-                    uri: uri.clone(),
-                });
-            }
-
-            Some(CollectionLeafResult::Summary(LlmSummaryResult {
-                title,
-                summary: parsed_summary.unwrap_or_default(),
-                covered_item_uris,
-                omitted_item_uris,
-                window_offset: object
-                    .get("window_offset")
-                    .or_else(|| object.get("window_start"))
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize),
-                window_size: object
-                    .get("window_size")
-                    .or_else(|| object.get("window_total_items"))
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize),
-                page_index: object
-                    .get("page_index")
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize),
-                page_size: object
-                    .get("page_size")
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize),
-                collection_total_items: object
-                    .get("collection_total_items")
-                    .or_else(|| object.get("search_window_total_items"))
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize)
-                    .or_else(|| Some(collection_available_total_items(collection))),
-                has_more: object.get("has_more").and_then(Value::as_bool),
-                window_start: object
-                    .get("window_start")
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize),
-                window_total_items: object
-                    .get("window_total_items")
-                    .and_then(Value::as_u64)
-                    .map(|value| value as usize),
-            }))
+            parse_collection_summary_result_json(collection, response)
+                .ok()
+                .map(CollectionLeafResult::Summary)
         }
     }
 }
@@ -5361,6 +5589,7 @@ mod tests {
         serialize_collection, source_collection_id_from_post, validate_collection_id,
         validate_internal_tool_response,
     };
+    use crate::harness::llm_api::ChatCompletionResponseFormat;
     use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
     use crate::model::{LabeledPostCollection, PostRecord};
     use crate::net_backend::{NotificationStore, PostDetails, PostFacet};
@@ -5608,6 +5837,152 @@ mod tests {
         assert_eq!(result.omitted_item_uris.len(), 0);
         assert_eq!(result.window_start, Some(0));
         assert_eq!(result.window_total_items, Some(2));
+    }
+
+    #[test]
+    fn parse_collection_summary_result_accepts_tagged_response() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent test posts",
+                vec![
+                    PostRecord {
+                        uri: "at://one".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post one".to_string(),
+                    },
+                    PostRecord {
+                        uri: "at://two".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post two".to_string(),
+                    },
+                ],
+            ),
+            0,
+            25,
+        );
+
+        let response = "SUMMARY_RESULT_START\nsummary: Both posts stay grounded in direct text, including \"post one\" and \"post two\", so the paragraph accounts for the whole window without JSON escaping problems.\ncovered_item_uri: at://one\ncovered_item_uri: at://two\nwindow_offset: 0\nwindow_size: 2\npage_index: 0\npage_size: 25\ncollection_total_items: 2\nhas_more: false\nSUMMARY_RESULT_END";
+        let result = parse_collection_tool_result(
+            &collection,
+            response,
+            CollectionLeafToolKind::Summary,
+            super::collection_window_offset(&collection),
+        )
+        .result
+        .expect("expected parsed result");
+        let result = result.as_summary().expect("expected summary result");
+
+        assert_eq!(result.covered_item_uris, vec!["at://one", "at://two"]);
+        assert!(result.omitted_item_uris.is_empty());
+        assert_eq!(result.window_offset, Some(0));
+        assert_eq!(result.window_size, Some(2));
+        assert_eq!(result.page_index, Some(0));
+        assert_eq!(result.page_size, Some(25));
+        assert_eq!(result.collection_total_items, Some(2));
+        assert_eq!(result.has_more, Some(false));
+        assert_eq!(result.title, "LLM-selected post in Recent test posts");
+    }
+
+    #[test]
+    fn parse_collection_summary_result_collects_repeated_omitted_tagged_fields() {
+        let parsed = super::parse_collection_summary_result_tagged(
+            "SUMMARY_RESULT_START\nsummary: grounded paragraph\ncovered_item_uri: at://one\nomitted_item_uri: at://two\nomitted_item_uri: at://three\nwindow_offset: 0\nwindow_size: 3\npage_index: 0\npage_size: 25\ncollection_total_items: 3\nhas_more: false\nSUMMARY_RESULT_END",
+        )
+        .expect("expected tagged parse");
+
+        assert_eq!(parsed.covered_item_uris, vec!["at://one"]);
+        assert_eq!(parsed.omitted_item_uris, vec!["at://two", "at://three"]);
+    }
+
+    #[test]
+    fn parse_collection_summary_result_reports_missing_tagged_markers() {
+        let err = super::parse_collection_summary_result_tagged(
+            "summary: grounded paragraph\ncovered_item_uri: at://one",
+        )
+        .expect_err("expected missing marker failure");
+
+        assert!(err.contains("missing SUMMARY_RESULT_START marker"));
+    }
+
+    #[test]
+    fn parse_collection_summary_result_reports_malformed_tagged_scalar() {
+        let err = super::parse_collection_summary_result_tagged(
+            "SUMMARY_RESULT_START\nsummary: grounded paragraph\ncovered_item_uri: at://one\nwindow_offset: nope\nwindow_size: 1\npage_index: 0\npage_size: 25\ncollection_total_items: 1\nhas_more: false\nSUMMARY_RESULT_END",
+        )
+        .expect_err("expected malformed scalar failure");
+
+        assert!(err.contains("malformed integer field `window_offset`"));
+    }
+
+    #[test]
+    fn parse_collection_summary_result_falls_back_to_json_when_tagged_parse_fails() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent test posts",
+                vec![
+                    PostRecord {
+                        uri: "at://one".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post one".to_string(),
+                    },
+                    PostRecord {
+                        uri: "at://two".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post two".to_string(),
+                    },
+                ],
+            ),
+            0,
+            25,
+        );
+
+        let parsed = parse_collection_tool_result(
+            &collection,
+            r#"{"title":"window summary","summary":"Both posts focus on test content, with \"post one\" and \"post two\" forming the full window.","covered_item_uris":["at://one","at://two"],"omitted_item_uris":[],"window_start":0,"window_total_items":2}"#,
+            CollectionLeafToolKind::Summary,
+            super::collection_window_offset(&collection),
+        );
+
+        assert!(parsed.diagnostic.is_none());
+        let result = parsed
+            .result
+            .expect("expected parsed result")
+            .as_summary()
+            .expect("expected summary result")
+            .clone();
+        assert_eq!(result.covered_item_uris.len(), 2);
+        assert_eq!(result.window_start, Some(0));
+    }
+
+    #[test]
+    fn parse_collection_summary_result_includes_parser_failure_reasons() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent test posts",
+                vec![PostRecord {
+                    uri: "at://one".to_string(),
+                    author_handle: "alpha.test".to_string(),
+                    body: "post one".to_string(),
+                }],
+            ),
+            0,
+            25,
+        );
+
+        let parsed = parse_collection_tool_result(
+            &collection,
+            "SUMMARY_RESULT_START\nsummary: grounded paragraph\ncovered_item_uri: at://one\nwindow_offset: nope\nSUMMARY_RESULT_END",
+            CollectionLeafToolKind::Summary,
+            super::collection_window_offset(&collection),
+        );
+
+        let diagnostic = parsed.diagnostic.expect("expected diagnostic");
+        assert!(diagnostic.contains("tagged parser failed"));
+        assert!(diagnostic.contains("malformed integer field `window_offset`"));
+        assert!(diagnostic.contains("json parser failed"));
     }
 
     #[test]
@@ -5870,18 +6245,21 @@ mod tests {
                 .with_collection_kind("actor_profile")
                 .with_actor_did(did),
             LabeledPostCollection::new(
-                "recent_posts_unaddressed:did:plc:testactor",
-                "Recent posts",
-                vec![],
-            )
-            .with_collection_kind("recent_posts_unaddressed")
-            .with_actor_did(did),
-            LabeledPostCollection::new(
                 "recent_replies_received:did:plc:testactor",
                 "Recent replies received",
                 vec![],
             )
             .with_collection_kind("recent_replies_received")
+            .with_actor_did(did),
+            LabeledPostCollection::new("recent_posts:did:plc:testactor", "Recent posts", vec![])
+                .with_collection_kind("recent_posts")
+                .with_actor_did(did),
+            LabeledPostCollection::new(
+                "recent_posts_unaddressed:did:plc:testactor",
+                "Recent top-level posts",
+                vec![],
+            )
+            .with_collection_kind("recent_posts_unaddressed")
             .with_actor_did(did),
         ];
 
@@ -5893,7 +6271,7 @@ mod tests {
         )
         .expect("expected deterministic collection id");
 
-        assert_eq!(picked, "recent_posts_unaddressed:did:plc:testactor");
+        assert_eq!(picked, "recent_posts:did:plc:testactor");
     }
 
     #[test]
@@ -5907,13 +6285,9 @@ mod tests {
             }),
         };
         let collections = vec![
-            LabeledPostCollection::new(
-                "recent_posts_unaddressed:did:plc:testactor",
-                "Recent posts",
-                vec![],
-            )
-            .with_collection_kind("recent_posts_unaddressed")
-            .with_actor_did("did:plc:testactor"),
+            LabeledPostCollection::new("recent_posts:did:plc:testactor", "Recent posts", vec![])
+                .with_collection_kind("recent_posts")
+                .with_actor_did("did:plc:testactor"),
         ];
 
         let repaired = deterministic_repair_internal_llm_search_tool_call(
@@ -5927,7 +6301,7 @@ mod tests {
         assert_eq!(repaired.name, "summary");
         assert_eq!(
             repaired.args["collection_id"],
-            serde_json::json!("recent_posts_unaddressed:did:plc:testactor")
+            serde_json::json!("recent_posts:did:plc:testactor")
         );
     }
 
@@ -6532,10 +6906,23 @@ mod tests {
     }
 
     #[test]
+    fn summary_leaf_requests_do_not_force_json_object_response_format() {
+        assert!(CollectionLeafToolKind::Summary.response_format().is_none());
+    }
+
+    #[test]
+    fn search_leaf_requests_still_force_json_object_response_format() {
+        assert!(matches!(
+            CollectionLeafToolKind::Search.response_format(),
+            Some(ChatCompletionResponseFormat::JsonObject)
+        ));
+    }
+
+    #[test]
     fn validates_collection_id_rejects_bare_did_with_collection_hint() {
         let err = validate_collection_id("did:plc:testactor").expect_err("expected invalid id");
         assert!(err.contains("bare DID"));
-        assert!(err.contains("recent_posts_unaddressed:did:plc:testactor"));
+        assert!(err.contains("recent_posts:did:plc:testactor"));
     }
 
     #[test]
