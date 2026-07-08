@@ -356,7 +356,7 @@ fn style_for_cell(
     danger_start: usize,
 ) -> Style {
     if cell >= danger_start {
-        return Style::default().bg(Color::Red);
+        return Style::default().bg(Color::Rgb(80, 80, 80));
     }
 
     let position_token = cell * window.input_budget_tokens / width.max(1);
@@ -417,7 +417,7 @@ fn legend_line() -> Line<'static> {
         ("  ", Color::Rgb(226, 128, 168), " collection evidence "),
         ("  ", Color::Rgb(244, 176, 205), " review evidence "),
         ("  ", Color::Rgb(215, 170, 120), " parent search results "),
-        ("  ", Color::Red, " final 25% "),
+        ("  ", Color::Rgb(80, 80, 80), " final 25% "),
         ("  ", Color::DarkGray, " unused "),
     ];
 
