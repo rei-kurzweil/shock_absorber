@@ -8,7 +8,8 @@ pub struct AgentNodeId(pub usize);
 pub enum AgentNodeKind {
     RootAgent,
     ToolAgent,
-    CollectionSearchAgent,
+    CollectionSearchTool,
+    CollectionSummaryTool,
     CollectionReviewAgent,
 }
 

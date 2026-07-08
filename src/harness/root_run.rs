@@ -128,9 +128,13 @@ pub async fn run_root_query_task(
                     )));
                     let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
 
+                    let (recent_post_fetch_limit, min_top_level_posts) =
+                        planned_recent_post_refresh_requirements(&tool_call);
                     prep_log.push(format!(
-                        "[tool_prep] -> ensure_recent_posts_cached {}",
-                        did.as_str()
+                        "[tool_prep] -> ensure_recent_posts_cached {} (feed_fetch_limit={}, min_top_level_posts={})",
+                        did.as_str(),
+                        recent_post_fetch_limit,
+                        min_top_level_posts
                     ));
                     root_run.set_active_tool_entry(Some(build_tool_entry(
                         &tool_name,
@@ -141,7 +145,13 @@ pub async fn run_root_query_task(
                     let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
                     if let Err(message) = run_tool_prep_step(
                         INITIAL_COLLECTION_REFRESH_TIMEOUT,
-                        ensure_recent_posts_cached(&agent, &mut store, &did, 100, 25),
+                        ensure_recent_posts_cached(
+                            &agent,
+                            &mut store,
+                            &did,
+                            recent_post_fetch_limit,
+                            min_top_level_posts,
+                        ),
                         format!("ensure_recent_posts_cached {}", did.as_str()),
                     )
                     .await
@@ -844,16 +854,51 @@ fn actor_needs_initial_refresh(
     store.actor_post_collections(actor_did).is_empty()
 }
 
+fn planned_recent_post_refresh_requirements(tool_call: &PromptToolCall) -> (usize, usize) {
+    if tool_call.name != "llm_search" {
+        return (100, 25);
+    }
+
+    let query = tool_call
+        .args
+        .get("query")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let requested_posts = requested_post_window_size(query).unwrap_or(25).max(25);
+    let feed_fetch_limit = requested_posts.saturating_mul(2).max(100).min(200);
+    (feed_fetch_limit, requested_posts)
+}
+
 fn planned_tool_call_refresh_targets(
-    _store: &NotificationStore,
+    store: &NotificationStore,
     selected_actor_did: Option<bsky_sdk::api::types::string::Did>,
     tool_call: &PromptToolCall,
 ) -> Vec<bsky_sdk::api::types::string::Did> {
-    let _ = selected_actor_did;
     let mut actor_dids: Vec<bsky_sdk::api::types::string::Did> = Vec::new();
 
     match tool_call.name.as_str() {
-        "llm_search" => {}
+        "llm_search" => {
+            let query = tool_call
+                .args
+                .get("query")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+
+            for actor_ref in detect_actor_refs_for_guard(query) {
+                if let Some(did) = store
+                    .find_did(&actor_ref)
+                    .or_else(|| actor_ref.parse().ok())
+                {
+                    actor_dids.push(did);
+                }
+            }
+
+            if actor_dids.is_empty() {
+                if let Some(selected_actor_did) = selected_actor_did {
+                    actor_dids.push(selected_actor_did);
+                }
+            }
+        }
         _ => {}
     }
 
@@ -862,15 +907,42 @@ fn planned_tool_call_refresh_targets(
     actor_dids
 }
 
+fn requested_post_window_size(query: &str) -> Option<usize> {
+    let lower = query.to_ascii_lowercase();
+    let tokens = lower.split_whitespace().collect::<Vec<_>>();
+    for (index, token) in tokens.iter().enumerate() {
+        let cleaned = token.trim_matches(|ch: char| !ch.is_ascii_alphanumeric());
+        let Ok(value) = cleaned.parse::<usize>() else {
+            continue;
+        };
+        let prev = index.checked_sub(1).and_then(|i| tokens.get(i)).copied();
+        let next = tokens.get(index + 1).copied();
+        let nearby = [prev, next];
+        if nearby.into_iter().flatten().any(|neighbor| {
+            let neighbor = neighbor.trim_matches(|ch: char| !ch.is_ascii_alphanumeric());
+            matches!(
+                neighbor,
+                "post" | "posts" | "thing" | "things" | "item" | "items"
+            )
+        }) {
+            return Some(value);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         blocked_root_llm_search_rerun, classify_root_llm_search_intent,
         compact_llm_search_result_for_root_context, extract_successful_root_llm_search_record,
-        fallback_or_failure_answer,
+        fallback_or_failure_answer, planned_recent_post_refresh_requirements,
+        planned_tool_call_refresh_targets, requested_post_window_size,
     };
     use crate::harness::runtime::SuccessfulRootLlmSearch;
     use crate::harness::tools::PromptToolCall;
+    use crate::net_backend::NotificationStore;
+    use bsky_sdk::api::types::string::Did;
     use serde_json::json;
 
     #[test]
@@ -925,6 +997,54 @@ mod tests {
             classify_root_llm_search_intent("How is elsyluna.bsky.social known on Bluesky lists?"),
             "reputation_lists"
         );
+    }
+
+    #[test]
+    fn requested_post_window_size_detects_last_50_posts() {
+        assert_eq!(
+            requested_post_window_size("analyze the last 50 posts by mara.x0f.nl"),
+            Some(50)
+        );
+    }
+
+    #[test]
+    fn llm_search_refresh_requirements_scale_for_last_50_posts() {
+        let tool_call = PromptToolCall {
+            name: "llm_search".to_string(),
+            args: json!({"query":"analyze the last 50 posts by mara.x0f.nl"}),
+        };
+
+        assert_eq!(
+            planned_recent_post_refresh_requirements(&tool_call),
+            (100, 50)
+        );
+    }
+
+    #[test]
+    fn planned_refresh_targets_detect_actor_ref_from_llm_search_query() {
+        let mut store = NotificationStore::new();
+        let did: Did = "did:plc:testactor".parse().expect("invalid did");
+        store.cache_actor(&did, "mara.x0f.nl", None);
+        let tool_call = PromptToolCall {
+            name: "llm_search".to_string(),
+            args: json!({"query":"analyze the last 50 posts by mara.x0f.nl"}),
+        };
+
+        let targets = planned_tool_call_refresh_targets(&store, None, &tool_call);
+        assert_eq!(targets, vec![did]);
+    }
+
+    #[test]
+    fn planned_refresh_targets_fall_back_to_selected_actor_did() {
+        let store = NotificationStore::new();
+        let did: Did = "did:plc:testactor".parse().expect("invalid did");
+        let tool_call = PromptToolCall {
+            name: "llm_search".to_string(),
+            args: json!({"query":"analyze the last 50 posts by this actor"}),
+        };
+
+        let targets = planned_tool_call_refresh_targets(&store, Some(did.clone()), &tool_call);
+        assert_eq!(targets, vec![did]);
     }
 
     #[test]

@@ -92,7 +92,7 @@ pub fn snapshot_from_agent_node(node: &AgentNode, depth: usize) -> Option<Prompt
             .context_window_report
             .as_ref()
             .map(|window| snapshot_from_tool_agent_window(title, window)),
-        AgentNodeKind::CollectionSearchAgent => node
+        AgentNodeKind::CollectionSearchTool | AgentNodeKind::CollectionSummaryTool => node
             .context_window_report
             .as_ref()
             .map(|window| snapshot_from_llm_search_window(title, window)),
@@ -373,9 +373,7 @@ fn legend_line() -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ContextCategory, ContextSegment, PromptContextSnapshot, category_totals_summary,
-    };
+    use super::{ContextCategory, ContextSegment, PromptContextSnapshot, category_totals_summary};
 
     #[test]
     fn category_totals_separate_tool_protocol_from_tool_definitions() {
@@ -454,5 +452,4 @@ mod tests {
             "System Prompt 10 | Tool Output 20 | Chat 30"
         );
     }
-
 }

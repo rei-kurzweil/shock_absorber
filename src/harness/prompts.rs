@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AgentKind {
     CollectionSearch,
+    CollectionSummary,
     CollectionReview,
     LlmSearch,
 }
@@ -9,6 +10,7 @@ impl AgentKind {
     pub fn id(self) -> &'static str {
         match self {
             Self::CollectionSearch => "collection_search",
+            Self::CollectionSummary => "collection_summary",
             Self::CollectionReview => "collection_review",
             Self::LlmSearch => "llm_search",
         }
@@ -17,6 +19,7 @@ impl AgentKind {
     pub fn system_prompt(self) -> &'static str {
         match self {
             Self::CollectionSearch => include_str!("prompts/agents/collection_search.md").trim(),
+            Self::CollectionSummary => include_str!("prompts/agents/collection_summary.md").trim(),
             Self::CollectionReview => include_str!("prompts/agents/collection_review.md").trim(),
             Self::LlmSearch => include_str!("prompts/agents/llm_search.md").trim(),
         }

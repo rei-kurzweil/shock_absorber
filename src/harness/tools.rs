@@ -135,6 +135,10 @@ pub struct LlmSearchResult {
     pub title: String,
     pub summary: String,
     pub search_results: Vec<LlmSearchResultItem>,
+    pub covered_item_uris: Vec<String>,
+    pub omitted_item_uris: Vec<String>,
+    pub window_start: Option<usize>,
+    pub window_total_items: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -211,6 +215,46 @@ struct InternalLlmSearchToolSpec {
     arguments: &'static [&'static str],
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CollectionLeafToolKind {
+    Search,
+    Summary,
+}
+
+impl CollectionLeafToolKind {
+    fn tool_name(self) -> &'static str {
+        match self {
+            Self::Search => "search",
+            Self::Summary => "summary",
+        }
+    }
+
+    fn label_prefix(self) -> &'static str {
+        match self {
+            Self::Search => "collection search",
+            Self::Summary => "collection summary",
+        }
+    }
+
+    fn agent_kind(self) -> AgentKind {
+        match self {
+            Self::Search => AgentKind::CollectionSearch,
+            Self::Summary => AgentKind::CollectionSummary,
+        }
+    }
+
+    fn node_kind(self) -> AgentNodeKind {
+        match self {
+            Self::Search => AgentNodeKind::CollectionSearchTool,
+            Self::Summary => AgentNodeKind::CollectionSummaryTool,
+        }
+    }
+
+    fn is_coverage_oriented(self) -> bool {
+        matches!(self, Self::Summary)
+    }
+}
+
 #[derive(Clone, Debug)]
 struct ResolvedActorRef {
     actor_ref: String,
@@ -218,7 +262,8 @@ struct ResolvedActorRef {
     did: Did,
 }
 
-struct CollectionSearchOutcome {
+struct CollectionToolOutcome {
+    tool_kind: CollectionLeafToolKind,
     collection_id: String,
     collection_label: String,
     execution: Result<LlmSearchExecution, String>,
@@ -239,10 +284,11 @@ impl SearchIntent {
     }
 }
 
-pub struct LlmSearchComparator<'a> {
-    pub prompt: &'a str,
-    pub llm_client: &'a LlmApiClient,
-    pub max_output_tokens: usize,
+struct LlmSearchComparator<'a> {
+    tool_kind: CollectionLeafToolKind,
+    prompt: &'a str,
+    llm_client: &'a LlmApiClient,
+    max_output_tokens: usize,
 }
 
 impl<'a> LlmSearchComparator<'a> {
@@ -268,7 +314,7 @@ impl<'a> LlmSearchComparator<'a> {
             });
         }
 
-        let mut context = LLMContext::new(AgentKind::CollectionSearch.system_prompt());
+        let mut context = LLMContext::new(self.tool_kind.agent_kind().system_prompt());
         context.push_section_with_kind(
             "Collection",
             ContextSectionKind::CollectionEvidence,
@@ -301,7 +347,12 @@ impl<'a> LlmSearchComparator<'a> {
             )
             .await?;
 
-        let result = parse_llm_search_result(collection, &response);
+        let result = parse_collection_tool_result(
+            collection,
+            &response,
+            self.tool_kind,
+            collection_window_offset(collection),
+        );
         Ok(LlmSearchExecution {
             result: result.clone(),
             original_result: result,
@@ -327,13 +378,15 @@ impl BlueskyTools {
         Self
     }
 
-    pub async fn llm_search(
+    async fn run_collection_tool(
         &self,
+        tool_kind: CollectionLeafToolKind,
         collection: &LabeledPostCollection,
         prompt: &str,
         llm_client: &LlmApiClient,
     ) -> Result<LlmSearchExecution, Box<dyn std::error::Error>> {
         let primary = LlmSearchComparator {
+            tool_kind,
             prompt,
             llm_client,
             max_output_tokens: 768,
@@ -344,18 +397,21 @@ impl BlueskyTools {
                 let (max_posts, max_body_chars) = reduced_search_budget(collection);
                 let reduced = reduced_search_collection(collection, max_posts, max_body_chars);
                 let retry = LlmSearchComparator {
+                    tool_kind,
                     prompt,
                     llm_client,
                     max_output_tokens: 512,
                 };
                 let mut retried = retry.compare(&reduced).await.map_err(|retry_err| -> Box<dyn std::error::Error> {
                     format!(
-                        "llm_search failed on full collection ({primary_err}) and reduced retry ({retry_err})"
+                        "{} failed on full collection ({primary_err}) and reduced retry ({retry_err})",
+                        tool_kind.tool_name(),
                     )
                     .into()
                 })?;
                 retried.diagnostic = Some(format!(
-                    "Primary full-collection search failed and a reduced retry view was used instead. Primary failure: {primary_err}"
+                    "Primary full-collection {} failed and a reduced retry view was used instead. Primary failure: {primary_err}",
+                    tool_kind.tool_name(),
                 ));
                 Ok(retried)
             }
@@ -464,7 +520,7 @@ impl BlueskyTools {
         store: &mut NotificationStore,
         llm_client: &LlmApiClient,
         observer: Option<UnboundedSender<ToolProgressEvent>>,
-    ) -> Result<(String, Vec<CollectionSearchOutcome>), Box<dyn std::error::Error>> {
+    ) -> Result<(String, Vec<CollectionToolOutcome>), Box<dyn std::error::Error>> {
         let search_intent = classify_search_intent(query);
         let initial_scope_hints = if let Some(actor_refs) = detect_actor_refs(query) {
             format!(
@@ -499,7 +555,7 @@ impl BlueskyTools {
         ];
 
         let mut outcomes = Vec::new();
-        let mut searched_collection_ids = HashSet::new();
+        let mut searched_collection_keys = HashSet::new();
         let mut final_summary = None;
         let mut diagnostics = Vec::new();
         let mut consecutive_invalid_tool_responses = 0usize;
@@ -636,13 +692,19 @@ impl BlueskyTools {
                     )
                     .await?
                 }
-                "collection_search" => {
+                "search" | "summary" => {
+                    let tool_kind = if tool_call.name == "summary" {
+                        CollectionLeafToolKind::Summary
+                    } else {
+                        CollectionLeafToolKind::Search
+                    };
                     let collection_id = require_string_arg(&tool_call.args, "collection_id")?;
                     let prompt = require_string_arg(&tool_call.args, "prompt")?;
                     let offset = collection_search_offset(&tool_call.args)?;
-                    if !searched_collection_ids.insert(collection_id.clone()) {
+                    let dedupe_key = format!("{}:{collection_id}:{offset}", tool_kind.tool_name());
+                    if !searched_collection_keys.insert(dedupe_key) {
                         format!(
-                            "collection_id: {collection_id}\nstatus: skipped\nreason: this collection was already searched in this llm_search run"
+                            "collection_id: {collection_id}\nstatus: skipped\nreason: this exact collection window was already processed in this llm_search run"
                         )
                     } else {
                         let collection = self
@@ -654,7 +716,8 @@ impl BlueskyTools {
                             COLLECTION_SEARCH_PAGE_SIZE,
                         );
                         let mut collection_outcomes = self
-                            .run_collection_searches(
+                            .run_collection_tools(
+                                tool_kind,
                                 &[collection],
                                 &prompt,
                                 llm_client,
@@ -663,9 +726,10 @@ impl BlueskyTools {
                             .await;
                         let outcome = collection_outcomes
                             .pop()
-                            .ok_or("missing collection search outcome")?;
+                            .ok_or("missing collection tool outcome")?;
                         let rendered = match outcome.execution.as_ref() {
                             Ok(execution) => render_collection_outcome_result(
+                                outcome.tool_kind,
                                 &outcome.collection_id,
                                 &outcome.collection_label,
                                 execution,
@@ -727,7 +791,13 @@ impl BlueskyTools {
                 )
                 .await?;
             outcomes = self
-                .run_collection_searches(&collections, query, llm_client, observer.clone())
+                .run_collection_tools(
+                    CollectionLeafToolKind::Search,
+                    &collections,
+                    query,
+                    llm_client,
+                    observer.clone(),
+                )
                 .await;
         }
 
@@ -856,27 +926,32 @@ impl BlueskyTools {
         }
     }
 
-    async fn run_collection_searches(
+    async fn run_collection_tools(
         &self,
+        tool_kind: CollectionLeafToolKind,
         collections: &[LabeledPostCollection],
         prompt: &str,
         llm_client: &LlmApiClient,
         observer: Option<UnboundedSender<ToolProgressEvent>>,
-    ) -> Vec<CollectionSearchOutcome> {
+    ) -> Vec<CollectionToolOutcome> {
         let mut outcomes = Vec::with_capacity(collections.len());
 
         for collection in collections {
             let collection = paged_search_collection(collection, 0, COLLECTION_SEARCH_PAGE_SIZE);
             if let Some(observer) = observer.as_ref() {
                 let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                    label: format!("collection search: {}", collection.label),
+                    label: format!("{}: {}", tool_kind.label_prefix(), collection.label),
                     depth: 2,
                     content: format!("collection_id: {}\nstatus: running", collection.id),
                 });
             }
-            let execution = match self.llm_search(&collection, prompt, llm_client).await {
+            let execution = match self
+                .run_collection_tool(tool_kind, &collection, prompt, llm_client)
+                .await
+            {
                 Ok(execution) => self
-                    .review_collection_search_execution(
+                    .review_collection_execution(
+                        tool_kind,
                         &collection,
                         prompt,
                         execution,
@@ -902,6 +977,7 @@ impl BlueskyTools {
                         .map(|diagnostic| format!("\nretry_diagnostic: {diagnostic}"))
                         .unwrap_or_default(),
                     summarize_progress_text(&render_collection_outcome_result(
+                        tool_kind,
                         &collection.id,
                         &collection.label,
                         execution,
@@ -914,12 +990,13 @@ impl BlueskyTools {
             };
             if let Some(observer) = observer.as_ref() {
                 let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                    label: format!("collection search: {}", collection.label),
+                    label: format!("{}: {}", tool_kind.label_prefix(), collection.label),
                     depth: 2,
                     content: progress_content,
                 });
             }
-            outcomes.push(CollectionSearchOutcome {
+            outcomes.push(CollectionToolOutcome {
+                tool_kind,
                 collection_id: collection.id.clone(),
                 collection_label: collection.label.clone(),
                 execution,
@@ -1210,8 +1287,9 @@ impl BlueskyTools {
         Ok(rendered)
     }
 
-    async fn review_collection_search_execution(
+    async fn review_collection_execution(
         &self,
+        tool_kind: CollectionLeafToolKind,
         collection: &LabeledPostCollection,
         prompt: &str,
         mut execution: LlmSearchExecution,
@@ -1226,7 +1304,8 @@ impl BlueskyTools {
             });
         }
 
-        let review_context = build_collection_review_context(collection, prompt, &execution);
+        let review_context =
+            build_collection_review_context(tool_kind, collection, prompt, &execution);
         let review_window =
             build_context_window_report(&review_context, &llm_client.context_limits());
         let review_response = llm_client
@@ -1246,7 +1325,7 @@ impl BlueskyTools {
             .await
             .ok();
 
-        let heuristic = heuristic_collection_review(collection, &execution);
+        let heuristic = heuristic_collection_review(tool_kind, collection, &execution);
         let mut verdict = review_response
             .as_deref()
             .and_then(parse_collection_review_verdict)
@@ -1266,39 +1345,45 @@ impl BlueskyTools {
                 .as_ref()
                 .map(|result| result.summary.clone())
                 .unwrap_or_else(|| "<missing summary>".to_string());
-            let repair_summary =
-                repair_collection_summary(collection, &execution, prompt, &verdict);
-            execution.repair_diagnostic = Some(format!(
-                "Initial review failed. Applied deterministic cited repair when possible. Original summary: {}",
-                truncate_chars(&original_summary, 240)
-            ));
-            if let Some(result) = execution.result.as_mut() {
-                result.summary = repair_summary;
-            } else if let Some(original_result) = execution.original_result.clone() {
-                execution.result = Some(LlmSearchResult {
-                    summary: repair_summary,
-                    ..original_result
-                });
-            }
-
-            let post_repair_verdict = heuristic_collection_review(collection, &execution);
-            if post_repair_verdict.status == CollectionReviewStatus::Pass {
-                execution.review_verdict = Some(CollectionReviewVerdict {
-                    status: CollectionReviewStatus::Pass,
-                    reason: format!(
-                        "Initial review failed but the repaired summary is now grounded in the selected records. Original reason: {}",
-                        verdict.reason
-                    ),
-                    repair_needed: false,
-                    repair_instructions: None,
-                });
-            } else {
-                execution.review_verdict = Some(post_repair_verdict.clone());
-                execution.repair_diagnostic = Some(format!(
-                    "{} Repair attempt still failed review.",
-                    execution.repair_diagnostic.as_deref().unwrap_or_default()
-                ));
+            if tool_kind.is_coverage_oriented() {
+                execution.review_verdict = Some(verdict.clone());
                 execution.result = None;
+            } else {
+                let repair_summary =
+                    repair_collection_summary(collection, &execution, prompt, &verdict);
+                execution.repair_diagnostic = Some(format!(
+                    "Initial review failed. Applied deterministic cited repair when possible. Original summary: {}",
+                    truncate_chars(&original_summary, 240)
+                ));
+                if let Some(result) = execution.result.as_mut() {
+                    result.summary = repair_summary;
+                } else if let Some(original_result) = execution.original_result.clone() {
+                    execution.result = Some(LlmSearchResult {
+                        summary: repair_summary,
+                        ..original_result
+                    });
+                }
+
+                let post_repair_verdict =
+                    heuristic_collection_review(tool_kind, collection, &execution);
+                if post_repair_verdict.status == CollectionReviewStatus::Pass {
+                    execution.review_verdict = Some(CollectionReviewVerdict {
+                        status: CollectionReviewStatus::Pass,
+                        reason: format!(
+                            "Initial review failed but the repaired summary is now grounded in the selected records. Original reason: {}",
+                            verdict.reason
+                        ),
+                        repair_needed: false,
+                        repair_instructions: None,
+                    });
+                } else {
+                    execution.review_verdict = Some(post_repair_verdict.clone());
+                    execution.repair_diagnostic = Some(format!(
+                        "{} Repair attempt still failed review.",
+                        execution.repair_diagnostic.as_deref().unwrap_or_default()
+                    ));
+                    execution.result = None;
+                }
             }
         } else {
             execution.review_verdict = Some(verdict.clone());
@@ -1677,7 +1762,15 @@ fn validate_internal_llm_search_tool_call(
         "hydrate_actor_scope" => {
             parse_did_arg(&tool_call.args, "actor_did").map_err(|err| err.to_string())?;
         }
-        "collection_search" => {
+        "search" => {
+            let collection_id = require_string_arg(&tool_call.args, "collection_id")
+                .map_err(|err| err.to_string())?;
+            require_string_arg(&tool_call.args, "prompt").map_err(|err| err.to_string())?;
+            optional_usize_arg(&tool_call.args, "page").map_err(|err| err.to_string())?;
+            optional_usize_arg(&tool_call.args, "offset").map_err(|err| err.to_string())?;
+            validate_collection_id(&collection_id)?;
+        }
+        "summary" => {
             let collection_id = require_string_arg(&tool_call.args, "collection_id")
                 .map_err(|err| err.to_string())?;
             require_string_arg(&tool_call.args, "prompt").map_err(|err| err.to_string())?;
@@ -1733,6 +1826,7 @@ fn validate_collection_id(collection_id: &str) -> Result<(), String> {
 }
 
 fn build_collection_review_context(
+    tool_kind: CollectionLeafToolKind,
     collection: &LabeledPostCollection,
     prompt: &str,
     execution: &LlmSearchExecution,
@@ -1742,7 +1836,7 @@ fn build_collection_review_context(
     context.push_section_with_kind(
         "Collection Evidence",
         ContextSectionKind::ReviewEvidence,
-        render_review_collection_evidence(collection, execution),
+        render_review_collection_evidence(tool_kind, collection, execution),
     );
     context.push_section_with_kind(
         "Proposed Summary",
@@ -1753,6 +1847,7 @@ fn build_collection_review_context(
 }
 
 fn render_review_collection_evidence(
+    tool_kind: CollectionLeafToolKind,
     collection: &LabeledPostCollection,
     execution: &LlmSearchExecution,
 ) -> String {
@@ -1768,7 +1863,9 @@ fn render_review_collection_evidence(
         })
         .unwrap_or_default();
 
-    let posts = if selected_uris.is_empty() {
+    let posts = if tool_kind.is_coverage_oriented() {
+        collection.posts.iter().collect::<Vec<_>>()
+    } else if selected_uris.is_empty() {
         collection.posts.iter().take(4).collect::<Vec<_>>()
     } else {
         collection
@@ -1783,6 +1880,16 @@ fn render_review_collection_evidence(
         format!("collection_label: {}", collection.label),
         format!("collection_kind: {}", collection.collection_kind),
     ];
+    if tool_kind.is_coverage_oriented() {
+        lines.push(format!(
+            "search_window_offset: {}",
+            collection_window_offset(collection).unwrap_or(0)
+        ));
+        lines.push(format!(
+            "search_window_total_items: {}",
+            collection_window_total_items(collection)
+        ));
+    }
     for (index, post) in posts.into_iter().enumerate() {
         lines.push(String::new());
         lines.push(format!("matched_item[{index}] uri: {}", post.uri));
@@ -1832,6 +1939,7 @@ fn parse_collection_review_verdict(response: &str) -> Option<CollectionReviewVer
 }
 
 fn heuristic_collection_review(
+    tool_kind: CollectionLeafToolKind,
     collection: &LabeledPostCollection,
     execution: &LlmSearchExecution,
 ) -> CollectionReviewVerdict {
@@ -1853,7 +1961,7 @@ fn heuristic_collection_review(
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
             reason: "No usable `summary:` paragraph exists.".to_string(),
-            repair_needed: true,
+            repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Rewrite the summary as one paragraph grounded in the selected records."
                     .to_string(),
@@ -1865,7 +1973,7 @@ fn heuristic_collection_review(
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
             reason: "The summary is not a single paragraph.".to_string(),
-            repair_needed: true,
+            repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Condense the output into one grounded paragraph.".to_string(),
             ),
@@ -1884,7 +1992,7 @@ fn heuristic_collection_review(
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
             reason: "The summary is fallback diagnostic text rather than a grounded collection summary.".to_string(),
-            repair_needed: true,
+            repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Rewrite the summary from the selected records, emphasizing repeated names, exact phrases, and the strongest versus secondary evidence."
                     .to_string(),
@@ -1907,7 +2015,7 @@ fn heuristic_collection_review(
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
             reason: "The summary is dominated by identifiers or metadata placeholders.".to_string(),
-            repair_needed: true,
+            repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Replace metadata-heavy text with actual list names, descriptions, or post text."
                     .to_string(),
@@ -1930,7 +2038,7 @@ fn heuristic_collection_review(
             status: CollectionReviewStatus::Fail,
             reason: "The summary omits meaningful text that was available in the matched records."
                 .to_string(),
-            repair_needed: true,
+            repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Include exact short phrases, list names, list descriptions, or matched reply text from the selected records."
                     .to_string(),
@@ -1938,11 +2046,76 @@ fn heuristic_collection_review(
         };
     }
 
+    if tool_kind.is_coverage_oriented() {
+        let valid_window_uris = collection
+            .posts
+            .iter()
+            .map(|post| post.uri.as_str())
+            .collect::<HashSet<_>>();
+        let covered = &result.covered_item_uris;
+        let omitted = &result.omitted_item_uris;
+        let expected_total = collection_window_total_items(collection);
+        let expected_offset = collection_window_offset(collection).unwrap_or(0);
+
+        if result.window_total_items != Some(expected_total) {
+            return CollectionReviewVerdict {
+                status: CollectionReviewStatus::Fail,
+                reason: "The claimed `window_total_items` does not match the actual collection window size.".to_string(),
+                repair_needed: false,
+                repair_instructions: None,
+            };
+        }
+
+        if result.window_start != Some(expected_offset) {
+            return CollectionReviewVerdict {
+                status: CollectionReviewStatus::Fail,
+                reason:
+                    "The claimed `window_start` does not match the requested collection window."
+                        .to_string(),
+                repair_needed: false,
+                repair_instructions: None,
+            };
+        }
+
+        let mut seen = HashSet::new();
+        for uri in covered.iter().chain(omitted.iter()) {
+            if !valid_window_uris.contains(uri.as_str()) {
+                return CollectionReviewVerdict {
+                    status: CollectionReviewStatus::Fail,
+                    reason: "Coverage accounting includes URIs that are not part of the requested collection window.".to_string(),
+                    repair_needed: false,
+                    repair_instructions: None,
+                };
+            }
+            if !seen.insert(uri.as_str()) {
+                return CollectionReviewVerdict {
+                    status: CollectionReviewStatus::Fail,
+                    reason: "Coverage accounting repeats the same URI more than once.".to_string(),
+                    repair_needed: false,
+                    repair_instructions: None,
+                };
+            }
+        }
+
+        if seen.len() != collection.posts.len() {
+            return CollectionReviewVerdict {
+                status: CollectionReviewStatus::Fail,
+                reason: "Coverage accounting does not fully match the actual items in the requested window.".to_string(),
+                repair_needed: false,
+                repair_instructions: None,
+            };
+        }
+    }
+
     CollectionReviewVerdict {
         status: CollectionReviewStatus::Pass,
-        reason:
+        reason: if tool_kind.is_coverage_oriented() {
+            "The summary is grounded and the coverage accounting matches the requested collection window."
+                .to_string()
+        } else {
             "The summary is grounded in the selected records and contains substantive evidence."
-                .to_string(),
+                .to_string()
+        },
         repair_needed: false,
         repair_instructions: None,
     }
@@ -2216,12 +2389,22 @@ fn render_internal_llm_search_tool_protocol() -> String {
             ],
         },
         InternalLlmSearchToolSpec {
-            name: "collection_search",
-            description: "Run a narrow grounded search over one exact validated cached collection.",
+            name: "search",
+            description: "Use when you need the strongest supporting records from one exact validated cached collection window rather than full coverage.",
             arguments: &[
                 "collection_id (string, required): exact cached collection ID",
                 "prompt (string, required): what to look for in that collection",
                 "page (integer, optional): zero-based 25-item page of the collection to search",
+                "offset (integer, optional): zero-based item offset into the collection; takes precedence over `page`",
+            ],
+        },
+        InternalLlmSearchToolSpec {
+            name: "summary",
+            description: "Use when the user asks to summarize or analyze a whole collection window, especially explicit scope requests like the last 25, 50, or 100 posts.",
+            arguments: &[
+                "collection_id (string, required): exact cached collection ID",
+                "prompt (string, required): what to summarize about that collection window",
+                "page (integer, optional): zero-based 25-item page of the collection to summarize",
                 "offset (integer, optional): zero-based item offset into the collection; takes precedence over `page`",
             ],
         },
@@ -2250,7 +2433,7 @@ fn render_internal_llm_search_tool_protocol() -> String {
         .join("\n\n");
 
     format!(
-        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts_unaddressed` when needed for contrast or missing evidence\n\nAvailable internal tools:\n\n{inventory}"
+        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts_unaddressed` when needed for contrast or missing evidence\n- use `summary` for explicit whole-window coverage requests like \"last 50 posts\" or \"summarize page 1\"\n- use `search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
     )
 }
 
@@ -2342,12 +2525,18 @@ fn render_search_post_fields(post: &PostRecord) -> Vec<String> {
     vec![format!("body: {}", post.body)]
 }
 
-fn parse_llm_search_result(
+fn parse_collection_tool_result(
     collection: &LabeledPostCollection,
     response: &str,
+    tool_kind: CollectionLeafToolKind,
+    window_start: Option<usize>,
 ) -> Option<LlmSearchResult> {
-    if let Some(result) = parse_llm_search_result_json(collection, response) {
+    if let Some(result) = parse_collection_tool_result_json(collection, response, tool_kind) {
         return Some(result);
+    }
+
+    if tool_kind.is_coverage_oriented() {
+        return None;
     }
 
     let search_results = find_matching_uris_from_response(collection, response)
@@ -2381,47 +2570,27 @@ fn parse_llm_search_result(
         title,
         summary,
         search_results,
+        covered_item_uris: Vec::new(),
+        omitted_item_uris: Vec::new(),
+        window_start,
+        window_total_items: None,
     })
 }
 
-fn parse_llm_search_result_json(
+fn parse_llm_search_result(
     collection: &LabeledPostCollection,
     response: &str,
 ) -> Option<LlmSearchResult> {
+    parse_collection_tool_result(collection, response, CollectionLeafToolKind::Search, None)
+}
+
+fn parse_collection_tool_result_json(
+    collection: &LabeledPostCollection,
+    response: &str,
+    tool_kind: CollectionLeafToolKind,
+) -> Option<LlmSearchResult> {
     let value = serde_json::from_str::<Value>(response).ok()?;
     let object = value.as_object()?;
-
-    let uris = object
-        .get("uris")
-        .and_then(Value::as_array)
-        .map(|items| {
-            let mut uris = Vec::new();
-            for item in items {
-                let Some(uri) = item.as_str() else {
-                    continue;
-                };
-                push_search_uri(collection, &mut uris, uri, MAX_COLLECTION_SEARCH_RESULTS);
-            }
-            uris
-        })
-        .unwrap_or_default();
-
-    if uris.is_empty() {
-        return None;
-    }
-
-    let search_results = uris
-        .into_iter()
-        .map(|uri| LlmSearchResultItem {
-            source_collection_id: collection
-                .posts
-                .iter()
-                .find(|post| post.uri == uri)
-                .and_then(source_collection_id_from_post)
-                .or_else(|| Some(collection.id.clone())),
-            uri,
-        })
-        .collect::<Vec<_>>();
 
     let title = object
         .get("title")
@@ -2431,19 +2600,103 @@ fn parse_llm_search_result_json(
         .map(str::to_owned)
         .unwrap_or_else(|| format!("LLM-selected post in {}", collection.label));
 
-    let summary = object
+    let parsed_summary = object
         .get("summary")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|summary| is_valid_llm_search_summary(summary))
-        .map(str::to_owned)
-        .unwrap_or_else(|| fallback_llm_search_summary(collection, &search_results));
+        .map(str::to_owned);
 
-    Some(LlmSearchResult {
-        title,
-        summary,
-        search_results,
-    })
+    match tool_kind {
+        CollectionLeafToolKind::Search => {
+            let uris = object
+                .get("uris")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    let mut uris = Vec::new();
+                    for item in items {
+                        let Some(uri) = item.as_str() else {
+                            continue;
+                        };
+                        push_search_uri(collection, &mut uris, uri, MAX_COLLECTION_SEARCH_RESULTS);
+                    }
+                    uris
+                })
+                .unwrap_or_default();
+
+            if uris.is_empty() {
+                return None;
+            }
+
+            let search_results = uris
+                .into_iter()
+                .map(|uri| LlmSearchResultItem {
+                    source_collection_id: collection
+                        .posts
+                        .iter()
+                        .find(|post| post.uri == uri)
+                        .and_then(source_collection_id_from_post)
+                        .or_else(|| Some(collection.id.clone())),
+                    uri,
+                })
+                .collect::<Vec<_>>();
+
+            Some(LlmSearchResult {
+                title,
+                summary: parsed_summary
+                    .unwrap_or_else(|| fallback_llm_search_summary(collection, &search_results)),
+                search_results,
+                covered_item_uris: Vec::new(),
+                omitted_item_uris: Vec::new(),
+                window_start: collection_window_offset(collection),
+                window_total_items: Some(collection_window_total_items(collection)),
+            })
+        }
+        CollectionLeafToolKind::Summary => {
+            let covered_item_uris = parse_collection_window_uris(
+                collection,
+                object.get("covered_item_uris"),
+                collection.posts.len(),
+            );
+            let omitted_item_uris = parse_collection_window_uris(
+                collection,
+                object.get("omitted_item_uris"),
+                collection.posts.len(),
+            );
+            if covered_item_uris.is_empty() && omitted_item_uris.is_empty() {
+                return None;
+            }
+
+            let mut search_results = Vec::new();
+            for uri in &covered_item_uris {
+                search_results.push(LlmSearchResultItem {
+                    source_collection_id: collection
+                        .posts
+                        .iter()
+                        .find(|post| post.uri == *uri)
+                        .and_then(source_collection_id_from_post)
+                        .or_else(|| Some(collection.id.clone())),
+                    uri: uri.clone(),
+                });
+            }
+
+            Some(LlmSearchResult {
+                title,
+                summary: parsed_summary.unwrap_or_default(),
+                search_results,
+                covered_item_uris,
+                omitted_item_uris,
+                window_start: object
+                    .get("window_start")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as usize),
+                window_total_items: object
+                    .get("window_total_items")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as usize),
+            })
+        }
+    }
 }
 
 fn find_matching_uris_from_response(
@@ -2503,6 +2756,24 @@ fn find_matching_uris_from_response(
         push_search_uri(collection, &mut uris, &uri, MAX_COLLECTION_SEARCH_RESULTS);
     }
 
+    uris
+}
+
+fn parse_collection_window_uris(
+    collection: &LabeledPostCollection,
+    value: Option<&Value>,
+    limit: usize,
+) -> Vec<String> {
+    let mut uris = Vec::new();
+    let Some(items) = value.and_then(Value::as_array) else {
+        return uris;
+    };
+    for item in items {
+        let Some(uri) = item.as_str() else {
+            continue;
+        };
+        push_search_uri(collection, &mut uris, uri, limit);
+    }
     uris
 }
 
@@ -2711,6 +2982,18 @@ fn render_llm_result(result: Option<&LlmSearchResult>) -> String {
                 format!("post: {}", result.title),
                 format!("summary: {}", result.summary),
             ];
+            if let Some(window_start) = result.window_start {
+                lines.push(format!("window_start: {window_start}"));
+            }
+            if let Some(window_total_items) = result.window_total_items {
+                lines.push(format!("window_total_items: {window_total_items}"));
+            }
+            for (index, uri) in result.covered_item_uris.iter().enumerate() {
+                lines.push(format!("covered_item_{}_uri: {}", index + 1, uri));
+            }
+            for (index, uri) in result.omitted_item_uris.iter().enumerate() {
+                lines.push(format!("omitted_item_{}_uri: {}", index + 1, uri));
+            }
             for (index, search_result) in result.search_results.iter().enumerate() {
                 lines.push(format!(
                     "search_result_{}_uri: {}",
@@ -2754,11 +3037,13 @@ fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
 }
 
 fn render_collection_outcome_result(
+    tool_kind: CollectionLeafToolKind,
     collection_id: &str,
     collection_label: &str,
     execution: &LlmSearchExecution,
 ) -> String {
     let mut lines = vec![
+        format!("tool_name: {}", tool_kind.tool_name()),
         format!("collection_id: {collection_id}"),
         format!("collection_label: {collection_label}"),
         format!(
@@ -2781,6 +3066,18 @@ fn render_llm_result_compact(result: Option<&LlmSearchResult>) -> String {
                 format!("post: {}", result.title),
                 format!("summary: {}", result.summary),
             ];
+            if let Some(window_start) = result.window_start {
+                lines.push(format!("window_start: {window_start}"));
+            }
+            if let Some(window_total_items) = result.window_total_items {
+                lines.push(format!("window_total_items: {window_total_items}"));
+            }
+            for (index, uri) in result.covered_item_uris.iter().enumerate() {
+                lines.push(format!("covered_item_{}_uri: {}", index + 1, uri));
+            }
+            for (index, uri) in result.omitted_item_uris.iter().enumerate() {
+                lines.push(format!("omitted_item_{}_uri: {}", index + 1, uri));
+            }
             for (index, search_result) in result.search_results.iter().enumerate() {
                 lines.push(format!(
                     "search_result_{}_uri: {}",
@@ -2803,7 +3100,7 @@ fn render_llm_result_compact(result: Option<&LlmSearchResult>) -> String {
 
 async fn synthesize_llm_search_results(
     prompt: &str,
-    outcomes: &[CollectionSearchOutcome],
+    outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
     observer: Option<UnboundedSender<ToolProgressEvent>>,
 ) -> String {
@@ -2858,7 +3155,7 @@ async fn synthesize_llm_search_results(
 
 fn build_llm_search_agent_node(
     prompt: &str,
-    outcomes: &[CollectionSearchOutcome],
+    outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
 ) -> AgentNodeTemplate {
     AgentNodeTemplate {
@@ -2890,14 +3187,11 @@ fn build_llm_search_agent_node(
             prompt, outcomes, llm_client,
         )),
         result_summary: Some(render_combined_llm_search_results(outcomes)),
-        children: outcomes
-            .iter()
-            .map(build_collection_search_agent_node)
-            .collect(),
+        children: outcomes.iter().map(build_collection_tool_node).collect(),
     }
 }
 
-fn build_collection_search_agent_node(outcome: &CollectionSearchOutcome) -> AgentNodeTemplate {
+fn build_collection_tool_node(outcome: &CollectionToolOutcome) -> AgentNodeTemplate {
     let (status, context_window_report, result_summary) = match outcome.execution.as_ref() {
         Ok(execution) => (
             if execution.is_usable() {
@@ -2920,9 +3214,13 @@ fn build_collection_search_agent_node(outcome: &CollectionSearchOutcome) -> Agen
     };
 
     AgentNodeTemplate {
-        agent_type: AgentNodeKind::CollectionSearchAgent,
-        agent_kind: Some(AgentKind::CollectionSearch),
-        label: format!("collection search: {}", outcome.collection_label),
+        agent_type: outcome.tool_kind.node_kind(),
+        agent_kind: Some(outcome.tool_kind.agent_kind()),
+        label: format!(
+            "{}: {}",
+            outcome.tool_kind.label_prefix(),
+            outcome.collection_label
+        ),
         status,
         tool_name: None,
         collection_id: Some(outcome.collection_id.clone()),
@@ -2961,17 +3259,14 @@ fn build_collection_review_agent_node(execution: &LlmSearchExecution) -> Option<
 
 fn build_llm_search_tool_context_window(
     prompt: &str,
-    outcomes: &[CollectionSearchOutcome],
+    outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
 ) -> BuiltContextWindow {
     let context = build_llm_search_parent_context(prompt, outcomes);
     build_context_window_report(&context, &llm_client.context_limits())
 }
 
-fn build_llm_search_parent_context(
-    prompt: &str,
-    outcomes: &[CollectionSearchOutcome],
-) -> LLMContext {
+fn build_llm_search_parent_context(prompt: &str, outcomes: &[CollectionToolOutcome]) -> LLMContext {
     let mut context = LLMContext::new(AgentKind::LlmSearch.system_prompt());
     context.push_section_with_kind(
         "Original Search Query",
@@ -2985,6 +3280,7 @@ fn build_llm_search_parent_context(
             .iter()
             .map(|outcome| {
                 let mut lines = vec![
+                    format!("tool_name: {}", outcome.tool_kind.tool_name()),
                     format!("collection_id: {}", outcome.collection_id),
                     format!("collection_label: {}", outcome.collection_label),
                 ];
@@ -3025,12 +3321,12 @@ fn build_llm_search_parent_context(
     context
 }
 
-fn render_combined_llm_search_results(outcomes: &[CollectionSearchOutcome]) -> String {
+fn render_combined_llm_search_results(outcomes: &[CollectionToolOutcome]) -> String {
     render_combined_llm_search_results_with_summary(outcomes, None, &[])
 }
 
 fn render_combined_llm_search_results_with_summary(
-    outcomes: &[CollectionSearchOutcome],
+    outcomes: &[CollectionToolOutcome],
     parent_summary: Option<&str>,
     diagnostics: &[String],
 ) -> String {
@@ -3038,6 +3334,7 @@ fn render_combined_llm_search_results_with_summary(
         return match outcomes.first() {
             Some(outcome) => match outcome.execution.as_ref() {
                 Ok(execution) => render_collection_outcome_result(
+                    outcome.tool_kind,
                     &outcome.collection_id,
                     &outcome.collection_label,
                     execution,
@@ -3097,6 +3394,7 @@ fn render_combined_llm_search_results_with_summary(
         lines.push(String::new());
         match outcome.execution.as_ref() {
             Ok(execution) => lines.push(render_collection_outcome_result(
+                outcome.tool_kind,
                 &outcome.collection_id,
                 &outcome.collection_label,
                 execution,
@@ -3167,7 +3465,7 @@ fn normalize_parent_summary(summary: Option<&str>) -> Option<String> {
     }
 }
 
-fn fallback_parent_summary(outcomes: &[CollectionSearchOutcome]) -> Option<String> {
+fn fallback_parent_summary(outcomes: &[CollectionToolOutcome]) -> Option<String> {
     let summaries = outcomes
         .iter()
         .filter_map(|outcome| {
@@ -3343,6 +3641,17 @@ fn paged_search_collection(
     } else {
         paged
     }
+}
+
+fn collection_window_offset(collection: &LabeledPostCollection) -> Option<usize> {
+    collection
+        .metadata
+        .get("search_window_offset")
+        .and_then(|value| value.parse::<usize>().ok())
+}
+
+fn collection_window_total_items(collection: &LabeledPostCollection) -> usize {
+    collection.posts.len()
 }
 
 fn collection_search_offset(args: &Value) -> Result<usize, Box<dyn std::error::Error>> {
@@ -3582,14 +3891,14 @@ fn optional_string_array_arg(
 #[cfg(test)]
 mod tests {
     use super::{
-        BlueskyTools, CollectionReviewStatus, LlmSearchExecution, ToolRegistry,
-        collection_search_offset, detect_actor_refs, detect_post_uri, deterministic_repair_summary,
-        fallback_llm_search_summary, heuristic_collection_review, merged_collection_from_refs,
-        paged_search_collection, parse_collection_review_verdict, parse_llm_search_result,
-        parse_prompt_tool_call, reduced_search_collection,
-        render_internal_llm_search_tool_protocol, render_llm_result, render_post_details,
-        serialize_collection, source_collection_id_from_post, validate_collection_id,
-        validate_internal_tool_response,
+        BlueskyTools, CollectionLeafToolKind, CollectionReviewStatus, LlmSearchExecution,
+        ToolRegistry, collection_search_offset, detect_actor_refs, detect_post_uri,
+        deterministic_repair_summary, fallback_llm_search_summary, heuristic_collection_review,
+        merged_collection_from_refs, paged_search_collection, parse_collection_review_verdict,
+        parse_collection_tool_result, parse_llm_search_result, parse_prompt_tool_call,
+        reduced_search_collection, render_internal_llm_search_tool_protocol, render_llm_result,
+        render_post_details, serialize_collection, source_collection_id_from_post,
+        validate_collection_id, validate_internal_tool_response,
     };
     use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
     use crate::model::{LabeledPostCollection, PostRecord};
@@ -3794,6 +4103,43 @@ mod tests {
     }
 
     #[test]
+    fn parse_collection_summary_result_accepts_json_object_response() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent test posts",
+                vec![
+                    PostRecord {
+                        uri: "at://one".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post one".to_string(),
+                    },
+                    PostRecord {
+                        uri: "at://two".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post two".to_string(),
+                    },
+                ],
+            ),
+            0,
+            25,
+        );
+
+        let result = parse_collection_tool_result(
+            &collection,
+            r#"{"title":"window summary","summary":"Both posts focus on test content, with \"post one\" and \"post two\" forming the full window.","covered_item_uris":["at://one","at://two"],"omitted_item_uris":[],"window_start":0,"window_total_items":2}"#,
+            CollectionLeafToolKind::Summary,
+            super::collection_window_offset(&collection),
+        )
+        .expect("expected parsed result");
+
+        assert_eq!(result.covered_item_uris.len(), 2);
+        assert_eq!(result.omitted_item_uris.len(), 0);
+        assert_eq!(result.window_start, Some(0));
+        assert_eq!(result.window_total_items, Some(2));
+    }
+
+    #[test]
     fn fallback_llm_search_summary_for_lists_is_paragraph_like() {
         let collection = LabeledPostCollection::new(
             "clearsky:test",
@@ -3995,18 +4341,18 @@ mod tests {
 
     #[test]
     fn strict_internal_tool_response_rejects_surrounding_prose() {
-        let response = "I will search now.\n\nTOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}";
+        let response = "I will search now.\n\nTOOL_CALL\nname: search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}";
         let result = validate_internal_tool_response(response);
         assert!(matches!(result, super::InternalToolResponse::Invalid(_)));
     }
 
     #[test]
     fn strict_internal_tool_response_accepts_trailing_prose_by_discarding_it() {
-        let response = "TOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}\n\nSelf-correction: hypothetical results go here";
+        let response = "TOOL_CALL\nname: search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}\n\nSelf-correction: hypothetical results go here";
         let result = validate_internal_tool_response(response);
         match result {
             super::InternalToolResponse::ToolCall(accepted) => {
-                assert_eq!(accepted.tool_call.name, "collection_search");
+                assert_eq!(accepted.tool_call.name, "search");
                 assert!(accepted.discarded_trailing.is_some());
             }
             other => panic!("expected accepted tool call, got {other:?}"),
@@ -4015,11 +4361,11 @@ mod tests {
 
     #[test]
     fn strict_internal_tool_response_accepts_first_tool_block_and_discards_later_blocks() {
-        let response = "TOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}\n\nTOOL_CALL\nname: search_global_posts\nargs: {\"query\":\"duplicate\"}";
+        let response = "TOOL_CALL\nname: search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}\n\nTOOL_CALL\nname: search_global_posts\nargs: {\"query\":\"duplicate\"}";
         let result = validate_internal_tool_response(response);
         match result {
             super::InternalToolResponse::ToolCall(accepted) => {
-                assert_eq!(accepted.tool_call.name, "collection_search");
+                assert_eq!(accepted.tool_call.name, "search");
                 assert!(
                     accepted
                         .discarded_trailing
@@ -4033,7 +4379,7 @@ mod tests {
 
     #[test]
     fn strict_internal_tool_response_accepts_whitespace_only_formatting_differences() {
-        let response = "TOOL_CALL\nname: collection_search\nargs:\n{\n  \"collection_id\": \"clearsky_lists:did:plc:testactor\",\n  \"prompt\": \"check lists\"\n}\n";
+        let response = "TOOL_CALL\nname: search\nargs:\n{\n  \"collection_id\": \"clearsky_lists:did:plc:testactor\",\n  \"prompt\": \"check lists\"\n}\n";
         let result = validate_internal_tool_response(response);
         assert!(matches!(result, super::InternalToolResponse::ToolCall(_)));
     }
@@ -4074,6 +4420,10 @@ mod tests {
                 uri: "https://example.com/list-a".to_string(),
                 source_collection_id: Some("clearsky:test".to_string()),
             }],
+            covered_item_uris: Vec::new(),
+            omitted_item_uris: Vec::new(),
+            window_start: None,
+            window_total_items: None,
         };
         let execution = LlmSearchExecution {
             result: Some(result.clone()),
@@ -4085,7 +4435,8 @@ mod tests {
             repair_diagnostic: None,
         };
 
-        let verdict = heuristic_collection_review(&collection, &execution);
+        let verdict =
+            heuristic_collection_review(CollectionLeafToolKind::Search, &collection, &execution);
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
     }
 
@@ -4115,7 +4466,8 @@ mod tests {
             repair_diagnostic: None,
         };
 
-        let verdict = heuristic_collection_review(&collection, &execution);
+        let verdict =
+            heuristic_collection_review(CollectionLeafToolKind::Search, &collection, &execution);
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
     }
 
@@ -4137,6 +4489,10 @@ mod tests {
                 uri: "https://example.com/list-a".to_string(),
                 source_collection_id: Some("clearsky:test".to_string()),
             }],
+            covered_item_uris: Vec::new(),
+            omitted_item_uris: Vec::new(),
+            window_start: None,
+            window_total_items: None,
         };
         let execution = LlmSearchExecution {
             result: Some(result.clone()),
@@ -4148,9 +4504,115 @@ mod tests {
             repair_diagnostic: None,
         };
 
-        let verdict = heuristic_collection_review(&collection, &execution);
+        let verdict =
+            heuristic_collection_review(CollectionLeafToolKind::Search, &collection, &execution);
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
         assert!(verdict.repair_needed);
+    }
+
+    #[test]
+    fn heuristic_collection_review_fails_collection_summary_with_incomplete_coverage() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent",
+                vec![
+                    PostRecord {
+                        uri: "at://one".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "first topic".to_string(),
+                    },
+                    PostRecord {
+                        uri: "at://two".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "second topic".to_string(),
+                    },
+                ],
+            ),
+            0,
+            25,
+        );
+        let result = super::LlmSearchResult {
+            title: "window".to_string(),
+            summary: "The window mostly discusses first-topic material.".to_string(),
+            search_results: vec![super::LlmSearchResultItem {
+                uri: "at://one".to_string(),
+                source_collection_id: Some("recent:test".to_string()),
+            }],
+            covered_item_uris: vec!["at://one".to_string()],
+            omitted_item_uris: Vec::new(),
+            window_start: Some(0),
+            window_total_items: Some(2),
+        };
+        let execution = LlmSearchExecution {
+            result: Some(result.clone()),
+            original_result: Some(result),
+            context_window: empty_test_window(),
+            diagnostic: None,
+            review_verdict: None,
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+
+        let verdict =
+            heuristic_collection_review(CollectionLeafToolKind::Summary, &collection, &execution);
+        assert_eq!(verdict.status, CollectionReviewStatus::Fail);
+        assert!(!verdict.repair_needed);
+    }
+
+    #[test]
+    fn heuristic_collection_review_passes_collection_summary_with_full_coverage() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent",
+                vec![
+                    PostRecord {
+                        uri: "at://one".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "first topic".to_string(),
+                    },
+                    PostRecord {
+                        uri: "at://two".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "second topic".to_string(),
+                    },
+                ],
+            ),
+            0,
+            25,
+        );
+        let result = super::LlmSearchResult {
+            title: "window".to_string(),
+            summary: "The two-post window splits between \"first topic\" and \"second topic,\" so the summary accounts for the entire page rather than only one standout item.".to_string(),
+            search_results: vec![
+                super::LlmSearchResultItem {
+                    uri: "at://one".to_string(),
+                    source_collection_id: Some("recent:test".to_string()),
+                },
+                super::LlmSearchResultItem {
+                    uri: "at://two".to_string(),
+                    source_collection_id: Some("recent:test".to_string()),
+                },
+            ],
+            covered_item_uris: vec!["at://one".to_string(), "at://two".to_string()],
+            omitted_item_uris: Vec::new(),
+            window_start: Some(0),
+            window_total_items: Some(2),
+        };
+        let execution = LlmSearchExecution {
+            result: Some(result.clone()),
+            original_result: Some(result),
+            context_window: empty_test_window(),
+            diagnostic: None,
+            review_verdict: None,
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+
+        let verdict =
+            heuristic_collection_review(CollectionLeafToolKind::Summary, &collection, &execution);
+        assert_eq!(verdict.status, CollectionReviewStatus::Pass);
     }
 
     #[test]
@@ -4303,7 +4765,8 @@ mod tests {
 
         assert!(rendered.contains("resolve_actor_refs"));
         assert!(rendered.contains("hydrate_actor_scope"));
-        assert!(rendered.contains("collection_search"));
+        assert!(rendered.contains("Tool: search"));
+        assert!(rendered.contains("Tool: summary"));
         assert!(rendered.contains("search_global_posts"));
     }
 

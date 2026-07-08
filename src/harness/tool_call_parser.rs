@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn extracts_leading_yaml_like_tool_call_and_discards_trailing_output() {
         let accepted = extract_leading_tool_call_block(
-            "TOOL_CALL\nname: collection_search\nargs:\n  collection_id: clearsky_lists:did:plc:testactor\n  prompt: check lists\n\nSelf-correction: hypothetical results go here",
+            "TOOL_CALL\nname: search\nargs:\n  collection_id: clearsky_lists:did:plc:testactor\n  prompt: check lists\n\nSelf-correction: hypothetical results go here",
         )
         .expect("expected accepted block");
 
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn rejects_leading_prose_before_tool_call() {
         let err = extract_leading_tool_call_block(
-            "I will search now.\n\nTOOL_CALL\nname: collection_search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}",
+            "I will search now.\n\nTOOL_CALL\nname: search\nargs: {\"collection_id\":\"clearsky_lists:did:plc:testactor\",\"prompt\":\"check lists\"}",
         )
         .expect_err("expected leading prose rejection");
 

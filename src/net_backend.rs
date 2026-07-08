@@ -1107,7 +1107,8 @@ fn partition_recent_posts_for_actor(
     posts: Vec<feed::defs::PostView>,
     did: &Did,
 ) -> (Vec<feed::defs::PostView>, Vec<feed::defs::PostView>) {
-    posts.into_iter()
+    posts
+        .into_iter()
         .filter(|post| post_is_authored_by(post, did))
         .partition(|post| !is_reply_record(&post.record))
 }

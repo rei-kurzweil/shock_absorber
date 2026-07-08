@@ -320,7 +320,8 @@ impl App {
                 let kind = match node.agent_type {
                     AgentNodeKind::RootAgent => "root",
                     AgentNodeKind::ToolAgent => "tool",
-                    AgentNodeKind::CollectionSearchAgent => "search",
+                    AgentNodeKind::CollectionSearchTool => "search",
+                    AgentNodeKind::CollectionSummaryTool => "summary",
                     AgentNodeKind::CollectionReviewAgent => "review",
                 };
                 let line = format!(
@@ -352,7 +353,8 @@ impl App {
                 match node.agent_type {
                     AgentNodeKind::RootAgent => "root",
                     AgentNodeKind::ToolAgent => "tool",
-                    AgentNodeKind::CollectionSearchAgent => "collection_search",
+                    AgentNodeKind::CollectionSearchTool => "collection_search",
+                    AgentNodeKind::CollectionSummaryTool => "collection_summary",
                     AgentNodeKind::CollectionReviewAgent => "collection_review",
                 }
             ),
