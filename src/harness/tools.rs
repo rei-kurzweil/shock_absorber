@@ -702,9 +702,7 @@ impl BlueskyTools {
         observer: Option<UnboundedSender<ToolProgressEvent>>,
     ) -> Result<(String, Vec<CollectionToolOutcome>), Box<dyn std::error::Error>> {
         let search_intent = classify_search_intent(query);
-        let mut requested_summary_scope = detect_requested_summary_scope(query);
-        let mut summary_scope_override_used = false;
-        let mut summary_scope_locked = false;
+        let requested_summary_scope = detect_requested_summary_scope(query);
         let resolved_actor_refs = if let Some(actor_refs) = detect_actor_refs(query) {
             Some(self.resolve_actor_refs(agent, store, &actor_refs).await?)
         } else {
@@ -736,7 +734,7 @@ impl BlueskyTools {
             ChatMessage {
                 role: "user".to_string(),
                 content: format!(
-                    "User query:\n{query}\n\nInitial scope hints:\n{initial_scope_hints}\n\nInitial requested summary scope:\n{}\n\nYou may call `set_summary_scope` at most once before the first `summary` call if the default scope is wrong or too vague. After the first `summary` call, requested summary scope is frozen for the rest of the run.\n\nUse tools when needed, then finish with a direct grounded synthesis.",
+                    "User query:\n{query}\n\nInitial scope hints:\n{initial_scope_hints}\n\nHarness-owned requested summary scope:\n{}\n\nWhen you call `summary`, the harness will own paging for that collection automatically. Do not try to manage summary paging manually.\n\nUse tools when needed, then finish with a direct grounded synthesis.",
                     requested_summary_scope.render_for_planner()
                 ),
             },
@@ -940,21 +938,6 @@ impl BlueskyTools {
                     )
                     .await?
                 }
-                "set_summary_scope" => {
-                    if summary_scope_locked {
-                        "status: failed\nreason: requested summary scope is already frozen because a summary window has already been processed in this llm_search run".to_string()
-                    } else if summary_scope_override_used {
-                        "status: failed\nreason: requested summary scope was already changed once in this llm_search run".to_string()
-                    } else {
-                        requested_summary_scope =
-                            parse_requested_summary_scope_args(&tool_call.args)?;
-                        summary_scope_override_used = true;
-                        format!(
-                            "status: completed\nrequested_summary_scope:\n{}",
-                            requested_summary_scope.render_for_planner()
-                        )
-                    }
-                }
                 "hydrate_actor_scope" => {
                     let actor_did = parse_did_arg(&tool_call.args, "actor_did")?;
                     self.execute_internal_hydrate_actor_scope(
@@ -974,63 +957,72 @@ impl BlueskyTools {
                     };
                     let collection_id = require_string_arg(&tool_call.args, "collection_id")?;
                     let prompt = require_string_arg(&tool_call.args, "prompt")?;
-                    let offset = collection_search_offset(&tool_call.args)?;
-                    let dedupe_key = format!("{}:{collection_id}:{offset}", tool_kind.tool_name());
+                    let offset = if tool_kind == CollectionLeafToolKind::Summary {
+                        summary_scope_initial_offset(requested_summary_scope)
+                    } else {
+                        collection_search_offset(&tool_call.args)?
+                    };
+                    let dedupe_key = if tool_kind == CollectionLeafToolKind::Summary {
+                        format!("summary:{collection_id}:scope_loop")
+                    } else {
+                        format!("{}:{collection_id}:{offset}", tool_kind.tool_name())
+                    };
                     if !searched_collection_keys.insert(dedupe_key) {
                         format!(
                             "collection_id: {collection_id}\nstatus: skipped\nreason: this exact collection window was already processed in this llm_search run"
                         )
                     } else {
-                        if tool_kind == CollectionLeafToolKind::Summary {
-                            summary_scope_locked = true;
-                        }
                         let collection = self
                             .resolve_collection_by_id(store, &collection_id)
                             .ok_or_else(|| format!("unknown collection `{collection_id}`"))?;
-                        let collection = paged_search_collection(
-                            &collection,
-                            offset,
-                            COLLECTION_SEARCH_PAGE_SIZE,
-                        );
-                        let mut collection_outcomes = self
-                            .run_collection_tools(
-                                tool_kind,
-                                &[collection],
-                                &prompt,
-                                requested_summary_scope,
-                                llm_client,
-                                observer.clone(),
-                            )
-                            .await;
-                        let outcome = collection_outcomes
-                            .pop()
-                            .ok_or("missing collection tool outcome")?;
-                        let mut outcome = outcome;
                         if tool_kind == CollectionLeafToolKind::Summary {
-                            if let Ok(execution) = outcome.execution.as_mut() {
-                                apply_summary_sufficiency_gates(
+                            let mut summary_outcomes = self
+                                .run_collection_summary_loop(
+                                    &collection,
+                                    &prompt,
                                     requested_summary_scope,
-                                    &outcome.collection_id,
-                                    &outcomes,
-                                    execution,
-                                );
-                            }
-                        }
-                        let rendered = match outcome.execution.as_ref() {
-                            Ok(execution) => render_collection_outcome_result(
-                                outcome.tool_kind,
-                                &outcome.collection_id,
-                                &outcome.collection_label,
-                                execution,
-                            ),
-                            Err(err) => {
-                                format!(
-                                    "collection_id: {collection_id}\nstatus: failed\nerror: {err}"
+                                    llm_client,
+                                    observer.clone(),
                                 )
-                            }
-                        };
-                        outcomes.push(outcome);
-                        rendered
+                                .await;
+                            let rendered = render_summary_collection_loop_result(&summary_outcomes);
+                            outcomes.append(&mut summary_outcomes);
+                            rendered
+                        } else {
+                            let collection = paged_search_collection(
+                                &collection,
+                                offset,
+                                COLLECTION_SEARCH_PAGE_SIZE,
+                            );
+                            let mut collection_outcomes = self
+                                .run_collection_tools(
+                                    tool_kind,
+                                    &[collection],
+                                    &prompt,
+                                    requested_summary_scope,
+                                    llm_client,
+                                    observer.clone(),
+                                )
+                                .await;
+                            let outcome = collection_outcomes
+                                .pop()
+                                .ok_or("missing collection tool outcome")?;
+                            let rendered = match outcome.execution.as_ref() {
+                                Ok(execution) => render_collection_outcome_result(
+                                    outcome.tool_kind,
+                                    &outcome.collection_id,
+                                    &outcome.collection_label,
+                                    execution,
+                                ),
+                                Err(err) => {
+                                    format!(
+                                        "collection_id: {collection_id}\nstatus: failed\nerror: {err}"
+                                    )
+                                }
+                            };
+                            outcomes.push(outcome);
+                            rendered
+                        }
                     }
                 }
                 "search_global_posts" => {
@@ -1362,7 +1354,11 @@ impl BlueskyTools {
         let mut outcomes = Vec::with_capacity(collections.len());
 
         for collection in collections {
-            let collection = paged_search_collection(collection, 0, COLLECTION_SEARCH_PAGE_SIZE);
+            let collection = if collection_window_offset(collection).is_some() {
+                collection.clone()
+            } else {
+                paged_search_collection(collection, 0, COLLECTION_SEARCH_PAGE_SIZE)
+            };
             if let Some(observer) = observer.as_ref() {
                 let _ = observer.send(ToolProgressEvent::AgentUpdate {
                     label: format!("{}: {}", tool_kind.label_prefix(), collection.label),
@@ -1427,6 +1423,76 @@ impl BlueskyTools {
                 collection_label: collection.label.clone(),
                 execution,
             });
+        }
+
+        outcomes
+    }
+
+    async fn run_collection_summary_loop(
+        &self,
+        collection: &LabeledPostCollection,
+        prompt: &str,
+        requested_summary_scope: RequestedSummaryScope,
+        llm_client: &LlmApiClient,
+        observer: Option<UnboundedSender<ToolProgressEvent>>,
+    ) -> Vec<CollectionToolOutcome> {
+        let mut outcomes = Vec::new();
+        let mut offset = summary_scope_initial_offset(requested_summary_scope);
+        let max_pages = summary_scope_max_pages(requested_summary_scope, collection.posts.len());
+        let mut pages_processed = 0usize;
+        let mut seen_offsets = HashSet::new();
+
+        while pages_processed < max_pages
+            && offset < collection.posts.len()
+            && seen_offsets.insert(offset)
+        {
+            let paged = paged_search_collection(collection, offset, COLLECTION_SEARCH_PAGE_SIZE);
+            let mut page_outcomes = self
+                .run_collection_tools(
+                    CollectionLeafToolKind::Summary,
+                    &[paged],
+                    prompt,
+                    requested_summary_scope,
+                    llm_client,
+                    observer.clone(),
+                )
+                .await;
+            let Some(mut outcome) = page_outcomes.pop() else {
+                break;
+            };
+            if let Ok(execution) = outcome.execution.as_mut() {
+                apply_summary_sufficiency_gates(
+                    requested_summary_scope,
+                    &outcome.collection_id,
+                    &outcomes,
+                    execution,
+                );
+                if execution.diagnostic.is_none() {
+                    execution.diagnostic = Some(format!(
+                        "summary cursor processed offset {offset} (page {} of at most {max_pages})",
+                        pages_processed + 1
+                    ));
+                }
+            }
+
+            let next_offset = outcome
+                .execution
+                .as_ref()
+                .ok()
+                .and_then(|execution| execution.review_verdict.as_ref())
+                .and_then(|verdict| {
+                    verdict
+                        .additional_pages_needed
+                        .then_some(verdict.next_offset)
+                })
+                .flatten();
+            outcomes.push(outcome);
+            pages_processed += 1;
+
+            let Some(next_offset) = next_offset else {
+                break;
+            };
+            offset = next_offset;
         }
 
         outcomes
@@ -2261,9 +2327,6 @@ fn validate_internal_llm_search_tool_call(
         "resolve_actor_refs" => {
             require_string_arg(&tool_call.args, "query").map_err(|err| err.to_string())?;
         }
-        "set_summary_scope" => {
-            parse_requested_summary_scope_args(&tool_call.args).map_err(|err| err.to_string())?;
-        }
         "hydrate_actor_scope" => {
             parse_did_arg(&tool_call.args, "actor_did").map_err(|err| err.to_string())?;
         }
@@ -2279,8 +2342,6 @@ fn validate_internal_llm_search_tool_call(
             let collection_id = require_string_arg(&tool_call.args, "collection_id")
                 .map_err(|err| err.to_string())?;
             require_string_arg(&tool_call.args, "prompt").map_err(|err| err.to_string())?;
-            optional_usize_arg(&tool_call.args, "page").map_err(|err| err.to_string())?;
-            optional_usize_arg(&tool_call.args, "offset").map_err(|err| err.to_string())?;
             validate_collection_id(&collection_id)?;
         }
         "search_global_posts" => {
@@ -3101,6 +3162,33 @@ fn detect_requested_summary_scope(prompt: &str) -> RequestedSummaryScope {
     RequestedSummaryScope::CurrentWindow
 }
 
+fn summary_scope_initial_offset(scope: RequestedSummaryScope) -> usize {
+    match scope {
+        RequestedSummaryScope::CurrentWindow | RequestedSummaryScope::Count { .. } => 0,
+        RequestedSummaryScope::Page { page_index } => {
+            page_index.saturating_mul(COLLECTION_SEARCH_PAGE_SIZE)
+        }
+        RequestedSummaryScope::PageRange { start_page, .. } => {
+            start_page.saturating_mul(COLLECTION_SEARCH_PAGE_SIZE)
+        }
+    }
+}
+
+fn summary_scope_max_pages(scope: RequestedSummaryScope, available_total_items: usize) -> usize {
+    match scope {
+        RequestedSummaryScope::CurrentWindow => 1,
+        RequestedSummaryScope::Count { requested_items } => requested_items
+            .min(available_total_items)
+            .div_ceil(COLLECTION_SEARCH_PAGE_SIZE)
+            .max(1),
+        RequestedSummaryScope::Page { .. } => 1,
+        RequestedSummaryScope::PageRange {
+            start_page,
+            end_page,
+        } => end_page.saturating_sub(start_page).saturating_add(1).max(1),
+    }
+}
+
 fn render_summary_scope_assessment(
     requested_summary_scope: RequestedSummaryScope,
     collection: &LabeledPostCollection,
@@ -3659,17 +3747,6 @@ fn render_internal_llm_search_tool_protocol() -> String {
             ],
         },
         InternalLlmSearchToolSpec {
-            name: "set_summary_scope",
-            description: "Change the requested summary scope once before the first `summary` call when the default run-level summary scope is wrong or too vague.",
-            arguments: &[
-                "kind (string, required): one of `current_window`, `count`, `page`, or `page_range`",
-                "requested_items (integer, required for `count`): total items requested",
-                "page_index (integer, required for `page`): zero-based page index",
-                "start_page (integer, required for `page_range`): zero-based starting page index",
-                "end_page (integer, required for `page_range`): zero-based ending page index",
-            ],
-        },
-        InternalLlmSearchToolSpec {
             name: "search",
             description: "Use when you need the strongest supporting records from one exact validated cached collection window rather than full coverage.",
             arguments: &[
@@ -3681,12 +3758,10 @@ fn render_internal_llm_search_tool_protocol() -> String {
         },
         InternalLlmSearchToolSpec {
             name: "summary",
-            description: "Use when the user asks to summarize or analyze a whole collection window, especially explicit scope requests like the last 25, 50, or 100 posts.",
+            description: "Use when the user asks to summarize or analyze a whole collection window. The harness owns summary paging for that collection automatically.",
             arguments: &[
                 "collection_id (string, required): exact cached collection ID",
                 "prompt (string, required): what to summarize about that collection window",
-                "page (integer, optional): zero-based 25-item page of the collection to summarize; translate user-facing `page 1` to `page: 0`",
-                "offset (integer, optional): zero-based item offset into the collection; takes precedence over `page`",
             ],
         },
         InternalLlmSearchToolSpec {
@@ -3714,7 +3789,7 @@ fn render_internal_llm_search_tool_protocol() -> String {
         .join("\n\n");
 
     format!(
-        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts` when needed for contrast or missing evidence\n- prefer `recent_posts` over `recent_posts_unaddressed` unless the task explicitly needs top-level-only posts\n- use `summary` for explicit whole-window coverage requests like \"last 50 posts\", \"summarize page 1\", or \"summarize pages 1-2\"\n- call `set_summary_scope` only when the initial requested summary scope is wrong or too vague; it is available once and only before the first `summary` call\n- user-facing page phrases are one-based, so `page 1` means the first page; internal tool args stay zero-based\n- use `search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
+        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts` when needed for contrast or missing evidence\n- prefer `recent_posts` over `recent_posts_unaddressed` unless the task explicitly needs top-level-only posts\n- use `summary` for explicit whole-window coverage requests like \"last 50 posts\", \"summarize page 1\", or \"summarize pages 1-2\"\n- do not try to manage summary paging manually; the harness owns summary scope and page traversal for each collection\n- use `search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
     )
 }
 
@@ -3813,46 +3888,59 @@ fn parse_collection_tool_result(
     window_start: Option<usize>,
 ) -> ParsedCollectionToolResult {
     if tool_kind.is_coverage_oriented() {
-        match parse_collection_summary_result_tagged(response) {
+        match parse_collection_summary_result_tool_call(collection, response) {
             Ok(result) => {
                 return ParsedCollectionToolResult {
-                    result: Some(CollectionLeafResult::Summary(normalize_summary_result(
-                        collection, result,
-                    ))),
+                    result: Some(CollectionLeafResult::Summary(result)),
                     diagnostic: None,
                 };
             }
-            Err(tagged_err) => match parse_collection_summary_result_json(collection, response) {
+            Err(tool_call_err) => match parse_collection_summary_result_tagged(response) {
                 Ok(result) => {
                     return ParsedCollectionToolResult {
-                        result: Some(CollectionLeafResult::Summary(result)),
-                        diagnostic: None,
+                        result: Some(CollectionLeafResult::Summary(normalize_summary_result(
+                            collection, result,
+                        ))),
+                        diagnostic: Some(format!(
+                            "summary result used legacy tagged parsing after tool-call parsing failed ({tool_call_err})"
+                        )),
                     };
                 }
-                Err(json_err) => {
-                    match parse_collection_summary_result_tagged_partial(
-                        collection,
-                        response,
-                        window_start,
-                    ) {
-                        Ok((result, repair_diagnostic)) => {
-                            return ParsedCollectionToolResult {
-                                result: Some(CollectionLeafResult::Summary(result)),
-                                diagnostic: Some(format!(
-                                    "summary result parsing needed partial recovery: tagged parser failed ({tagged_err}); json parser failed ({json_err}); {repair_diagnostic}"
-                                )),
-                            };
-                        }
-                        Err(partial_err) => {
-                            return ParsedCollectionToolResult {
-                                result: None,
-                                diagnostic: Some(format!(
-                                    "summary result parsing failed: tagged parser failed ({tagged_err}); json parser failed ({json_err}); partial tagged repair failed ({partial_err})"
-                                )),
-                            };
+                Err(tagged_err) => match parse_collection_summary_result_json(collection, response)
+                {
+                    Ok(result) => {
+                        return ParsedCollectionToolResult {
+                            result: Some(CollectionLeafResult::Summary(result)),
+                            diagnostic: Some(format!(
+                                "summary result used json parsing after tool-call parsing failed ({tool_call_err}) and tagged parser failed ({tagged_err})"
+                            )),
+                        };
+                    }
+                    Err(json_err) => {
+                        match parse_collection_summary_result_tagged_partial(
+                            collection,
+                            response,
+                            window_start,
+                        ) {
+                            Ok((result, repair_diagnostic)) => {
+                                return ParsedCollectionToolResult {
+                                    result: Some(CollectionLeafResult::Summary(result)),
+                                    diagnostic: Some(format!(
+                                        "summary result parsing needed partial recovery: tool-call parser failed ({tool_call_err}); tagged parser failed ({tagged_err}); json parser failed ({json_err}); {repair_diagnostic}"
+                                    )),
+                                };
+                            }
+                            Err(partial_err) => {
+                                return ParsedCollectionToolResult {
+                                    result: None,
+                                    diagnostic: Some(format!(
+                                        "summary result parsing failed: tool-call parser failed ({tool_call_err}); tagged parser failed ({tagged_err}); json parser failed ({json_err}); partial tagged repair failed ({partial_err})"
+                                    )),
+                                };
+                            }
                         }
                     }
-                }
+                },
             },
         }
     }
@@ -3917,6 +4005,148 @@ fn parse_llm_search_result(
             CollectionLeafResult::Search(result) => Some(result),
             CollectionLeafResult::Summary(_) => None,
         })
+}
+
+fn parse_collection_summary_result_tool_call(
+    collection: &LabeledPostCollection,
+    response: &str,
+) -> Result<LlmSummaryResult, String> {
+    let trimmed = response.trim();
+    let parsed = extract_leading_tool_call_block(trimmed)
+        .map_err(|err| err.diagnostic().to_string())
+        .and_then(|accepted| {
+            parse_prompt_tool_call_result(&accepted.accepted_block)
+                .map_err(|err| err.diagnostic().to_string())
+        });
+
+    let (title, summary, recovery_note) = match parsed {
+        Ok(tool_call) => {
+            if tool_call.name != "submit_summary_result" {
+                return Err(format!(
+                    "unexpected tool call `{}` for summary result",
+                    tool_call.name
+                ));
+            }
+
+            let title = require_string_arg(&tool_call.args, "title")
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("LLM-selected post in {}", collection.label));
+
+            let summary = require_string_arg(&tool_call.args, "summary")
+                .map_err(|err| err.to_string())?
+                .trim()
+                .to_string();
+            (title, summary, None)
+        }
+        Err(primary_err) => {
+            if !trimmed.contains("TOOL_CALL") || !trimmed.contains("submit_summary_result") {
+                return Err(primary_err);
+            }
+            let title = extract_json_string_field(trimmed, "title")
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| format!("LLM-selected post in {}", collection.label));
+            let summary = extract_json_string_field(trimmed, "summary")
+                .or_else(|| fallback_summary_from_raw_output(trimmed))
+                .ok_or(primary_err)?;
+            (
+                title,
+                summary,
+                Some("recovered summary text from malformed submit_summary_result tool call"),
+            )
+        }
+    };
+    if !is_valid_llm_search_summary(&summary) {
+        return Err("missing required scalar field `summary`".to_string());
+    }
+
+    let covered_item_uris = collection
+        .posts
+        .iter()
+        .map(|post| post.uri.clone())
+        .collect::<Vec<_>>();
+    let omitted_item_uris = Vec::new();
+
+    let window_offset = collection_window_offset(collection).unwrap_or(0);
+    let window_size = collection_window_size(collection);
+    let available_total_items = collection_available_total_items(collection);
+    let page_size = COLLECTION_SEARCH_PAGE_SIZE;
+    let page_index = window_offset / page_size.max(1);
+    let has_more = window_offset.saturating_add(window_size) < available_total_items;
+
+    let result = LlmSummaryResult {
+        title,
+        summary,
+        covered_item_uris,
+        omitted_item_uris,
+        window_offset: Some(window_offset),
+        window_size: Some(window_size),
+        page_index: Some(page_index),
+        page_size: Some(page_size),
+        collection_total_items: Some(available_total_items),
+        has_more: Some(has_more),
+        window_start: Some(window_offset),
+        window_total_items: Some(window_size),
+    };
+
+    let _ = recovery_note;
+    Ok(result)
+}
+
+fn extract_json_string_field(input: &str, field_name: &str) -> Option<String> {
+    let needle = format!("\"{field_name}\"");
+    let start = input.find(&needle)?;
+    let rest = &input[start + needle.len()..];
+    let colon = rest.find(':')?;
+    let mut chars = rest[colon + 1..].chars().peekable();
+    while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
+        chars.next();
+    }
+    if chars.next()? != '"' {
+        return None;
+    }
+
+    let mut out = String::new();
+    let mut escaped = false;
+    for ch in chars {
+        if escaped {
+            out.push(match ch {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '"' => '"',
+                '\\' => '\\',
+                other => other,
+            });
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '"' => return Some(out),
+            other => out.push(other),
+        }
+    }
+    Some(out)
+}
+
+fn fallback_summary_from_raw_output(input: &str) -> Option<String> {
+    let summary_start = input.find("summary")?;
+    let fallback = input[summary_start..]
+        .lines()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string();
+    if fallback.is_empty() {
+        None
+    } else {
+        Some(fallback)
+    }
 }
 
 fn parse_tagged_summary_body(
@@ -4793,6 +5023,32 @@ fn render_collection_outcome_result(
     ];
     lines.push(render_llm_execution_result(execution));
     lines.join("\n")
+}
+
+fn render_summary_collection_loop_result(outcomes: &[CollectionToolOutcome]) -> String {
+    if outcomes.is_empty() {
+        return "status: failed\nreason: no summary pages were processed".to_string();
+    }
+
+    let mut lines = vec![format!("summary_pages_processed: {}", outcomes.len())];
+    for outcome in outcomes {
+        match outcome.execution.as_ref() {
+            Ok(execution) => lines.push(render_collection_outcome_result(
+                outcome.tool_kind,
+                &outcome.collection_id,
+                &outcome.collection_label,
+                execution,
+            )),
+            Err(err) => lines.push(format!(
+                "tool_name: {}\ncollection_id: {}\ncollection_label: {}\nstatus: failed\nerror: {}",
+                outcome.tool_kind.tool_name(),
+                outcome.collection_id,
+                outcome.collection_label,
+                err
+            )),
+        }
+    }
+    lines.join("\n\n")
 }
 
 fn apply_summary_sufficiency_gates(
@@ -6016,6 +6272,98 @@ mod tests {
     }
 
     #[test]
+    fn parse_collection_summary_result_accepts_tool_call_response() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent test posts",
+                vec![
+                    PostRecord {
+                        uri: "at://one".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post one".to_string(),
+                    },
+                    PostRecord {
+                        uri: "at://two".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post two".to_string(),
+                    },
+                ],
+            ),
+            0,
+            25,
+        );
+
+        let response = "TOOL_CALL\nname: submit_summary_result\nargs: {\"title\":\"window summary\",\"summary\":\"Both posts focus on test content, with \\\"post one\\\" and \\\"post two\\\" forming the full window.\"}";
+        let parsed = parse_collection_tool_result(
+            &collection,
+            response,
+            CollectionLeafToolKind::Summary,
+            super::collection_window_offset(&collection),
+        );
+
+        assert!(parsed.diagnostic.is_none());
+        let result = parsed
+            .result
+            .expect("expected parsed result")
+            .as_summary()
+            .expect("expected summary result")
+            .clone();
+
+        assert_eq!(result.covered_item_uris, vec!["at://one", "at://two"]);
+        assert!(result.omitted_item_uris.is_empty());
+        assert_eq!(result.window_offset, Some(0));
+        assert_eq!(result.window_size, Some(2));
+        assert_eq!(result.page_index, Some(0));
+        assert_eq!(result.page_size, Some(25));
+        assert_eq!(result.collection_total_items, Some(2));
+        assert_eq!(result.has_more, Some(false));
+    }
+
+    #[test]
+    fn parse_collection_summary_result_recovers_truncated_tool_call_summary_text() {
+        let collection = paged_search_collection(
+            &LabeledPostCollection::new(
+                "recent:test",
+                "Recent test posts",
+                vec![
+                    PostRecord {
+                        uri: "at://one".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post one".to_string(),
+                    },
+                    PostRecord {
+                        uri: "at://two".to_string(),
+                        author_handle: "alpha.test".to_string(),
+                        body: "post two".to_string(),
+                    },
+                ],
+            ),
+            0,
+            25,
+        );
+
+        let response = "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"window summary\",\n  \"summary\": \"Both posts focus on test content, with \\\"post one\\\" and \\\"post two\\\" forming the full window.\",\n  \"covered_item_uris\": [\n    \"at://one\",\n    \"at://";
+        let parsed = parse_collection_tool_result(
+            &collection,
+            response,
+            CollectionLeafToolKind::Summary,
+            super::collection_window_offset(&collection),
+        );
+
+        assert!(parsed.diagnostic.is_none());
+        let result = parsed
+            .result
+            .expect("expected parsed result")
+            .as_summary()
+            .expect("expected summary result")
+            .clone();
+        assert!(result.summary.contains("Both posts focus on test content"));
+        assert_eq!(result.covered_item_uris, vec!["at://one", "at://two"]);
+        assert!(result.omitted_item_uris.is_empty());
+    }
+
+    #[test]
     fn parse_collection_summary_result_accepts_tagged_response() {
         let collection = paged_search_collection(
             &LabeledPostCollection::new(
@@ -6121,7 +6469,11 @@ mod tests {
             super::collection_window_offset(&collection),
         );
 
-        assert!(parsed.diagnostic.is_none());
+        let diagnostic = parsed.diagnostic.expect("expected fallback diagnostic");
+        assert!(
+            diagnostic.contains("tool-call parsing failed")
+                || diagnostic.contains("tool-call parser failed")
+        );
         let result = parsed
             .result
             .expect("expected parsed result")
@@ -7152,10 +7504,10 @@ mod tests {
 
         assert!(rendered.contains("resolve_actor_refs"));
         assert!(rendered.contains("hydrate_actor_scope"));
-        assert!(rendered.contains("set_summary_scope"));
         assert!(rendered.contains("Tool: search"));
         assert!(rendered.contains("Tool: summary"));
         assert!(rendered.contains("search_global_posts"));
+        assert!(!rendered.contains("set_summary_scope"));
     }
 
     #[test]
