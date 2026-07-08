@@ -557,6 +557,7 @@ pub async fn ensure_recent_posts_cached(
 
         let top_level_count = recent_posts
             .iter()
+            .filter(|post| post_is_authored_by(post, did))
             .filter(|post| !is_reply_record(&post.record))
             .count();
         if top_level_count >= min_top_level_posts {
@@ -569,9 +570,8 @@ pub async fn ensure_recent_posts_cached(
         cursor = Some(next_cursor);
     }
 
-    let (recent_posts_unaddressed, recent_replies_sent): (Vec<_>, Vec<_>) = recent_posts
-        .into_iter()
-        .partition(|post| !is_reply_record(&post.record));
+    let (recent_posts_unaddressed, recent_replies_sent) =
+        partition_recent_posts_for_actor(recent_posts, did);
 
     store.remove_post_collection(&recent_posts_collection_id(did));
     store.cache_post_collection(build_recent_posts_unaddressed_collection(
@@ -1099,6 +1099,19 @@ fn is_reply_record(record: &Unknown) -> bool {
         .is_some()
 }
 
+fn post_is_authored_by(post: &feed::defs::PostView, did: &Did) -> bool {
+    post.author.data.did == *did
+}
+
+fn partition_recent_posts_for_actor(
+    posts: Vec<feed::defs::PostView>,
+    did: &Did,
+) -> (Vec<feed::defs::PostView>, Vec<feed::defs::PostView>) {
+    posts.into_iter()
+        .filter(|post| post_is_authored_by(post, did))
+        .partition(|post| !is_reply_record(&post.record))
+}
+
 fn normalize_collection(mut collection: LabeledPostCollection) -> LabeledPostCollection {
     if collection.collection_kind.is_empty() {
         if let Some(kind) = collection.metadata.get("collection_kind") {
@@ -1170,6 +1183,12 @@ fn notification_key(notif: &Notification) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bsky_sdk::api::app::bsky::actor::defs::{ProfileViewBasic, ProfileViewBasicData};
+    use bsky_sdk::api::app::bsky::feed::defs::{PostView, PostViewData};
+    use bsky_sdk::api::app::bsky::feed::post::{Record, RecordData, ReplyRef, ReplyRefData};
+    use bsky_sdk::api::com::atproto::repo::strong_ref::{Main as StrongRef, MainData};
+    use bsky_sdk::api::types::TryIntoUnknown;
+    use bsky_sdk::api::types::string::{Cid, Datetime};
 
     #[test]
     fn recent_replies_received_uses_cached_post_replies_collections() {
@@ -1204,5 +1223,123 @@ mod tests {
         assert_eq!(replies.len(), 2);
         assert_eq!(replies[0].author_handle, "reply.author");
         assert!(replies[0].body.contains("grounded inbound feedback"));
+    }
+
+    #[test]
+    fn partition_recent_posts_for_actor_excludes_foreign_authors() {
+        let actor_did: Did = "did:plc:testactor".parse().expect("invalid actor did");
+        let actor = profile_view_basic("actor.test", &actor_did);
+        let other_did: Did = "did:plc:otheractor".parse().expect("invalid other did");
+        let other = profile_view_basic("other.test", &other_did);
+
+        let top_level_actor = post_view(
+            &actor,
+            record("top-level by actor", false),
+            "at://did:plc:testactor/app.bsky.feed.post/top-level",
+        );
+        let reply_actor = post_view(
+            &actor,
+            record("reply by actor", true),
+            "at://did:plc:testactor/app.bsky.feed.post/reply",
+        );
+        let foreign_top_level = post_view(
+            &other,
+            record("top-level by other actor", false),
+            "at://did:plc:otheractor/app.bsky.feed.post/top-level",
+        );
+
+        let (top_level, replies) = partition_recent_posts_for_actor(
+            vec![top_level_actor, reply_actor, foreign_top_level],
+            &actor_did,
+        );
+
+        assert_eq!(top_level.len(), 1);
+        assert_eq!(replies.len(), 1);
+        assert_eq!(top_level[0].author.data.did, actor_did);
+        assert_eq!(replies[0].author.data.did, actor_did);
+        assert_eq!(
+            extract_post_text(&top_level[0].record).as_deref(),
+            Some("top-level by actor")
+        );
+        assert_eq!(
+            extract_post_text(&replies[0].record).as_deref(),
+            Some("reply by actor")
+        );
+    }
+
+    fn profile_view_basic(handle: &str, did: &Did) -> ProfileViewBasic {
+        ProfileViewBasicData {
+            associated: None,
+            avatar: None,
+            created_at: None,
+            did: did.clone(),
+            display_name: None,
+            handle: handle.parse().expect("invalid handle"),
+            labels: None,
+            pronouns: None,
+            status: None,
+            verification: None,
+            viewer: None,
+        }
+        .into()
+    }
+
+    fn post_view(author: &ProfileViewBasic, record: Record, uri: &str) -> PostView {
+        PostViewData {
+            author: author.clone(),
+            bookmark_count: None,
+            cid: fake_cid(),
+            embed: None,
+            indexed_at: Datetime::now(),
+            labels: None,
+            like_count: None,
+            quote_count: None,
+            record: record
+                .try_into_unknown()
+                .expect("failed to convert record to unknown"),
+            reply_count: None,
+            repost_count: None,
+            threadgate: None,
+            uri: uri.to_string(),
+            viewer: None,
+        }
+        .into()
+    }
+
+    fn record(text: &str, is_reply: bool) -> Record {
+        RecordData {
+            created_at: Datetime::now(),
+            embed: None,
+            entities: None,
+            facets: None,
+            labels: None,
+            langs: None,
+            reply: is_reply.then(fake_reply_ref),
+            tags: None,
+            text: text.to_string(),
+        }
+        .into()
+    }
+
+    fn fake_reply_ref() -> ReplyRef {
+        ReplyRefData {
+            parent: fake_strong_ref("at://did:plc:root/app.bsky.feed.post/parent"),
+            root: fake_strong_ref("at://did:plc:root/app.bsky.feed.post/root"),
+        }
+        .into()
+    }
+
+    fn fake_strong_ref(uri: &str) -> StrongRef {
+        MainData {
+            cid: fake_cid(),
+            uri: uri.to_string(),
+        }
+        .into()
+    }
+
+    fn fake_cid() -> Cid {
+        "bafyreid6jmj4onjsdxp66m7uhs5vvh2n7xk6kqv7sfr5w2umh4m4z3xv4e"
+            .parse()
+            .expect("invalid cid")
     }
 }
