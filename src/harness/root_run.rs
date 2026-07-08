@@ -507,6 +507,7 @@ fn compact_llm_search_result_for_root_context(tool_output: &str) -> String {
     let mut kept = Vec::new();
     let mut failed_collections = Vec::new();
     let mut current_collection_label: Option<String> = None;
+    let mut diagnostic_count = 0usize;
 
     for line in tool_output.lines() {
         let trimmed = line.trim();
@@ -517,8 +518,18 @@ fn compact_llm_search_result_for_root_context(tool_output: &str) -> String {
             kept.push(trimmed.to_string());
             continue;
         }
-        if trimmed.starts_with("summary:")
-            || trimmed.starts_with("selected_result_uri:")
+        if trimmed.starts_with("summary:") {
+            kept.push(truncate_line_for_root_context(trimmed, 320));
+            continue;
+        }
+        if trimmed.starts_with("diagnostic:") {
+            diagnostic_count += 1;
+            if diagnostic_count <= 2 {
+                kept.push(truncate_line_for_root_context(trimmed, 220));
+            }
+            continue;
+        }
+        if trimmed.starts_with("selected_result_uri:")
             || trimmed.starts_with("selected_result_source_collection_id:")
             || trimmed.starts_with("selected_result_collection_id:")
             || trimmed.starts_with("selected_result_collection_label:")
@@ -547,11 +558,27 @@ fn compact_llm_search_result_for_root_context(tool_output: &str) -> String {
             failed_collections.join(" | ")
         ));
     }
+    if diagnostic_count > 2 {
+        kept.push(format!("diagnostic_count: {diagnostic_count}"));
+    }
 
     if kept.is_empty() {
         return truncate_for_root_context(tool_output, 24);
     }
     kept.join("\n")
+}
+
+fn truncate_line_for_root_context(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+
+    let mut truncated = text
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 fn truncate_for_root_context(text: &str, max_lines: usize) -> String {
@@ -1061,6 +1088,27 @@ mod tests {
         assert!(compact.contains("selected_result_collection_id: clearsky:test"));
         assert!(!compact.contains("\ncollection_id: clearsky:test"));
         assert!(!compact.contains("post: picked"));
+    }
+
+    #[test]
+    fn compact_llm_search_truncates_summary_and_caps_diagnostics() {
+        let long_summary = format!("summary: {}", "x".repeat(800));
+        let tool_output = format!(
+            "llm_search searched collections independently and combined the grounded results below.\n\
+diagnostic: first repeated diagnostic that should be kept in compact root context\n\
+diagnostic: second repeated diagnostic that should also be kept in compact root context\n\
+diagnostic: third repeated diagnostic that should be counted but not kept verbatim\n\
+{}\n\
+selected_result_uri: at://one",
+            long_summary
+        );
+
+        let compact = compact_llm_search_result_for_root_context(&tool_output);
+
+        assert!(compact.contains("selected_result_uri: at://one"));
+        assert!(compact.contains("diagnostic_count: 3"));
+        assert!(compact.contains("summary: "));
+        assert!(compact.len() < tool_output.len());
     }
 
     #[test]

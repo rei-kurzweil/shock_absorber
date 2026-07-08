@@ -61,6 +61,14 @@ Examples:
 
 The leaf tool should not be asked to interpret vague scope text after the fact.
 
+This scope interpretation belongs inside the internal `llm_search` workflow, not in the public root-visible `llm_search` tool definition.
+
+The public root call should stay high level:
+
+- `llm_search(query: "...")`
+
+Then the harness and planner can establish an internal requested summary scope for that run.
+
 ### Leaf tool execution accounting
 
 The `summary` tool must report the exact window it processed.
@@ -106,6 +114,32 @@ enum RequestedSummaryScope {
 ```
 
 The exact Rust names can vary, but the harness should stop relying on ad hoc token-neighbor checks as the primary contract.
+
+It is acceptable for the harness to begin a run with a default scope such as `CurrentWindow` or `Unknown`, then allow the internal `llm_search` planner one structured chance to refine that scope before the first `summary` leaf call.
+
+That refinement should set requested result size or requested page scope, not "how many pages to fetch."
+
+Example internal state transition:
+
+- default: `CurrentWindow`
+- planner refinement: `Count { requested_items: 50 }`
+- frozen execution target for the rest of the run
+
+If the planner is allowed to refine scope, that refinement should be one-shot and then frozen so the run has one authoritative requested scope.
+
+Possible future shape:
+
+```rust
+enum RequestedSummaryScope {
+    Unknown,
+    CurrentWindow,
+    Count { requested_items: usize },
+    Page { page_index: usize },
+    PageRange { start_page: usize, end_page: usize },
+}
+```
+
+The exact choice between `Unknown` and `CurrentWindow` can vary, but the important constraint is that there should be one authoritative internal scope object once summary execution begins.
 
 ### Structured summary tool request
 
@@ -158,6 +192,15 @@ That should come from structured accounting, not from prompt text guessing alone
 
 ## Scope Parsing Expectations
 
+Deterministic parsing is useful for obvious supported forms, but this task should not assume that plain string parsing can reliably interpret arbitrary natural-language scope.
+
+The harness should only deterministically recognize a bounded supported sub-language, then either:
+
+- keep a safe default scope, or
+- allow the internal `llm_search` planner to refine scope once through a structured internal action
+
+The system should not repeatedly recover scope by re-parsing loosely rewritten prompt text after each summary step.
+
 This task should explicitly support at least:
 
 - `last 25 posts`
@@ -174,6 +217,10 @@ It should also decide and document:
 - whether `page 1` means the first page or the second zero-based page
 
 That choice must be made explicit and applied consistently across planner prompting, parsing, and review.
+
+If deterministic parsing is used, it should be treated as authoritative only for the supported patterns above.
+
+If the planner is allowed to refine scope, that refinement must emit one structured scope choice rather than free-form prose.
 
 ## Required Leaf Metadata Clarification
 
@@ -244,12 +291,43 @@ That means:
 - planner should be encouraged to emit exact `page` or `offset`
 - harness review should validate that the processed result matches those arguments
 
+The important boundary is:
+
+- the public `llm_search` tool input stays natural-language
+- requested summary scope is internal to the `llm_search` run
+- the planner may get one structured chance to refine the requested scope before the first summary leaf call
+- after that, the harness owns page accounting and sufficiency decisions
+
+One reasonable shape is an internal one-shot scope-setting action such as:
+
+- `set_summary_scope(kind="count", requested_items=50)`
+- `set_summary_scope(kind="page", page_index=0)`
+- `set_summary_scope(kind="page_range", start_page=0, end_page=1)`
+
+The planner should not set "number of pages to fetch" directly.
+
+It should set requested scope in terms of:
+
+- requested result size
+- requested single page
+- requested page range
+
+Then the harness can derive:
+
+- how many pages are actually needed
+- whether the last page is partial
+- what `next_page` or `next_offset` should be
+
+If this one-shot scope-setting step exists, it should be callable at most once per `llm_search` run and should no longer be mutable after the first `summary` call.
+
 ## Suggested Implementation Slices
 
 ### Slice 1: Introduce structured scope modeling
 
 - add a `RequestedSummaryScope` model
-- parse count/page/page-range requests from the root query or relevant parent summary prompt
+- establish a default internal requested scope for each `llm_search` run
+- parse count/page/page-range requests from the root query when the supported forms are obvious
+- optionally allow a one-shot planner refinement step that sets requested result size or page scope before the first summary call
 - decide and document page-numbering semantics
 
 ### Slice 2: Expand summary result metadata
@@ -273,7 +351,11 @@ That means:
 ## Checklist
 
 - [ ] Define a structured `RequestedSummaryScope` model.
+- [ ] Decide whether the internal default scope is `CurrentWindow`, `Unknown`, or equivalent.
 - [ ] Parse explicit summary scopes including count, single-page, and page-range requests.
+- [ ] Decide whether `llm_search` gets a one-shot internal scope-setting action before the first `summary` call.
+- [ ] If that action exists, make it set requested result size or page scope rather than number of pages.
+- [ ] Freeze requested summary scope after it has been set for the run.
 - [ ] Decide and document page-number interpretation for user-facing phrases like `page 1`.
 - [ ] Update planner guidance so `summary` requests are emitted with exact `page` or `offset`.
 - [ ] Update `collection_summary` result shape to include explicit processed-window metadata.
@@ -302,6 +384,7 @@ That means:
 
 - redesigning the public root-visible tool surface
 - changing `summary_review` into a planner-callable tool
+- teaching the harness to fully interpret arbitrary natural-language scope without a bounded supported sub-language or structured planner refinement
 - solving every collection-modeling bug in the same task
 
 Those may interact with this work, but this task is specifically about structured scope parsing and explicit page/window accounting for summary sufficiency.

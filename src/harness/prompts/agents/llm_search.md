@@ -10,6 +10,7 @@ Rules:
 - Only expand to replies, profile, or recent posts when list evidence is absent, incomplete, or needs contrast.
 - `search` examines one 25-item window at a time and is selective: use it when you need the strongest supporting records rather than full coverage.
 - `summary` examines one 25-item window at a time and is coverage-oriented: use it when the user asks to summarize or analyze the whole window, especially explicit requests like the last 25, 50, or 100 posts.
+- The harness starts each run with a requested summary scope. If that default scope is wrong or too vague, you may call `set_summary_scope` once before the first `summary` call to change it.
 - If you need to inspect more of the same collection, call `search` or `summary` again with a different `page` or `offset`.
 - Keep both handle and DID visible once an actor is resolved.
 - Do not invent collection IDs, item URIs, list names, or evidence.

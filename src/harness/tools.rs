@@ -175,7 +175,8 @@ impl LlmSummaryResult {
     }
 
     fn processed_collection_total_items(&self) -> Option<usize> {
-        self.collection_total_items.or_else(|| self.processed_window_size())
+        self.collection_total_items
+            .or_else(|| self.processed_window_size())
     }
 }
 
@@ -216,8 +217,16 @@ impl CollectionLeafResult {
 
     fn selected_item_uris(&self) -> Vec<&str> {
         match self {
-            Self::Search(result) => result.search_results.iter().map(|item| item.uri.as_str()).collect(),
-            Self::Summary(result) => result.covered_item_uris.iter().map(String::as_str).collect(),
+            Self::Search(result) => result
+                .search_results
+                .iter()
+                .map(|item| item.uri.as_str())
+                .collect(),
+            Self::Summary(result) => result
+                .covered_item_uris
+                .iter()
+                .map(String::as_str)
+                .collect(),
         }
     }
 }
@@ -385,6 +394,24 @@ enum RequestedSummaryScope {
     PageRange { start_page: usize, end_page: usize },
 }
 
+impl RequestedSummaryScope {
+    fn render_for_planner(self) -> String {
+        match self {
+            Self::CurrentWindow => "kind: current_window".to_string(),
+            Self::Count { requested_items } => {
+                format!("kind: count\nrequested_items: {requested_items}")
+            }
+            Self::Page { page_index } => format!("kind: page\npage_index: {page_index}"),
+            Self::PageRange {
+                start_page,
+                end_page,
+            } => {
+                format!("kind: page_range\nstart_page: {start_page}\nend_page: {end_page}")
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SearchIntent {
     ReputationLists,
@@ -488,6 +515,7 @@ const MAX_COLLECTION_SEARCH_RESULTS: usize = 10;
 const ACTOR_SEARCH_POST_TARGET: usize = 25;
 const ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT: usize = 100;
 const ACTOR_SCOPE_REPLY_FETCH_LIMIT: usize = 100;
+const MAX_INVALID_INTERNAL_TOOL_CALLS: usize = 2;
 
 impl BlueskyTools {
     pub fn new() -> Self {
@@ -638,6 +666,9 @@ impl BlueskyTools {
         observer: Option<UnboundedSender<ToolProgressEvent>>,
     ) -> Result<(String, Vec<CollectionToolOutcome>), Box<dyn std::error::Error>> {
         let search_intent = classify_search_intent(query);
+        let mut requested_summary_scope = detect_requested_summary_scope(query);
+        let mut summary_scope_override_used = false;
+        let mut summary_scope_locked = false;
         let initial_scope_hints = if let Some(actor_refs) = detect_actor_refs(query) {
             format!(
                 "{}\npreferred_search_intent: {}\npreferred_search_order: {}",
@@ -665,7 +696,8 @@ impl BlueskyTools {
             ChatMessage {
                 role: "user".to_string(),
                 content: format!(
-                    "User query:\n{query}\n\nInitial scope hints:\n{initial_scope_hints}\n\nUse tools when needed, then finish with a direct grounded synthesis."
+                    "User query:\n{query}\n\nInitial scope hints:\n{initial_scope_hints}\n\nInitial requested summary scope:\n{}\n\nYou may call `set_summary_scope` at most once before the first `summary` call if the default scope is wrong or too vague. After the first `summary` call, requested summary scope is frozen for the rest of the run.\n\nUse tools when needed, then finish with a direct grounded synthesis.",
+                    requested_summary_scope.render_for_planner()
                 ),
             },
         ];
@@ -675,6 +707,7 @@ impl BlueskyTools {
         let mut final_summary = None;
         let mut diagnostics = Vec::new();
         let mut consecutive_invalid_tool_responses = 0usize;
+        let mut consecutive_invalid_tool_calls = 0usize;
 
         for round in 0..6usize {
             let response = llm_client.complete_chat(messages.clone(), 768).await?;
@@ -745,6 +778,7 @@ impl BlueskyTools {
             ) {
                 Ok(tool_call) => tool_call,
                 Err(reason) => {
+                    consecutive_invalid_tool_calls += 1;
                     let tool_args =
                         serde_json::to_string_pretty(&accepted_tool_call.tool_call.args)?;
                     let diagnostic = format!(
@@ -769,6 +803,13 @@ impl BlueskyTools {
                             content: diagnostic.clone(),
                         });
                     }
+                    if consecutive_invalid_tool_calls >= MAX_INVALID_INTERNAL_TOOL_CALLS {
+                        diagnostics.push(
+                            "internal planner produced repeated invalid tool arguments; falling back to harness-side collection resolution"
+                                .to_string(),
+                        );
+                        break;
+                    }
                     messages.push(ChatMessage {
                         role: "assistant".to_string(),
                         content: accepted_tool_call.accepted_block.clone(),
@@ -785,6 +826,7 @@ impl BlueskyTools {
                     continue;
                 }
             };
+            consecutive_invalid_tool_calls = 0;
 
             let rendered_tool_result = match tool_call.name.as_str() {
                 "resolve_actor_refs" => {
@@ -796,6 +838,21 @@ impl BlueskyTools {
                         observer.clone(),
                     )
                     .await?
+                }
+                "set_summary_scope" => {
+                    if summary_scope_locked {
+                        "status: failed\nreason: requested summary scope is already frozen because a summary window has already been processed in this llm_search run".to_string()
+                    } else if summary_scope_override_used {
+                        "status: failed\nreason: requested summary scope was already changed once in this llm_search run".to_string()
+                    } else {
+                        requested_summary_scope =
+                            parse_requested_summary_scope_args(&tool_call.args)?;
+                        summary_scope_override_used = true;
+                        format!(
+                            "status: completed\nrequested_summary_scope:\n{}",
+                            requested_summary_scope.render_for_planner()
+                        )
+                    }
                 }
                 "hydrate_actor_scope" => {
                     let actor_did = parse_did_arg(&tool_call.args, "actor_did")?;
@@ -823,6 +880,9 @@ impl BlueskyTools {
                             "collection_id: {collection_id}\nstatus: skipped\nreason: this exact collection window was already processed in this llm_search run"
                         )
                     } else {
+                        if tool_kind == CollectionLeafToolKind::Summary {
+                            summary_scope_locked = true;
+                        }
                         let collection = self
                             .resolve_collection_by_id(store, &collection_id)
                             .ok_or_else(|| format!("unknown collection `{collection_id}`"))?;
@@ -836,6 +896,7 @@ impl BlueskyTools {
                                 tool_kind,
                                 &[collection],
                                 &prompt,
+                                requested_summary_scope,
                                 llm_client,
                                 observer.clone(),
                             )
@@ -847,7 +908,7 @@ impl BlueskyTools {
                         if tool_kind == CollectionLeafToolKind::Summary {
                             if let Ok(execution) = outcome.execution.as_mut() {
                                 apply_summary_sufficiency_gates(
-                                    &prompt,
+                                    requested_summary_scope,
                                     &outcome.collection_id,
                                     &outcomes,
                                     execution,
@@ -917,15 +978,45 @@ impl BlueskyTools {
                     selected_notification,
                 )
                 .await?;
-            outcomes = self
-                .run_collection_tools(
-                    CollectionLeafToolKind::Search,
-                    &collections,
-                    query,
-                    llm_client,
-                    observer.clone(),
-                )
-                .await;
+            let requested_summary_scope = detect_requested_summary_scope(query);
+            if should_prefer_summary_fallback(query, requested_summary_scope) {
+                if let Some(summary_collection) =
+                    pick_summary_fallback_collection(&collections, query)
+                {
+                    outcomes = self
+                        .run_collection_tools(
+                            CollectionLeafToolKind::Summary,
+                            &[summary_collection],
+                            query,
+                            requested_summary_scope,
+                            llm_client,
+                            observer.clone(),
+                        )
+                        .await;
+                } else {
+                    outcomes = self
+                        .run_collection_tools(
+                            CollectionLeafToolKind::Search,
+                            &collections,
+                            query,
+                            RequestedSummaryScope::CurrentWindow,
+                            llm_client,
+                            observer.clone(),
+                        )
+                        .await;
+                }
+            } else {
+                outcomes = self
+                    .run_collection_tools(
+                        CollectionLeafToolKind::Search,
+                        &collections,
+                        query,
+                        RequestedSummaryScope::CurrentWindow,
+                        llm_client,
+                        observer.clone(),
+                    )
+                    .await;
+            }
         }
 
         let rendered = render_combined_llm_search_results_with_summary(
@@ -1068,6 +1159,7 @@ impl BlueskyTools {
         tool_kind: CollectionLeafToolKind,
         collections: &[LabeledPostCollection],
         prompt: &str,
+        requested_summary_scope: RequestedSummaryScope,
         llm_client: &LlmApiClient,
         observer: Option<UnboundedSender<ToolProgressEvent>>,
     ) -> Vec<CollectionToolOutcome> {
@@ -1091,6 +1183,7 @@ impl BlueskyTools {
                         tool_kind,
                         &collection,
                         prompt,
+                        requested_summary_scope,
                         execution,
                         llm_client,
                         observer.clone(),
@@ -1429,6 +1522,7 @@ impl BlueskyTools {
         tool_kind: CollectionLeafToolKind,
         collection: &LabeledPostCollection,
         prompt: &str,
+        requested_summary_scope: RequestedSummaryScope,
         mut execution: LlmSearchExecution,
         llm_client: &LlmApiClient,
         observer: Option<UnboundedSender<ToolProgressEvent>>,
@@ -1442,7 +1536,13 @@ impl BlueskyTools {
             });
         }
 
-        let review_context = build_collection_review_context(tool_kind, collection, prompt, &execution);
+        let review_context = build_collection_review_context(
+            tool_kind,
+            collection,
+            prompt,
+            requested_summary_scope,
+            &execution,
+        );
         let review_window =
             build_context_window_report(&review_context, &llm_client.context_limits());
         let review_response = llm_client
@@ -1462,7 +1562,8 @@ impl BlueskyTools {
             .await
             .ok();
 
-        let heuristic = heuristic_collection_review(tool_kind, collection, prompt, &execution);
+        let heuristic =
+            heuristic_collection_review(tool_kind, collection, requested_summary_scope, &execution);
         let mut verdict = review_response
             .as_deref()
             .and_then(parse_collection_review_verdict)
@@ -1510,8 +1611,12 @@ impl BlueskyTools {
                     });
                 }
 
-                let post_repair_verdict =
-                    heuristic_collection_review(tool_kind, collection, prompt, &execution);
+                let post_repair_verdict = heuristic_collection_review(
+                    tool_kind,
+                    collection,
+                    requested_summary_scope,
+                    &execution,
+                );
                 if post_repair_verdict.status == CollectionReviewStatus::Pass {
                     execution.review_verdict = Some(CollectionReviewVerdict {
                         status: CollectionReviewStatus::Pass,
@@ -1872,6 +1977,54 @@ fn classify_search_intent(query: &str) -> SearchIntent {
     }
 }
 
+fn should_prefer_summary_fallback(
+    query: &str,
+    requested_summary_scope: RequestedSummaryScope,
+) -> bool {
+    if requested_summary_scope != RequestedSummaryScope::CurrentWindow {
+        return true;
+    }
+
+    let lower = query.to_ascii_lowercase();
+    [
+        "summarize",
+        "summary",
+        "analyze",
+        "analysis",
+        "blog post",
+        "quote",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn pick_summary_fallback_collection(
+    collections: &[LabeledPostCollection],
+    query: &str,
+) -> Option<LabeledPostCollection> {
+    let lower = query.to_ascii_lowercase();
+    let preferred_kinds = if lower.contains("repl") {
+        [
+            "recent_replies_sent",
+            "recent_replies_received",
+            "replies_to_actor",
+        ]
+        .as_slice()
+    } else {
+        ["recent_posts_unaddressed", "recent_posts", "pinned_posts"].as_slice()
+    };
+
+    preferred_kinds
+        .iter()
+        .find_map(|kind| {
+            collections
+                .iter()
+                .find(|collection| collection.id.starts_with(kind))
+        })
+        .cloned()
+        .or_else(|| collections.first().cloned())
+}
+
 fn preferred_collection_order_hint(intent: SearchIntent) -> &'static str {
     match intent {
         SearchIntent::ReputationLists => {
@@ -1911,6 +2064,9 @@ fn validate_internal_llm_search_tool_call(
         "resolve_actor_refs" => {
             require_string_arg(&tool_call.args, "query").map_err(|err| err.to_string())?;
         }
+        "set_summary_scope" => {
+            parse_requested_summary_scope_args(&tool_call.args).map_err(|err| err.to_string())?;
+        }
         "hydrate_actor_scope" => {
             parse_did_arg(&tool_call.args, "actor_did").map_err(|err| err.to_string())?;
         }
@@ -1939,7 +2095,42 @@ fn validate_internal_llm_search_tool_call(
     Ok(tool_call.clone())
 }
 
+fn parse_requested_summary_scope_args(args: &Value) -> Result<RequestedSummaryScope, String> {
+    let kind = require_string_arg(args, "kind").map_err(|err| err.to_string())?;
+    match kind.as_str() {
+        "current_window" => Ok(RequestedSummaryScope::CurrentWindow),
+        "count" => {
+            let requested_items =
+                require_usize_arg(args, "requested_items").map_err(|err| err.to_string())?;
+            Ok(RequestedSummaryScope::Count { requested_items })
+        }
+        "page" => {
+            let page_index =
+                require_usize_arg(args, "page_index").map_err(|err| err.to_string())?;
+            Ok(RequestedSummaryScope::Page { page_index })
+        }
+        "page_range" => {
+            let start_page =
+                require_usize_arg(args, "start_page").map_err(|err| err.to_string())?;
+            let end_page = require_usize_arg(args, "end_page").map_err(|err| err.to_string())?;
+            Ok(RequestedSummaryScope::PageRange {
+                start_page: start_page.min(end_page),
+                end_page: start_page.max(end_page),
+            })
+        }
+        other => Err(format!(
+            "invalid summary scope kind `{other}`; expected `current_window`, `count`, `page`, or `page_range`"
+        )),
+    }
+}
+
 fn validate_collection_id(collection_id: &str) -> Result<(), String> {
+    if collection_id.starts_with("did:") {
+        return Err(format!(
+            "collection id `{collection_id}` is a bare DID, not a cached collection id; use an exact collection id such as `recent_posts_unaddressed:{collection_id}` or `actor_profile:{collection_id}`"
+        ));
+    }
+
     let (kind, rest) = collection_id
         .split_once(':')
         .ok_or_else(|| format!("collection id `{collection_id}` is malformed"))?;
@@ -1981,6 +2172,7 @@ fn build_collection_review_context(
     tool_kind: CollectionLeafToolKind,
     collection: &LabeledPostCollection,
     prompt: &str,
+    requested_summary_scope: RequestedSummaryScope,
     execution: &LlmSearchExecution,
 ) -> LLMContext {
     let mut context = LLMContext::new(tool_kind.review_agent_kind().system_prompt());
@@ -1989,7 +2181,7 @@ fn build_collection_review_context(
         context.push_section_with_kind(
             "Harness Scope Assessment",
             ContextSectionKind::CurrentTask,
-            render_summary_scope_assessment(prompt, collection),
+            render_summary_scope_assessment(requested_summary_scope, collection),
         );
     }
     context.push_section_with_kind(
@@ -2013,7 +2205,12 @@ fn render_review_collection_evidence(
     let selected_uris = execution
         .original_result
         .as_ref()
-        .map(|result| result.selected_item_uris().into_iter().collect::<HashSet<_>>())
+        .map(|result| {
+            result
+                .selected_item_uris()
+                .into_iter()
+                .collect::<HashSet<_>>()
+        })
         .unwrap_or_default();
 
     let posts = if tool_kind.is_coverage_oriented() {
@@ -2137,7 +2334,7 @@ fn parse_collection_review_verdict(response: &str) -> Option<CollectionReviewVer
 fn heuristic_collection_review(
     tool_kind: CollectionLeafToolKind,
     collection: &LabeledPostCollection,
-    prompt: &str,
+    requested_summary_scope: RequestedSummaryScope,
     execution: &LlmSearchExecution,
 ) -> CollectionReviewVerdict {
     let Some(result) = execution
@@ -2281,9 +2478,12 @@ fn heuristic_collection_review(
 
     if tool_kind.is_coverage_oriented() {
         let Some(result) = result.as_summary() else {
-            return fail_summary_review(false, "Expected a summary result for coverage-oriented review.");
+            return fail_summary_review(
+                false,
+                "Expected a summary result for coverage-oriented review.",
+            );
         };
-        return heuristic_summary_review(collection, prompt, result);
+        return heuristic_summary_review(collection, requested_summary_scope, result);
     }
 
     CollectionReviewVerdict {
@@ -2308,7 +2508,7 @@ fn heuristic_collection_review(
 
 fn heuristic_summary_review(
     collection: &LabeledPostCollection,
-    prompt: &str,
+    requested_summary_scope: RequestedSummaryScope,
     result: &LlmSummaryResult,
 ) -> CollectionReviewVerdict {
     let valid_window_uris = collection
@@ -2353,7 +2553,8 @@ fn heuristic_summary_review(
         );
     }
 
-    let expected_has_more = expected_offset.saturating_add(expected_window_items) < available_total_items;
+    let expected_has_more =
+        expected_offset.saturating_add(expected_window_items) < available_total_items;
     if result.has_more != Some(expected_has_more) {
         return fail_summary_review(
             false,
@@ -2370,7 +2571,10 @@ fn heuristic_summary_review(
             );
         }
         if !seen.insert(uri.as_str()) {
-            return fail_summary_review(false, "Coverage accounting repeats the same URI more than once.");
+            return fail_summary_review(
+                false,
+                "Coverage accounting repeats the same URI more than once.",
+            );
         }
     }
 
@@ -2381,9 +2585,8 @@ fn heuristic_summary_review(
         );
     }
 
-    let scope = detect_requested_summary_scope(prompt);
     let ranges = vec![(expected_offset, expected_window_items)];
-    summary_scope_verdict(scope, &ranges, available_total_items)
+    summary_scope_verdict(requested_summary_scope, &ranges, available_total_items)
 }
 
 fn fail_summary_review(grounded: bool, reason: impl Into<String>) -> CollectionReviewVerdict {
@@ -2444,15 +2647,19 @@ fn detect_requested_summary_scope(prompt: &str) -> RequestedSummaryScope {
             }
         }
         if token == "page" {
-            if let Some(raw_page) = tokens.get(index + 1).and_then(|token| parse_scope_number(token)) {
+            if let Some(raw_page) = tokens
+                .get(index + 1)
+                .and_then(|token| parse_scope_number(token))
+            {
                 return RequestedSummaryScope::Page {
                     page_index: interpret_user_page_number(raw_page),
                 };
             }
         }
         if token == "count" {
-            if let Some(requested_items) =
-                tokens.get(index + 1).and_then(|token| parse_scope_number(token))
+            if let Some(requested_items) = tokens
+                .get(index + 1)
+                .and_then(|token| parse_scope_number(token))
             {
                 return RequestedSummaryScope::Count { requested_items };
             }
@@ -2463,7 +2670,10 @@ fn detect_requested_summary_scope(prompt: &str) -> RequestedSummaryScope {
         let Some(value) = parse_scope_number(token) else {
             continue;
         };
-        let prev = index.checked_sub(1).and_then(|i| tokens.get(i)).map(String::as_str);
+        let prev = index
+            .checked_sub(1)
+            .and_then(|i| tokens.get(i))
+            .map(String::as_str);
         let next = tokens.get(index + 1).map(String::as_str);
         if matches!(prev, Some("page")) || matches!(next, Some("page")) {
             return RequestedSummaryScope::Page {
@@ -2479,13 +2689,12 @@ fn detect_requested_summary_scope(prompt: &str) -> RequestedSummaryScope {
                 };
             }
         }
-        if matches!(
-            prev,
-            Some("count" | "first" | "last")
-        ) || matches!(
-            next,
-            Some("post" | "posts" | "thing" | "things" | "item" | "items")
-        ) {
+        if matches!(prev, Some("count" | "first" | "last"))
+            || matches!(
+                next,
+                Some("post" | "posts" | "thing" | "things" | "item" | "items")
+            )
+        {
             return RequestedSummaryScope::Count {
                 requested_items: value,
             };
@@ -2495,9 +2704,12 @@ fn detect_requested_summary_scope(prompt: &str) -> RequestedSummaryScope {
     RequestedSummaryScope::CurrentWindow
 }
 
-fn render_summary_scope_assessment(prompt: &str, collection: &LabeledPostCollection) -> String {
+fn render_summary_scope_assessment(
+    requested_summary_scope: RequestedSummaryScope,
+    collection: &LabeledPostCollection,
+) -> String {
     let available_total_items = collection_available_total_items(collection);
-    match detect_requested_summary_scope(prompt) {
+    match requested_summary_scope {
         RequestedSummaryScope::CurrentWindow => format!(
             "requested_scope: current_window\npage_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page\navailable_total_items: {}\ncurrent_window_offset: {}\ncurrent_window_size: {}",
             available_total_items,
@@ -2565,7 +2777,9 @@ fn parse_page_range_tokens(tokens: &[String], start_index: usize) -> Option<(usi
         Some("-" | "to") => start_index + 2,
         _ => start_index + 1,
     };
-    let end = tokens.get(end_token_index).and_then(|token| parse_scope_number(token))?;
+    let end = tokens
+        .get(end_token_index)
+        .and_then(|token| parse_scope_number(token))?;
     Some(interpret_user_page_range(start, end))
 }
 
@@ -2600,7 +2814,8 @@ fn page_is_covered(
     ranges: &[(usize, usize)],
     available_total_items: usize,
 ) -> bool {
-    let Some(required_window_size) = required_page_window_size(page_index, available_total_items) else {
+    let Some(required_window_size) = required_page_window_size(page_index, available_total_items)
+    else {
         return false;
     };
     let page_offset = page_index.saturating_mul(COLLECTION_SEARCH_PAGE_SIZE);
@@ -2774,7 +2989,8 @@ fn repair_collection_summary(
     verdict: &CollectionReviewVerdict,
 ) -> String {
     if let Some(original_result) = execution.original_result.as_ref() {
-        let summary = deterministic_repair_summary(collection, &original_result.selected_item_uris());
+        let summary =
+            deterministic_repair_summary(collection, &original_result.selected_item_uris());
         if !summary.trim().is_empty() {
             return summary;
         }
@@ -3031,6 +3247,17 @@ fn render_internal_llm_search_tool_protocol() -> String {
             ],
         },
         InternalLlmSearchToolSpec {
+            name: "set_summary_scope",
+            description: "Change the requested summary scope once before the first `summary` call when the default run-level summary scope is wrong or too vague.",
+            arguments: &[
+                "kind (string, required): one of `current_window`, `count`, `page`, or `page_range`",
+                "requested_items (integer, required for `count`): total items requested",
+                "page_index (integer, required for `page`): zero-based page index",
+                "start_page (integer, required for `page_range`): zero-based starting page index",
+                "end_page (integer, required for `page_range`): zero-based ending page index",
+            ],
+        },
+        InternalLlmSearchToolSpec {
             name: "search",
             description: "Use when you need the strongest supporting records from one exact validated cached collection window rather than full coverage.",
             arguments: &[
@@ -3075,7 +3302,7 @@ fn render_internal_llm_search_tool_protocol() -> String {
         .join("\n\n");
 
     format!(
-        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts_unaddressed` when needed for contrast or missing evidence\n- use `summary` for explicit whole-window coverage requests like \"last 50 posts\", \"summarize page 1\", or \"summarize pages 1-2\"\n- user-facing page phrases are one-based, so `page 1` means the first page; internal tool args stay zero-based\n- use `search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
+        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts_unaddressed` when needed for contrast or missing evidence\n- use `summary` for explicit whole-window coverage requests like \"last 50 posts\", \"summarize page 1\", or \"summarize pages 1-2\"\n- call `set_summary_scope` only when the initial requested summary scope is wrong or too vague; it is available once and only before the first `summary` call\n- user-facing page phrases are one-based, so `page 1` means the first page; internal tool args stay zero-based\n- use `search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
     )
 }
 
@@ -3758,7 +3985,7 @@ fn render_collection_outcome_result(
 }
 
 fn apply_summary_sufficiency_gates(
-    prompt: &str,
+    requested_summary_scope: RequestedSummaryScope,
     collection_id: &str,
     prior_outcomes: &[CollectionToolOutcome],
     execution: &mut LlmSearchExecution,
@@ -3771,8 +3998,6 @@ fn apply_summary_sufficiency_gates(
     else {
         return;
     };
-    let scope = detect_requested_summary_scope(prompt);
-
     let current_start = result.processed_window_offset().unwrap_or(0);
     let current_len = result.processed_window_size().unwrap_or(0);
     let current_available_total = execution
@@ -3785,7 +4010,8 @@ fn apply_summary_sufficiency_gates(
     let mut ranges = prior_outcomes
         .iter()
         .filter(|outcome| {
-            outcome.tool_kind == CollectionLeafToolKind::Summary && outcome.collection_id == collection_id
+            outcome.tool_kind == CollectionLeafToolKind::Summary
+                && outcome.collection_id == collection_id
         })
         .filter_map(|outcome| outcome.execution.as_ref().ok())
         .filter_map(|prior| {
@@ -3795,12 +4021,21 @@ fn apply_summary_sufficiency_gates(
                 .or(prior.original_result.as_ref())
                 .and_then(CollectionLeafResult::as_summary)
         })
-        .filter_map(|result| Some((result.processed_window_offset()?, result.processed_window_size()?)))
+        .filter_map(|result| {
+            Some((
+                result.processed_window_offset()?,
+                result.processed_window_size()?,
+            ))
+        })
         .collect::<Vec<_>>();
     ranges.push((current_start, current_len));
-    let reviewed = summary_scope_verdict(scope, &ranges, current_available_total);
+    let reviewed = summary_scope_verdict(requested_summary_scope, &ranges, current_available_total);
 
-    let status = if execution.review_verdict.as_ref().map(|v| v.grounded).unwrap_or(false)
+    let status = if execution
+        .review_verdict
+        .as_ref()
+        .map(|v| v.grounded)
+        .unwrap_or(false)
         && reviewed.sufficient
     {
         CollectionReviewStatus::Pass
@@ -4155,7 +4390,10 @@ fn render_combined_llm_search_results_with_summary(
                 _ => None,
             })
     {
-        if let Some(search_result) = result.as_search().and_then(|result| result.search_results.first()) {
+        if let Some(search_result) = result
+            .as_search()
+            .and_then(|result| result.search_results.first())
+        {
             lines.push(format!("selected_result_uri: {}", search_result.uri));
             if let Some(source_collection_id) = search_result.source_collection_id.as_deref() {
                 lines.push(format!(
@@ -4254,7 +4492,11 @@ fn fallback_parent_summary(outcomes: &[CollectionToolOutcome]) -> Option<String>
         .filter_map(|outcome| {
             let execution = outcome.execution.as_ref().ok()?;
             let result = execution.result.as_ref()?;
-            Some(format!("{}: {}", outcome.collection_label, result.summary()))
+            Some(format!(
+                "{}: {}",
+                outcome.collection_label,
+                result.summary()
+            ))
         })
         .collect::<Vec<_>>();
 
@@ -4645,6 +4887,11 @@ fn optional_usize_arg(
     }
 }
 
+fn require_usize_arg(args: &Value, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    optional_usize_arg(args, key)?
+        .ok_or_else(|| format!("tool arg `{key}` must be a non-negative integer").into())
+}
+
 fn parse_did_arg(args: &Value, key: &str) -> Result<Did, Box<dyn std::error::Error>> {
     let raw = require_string_arg(args, key)?;
     raw.parse()
@@ -4683,11 +4930,12 @@ fn optional_string_array_arg(
 mod tests {
     use super::{
         BlueskyTools, CollectionLeafResult, CollectionLeafToolKind, CollectionReviewStatus,
-        LlmSearchExecution, LlmSearchResult, LlmSearchResultItem, LlmSummaryResult, ToolRegistry,
-        collection_search_offset, detect_actor_refs, detect_post_uri, deterministic_repair_summary,
-        fallback_llm_search_summary, heuristic_collection_review, merged_collection_from_refs,
-        paged_search_collection, parse_collection_review_verdict, parse_collection_tool_result,
-        parse_llm_search_result, parse_prompt_tool_call, reduced_search_collection,
+        LlmSearchExecution, LlmSearchResult, LlmSearchResultItem, LlmSummaryResult,
+        RequestedSummaryScope, ToolRegistry, collection_search_offset, detect_actor_refs,
+        detect_post_uri, deterministic_repair_summary, fallback_llm_search_summary,
+        heuristic_collection_review, merged_collection_from_refs, paged_search_collection,
+        parse_collection_review_verdict, parse_collection_tool_result, parse_llm_search_result,
+        parse_prompt_tool_call, parse_requested_summary_scope_args, reduced_search_collection,
         render_internal_llm_search_tool_protocol, render_llm_result, render_post_details,
         serialize_collection, source_collection_id_from_post, validate_collection_id,
         validate_internal_tool_response,
@@ -5237,7 +5485,7 @@ mod tests {
         let verdict = heuristic_collection_review(
             CollectionLeafToolKind::Search,
             &collection,
-            "what does this say?",
+            RequestedSummaryScope::CurrentWindow,
             &execution,
         );
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
@@ -5272,7 +5520,7 @@ mod tests {
         let verdict = heuristic_collection_review(
             CollectionLeafToolKind::Search,
             &collection,
-            "what does this say?",
+            RequestedSummaryScope::CurrentWindow,
             &execution,
         );
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
@@ -5312,7 +5560,7 @@ mod tests {
         let verdict = heuristic_collection_review(
             CollectionLeafToolKind::Search,
             &collection,
-            "what does this say?",
+            RequestedSummaryScope::CurrentWindow,
             &execution,
         );
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
@@ -5368,7 +5616,9 @@ mod tests {
         let verdict = heuristic_collection_review(
             CollectionLeafToolKind::Summary,
             &collection,
-            "analyze the last 50 posts by alpha.test",
+            RequestedSummaryScope::Count {
+                requested_items: 50,
+            },
             &execution,
         );
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
@@ -5421,7 +5671,9 @@ mod tests {
         let verdict = heuristic_collection_review(
             CollectionLeafToolKind::Summary,
             &collection,
-            "analyze the last 50 posts by alpha.test",
+            RequestedSummaryScope::Count {
+                requested_items: 50,
+            },
             &execution,
         );
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
@@ -5481,7 +5733,7 @@ mod tests {
         let verdict = heuristic_collection_review(
             CollectionLeafToolKind::Summary,
             &collection,
-            "summarize page 0",
+            RequestedSummaryScope::Page { page_index: 0 },
             &execution,
         );
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
@@ -5565,7 +5817,9 @@ mod tests {
         }];
 
         super::apply_summary_sufficiency_gates(
-            "analyze the last 50 posts by alpha.test",
+            RequestedSummaryScope::Count {
+                requested_items: 50,
+            },
             "recent:test",
             &prior_outcomes,
             &mut page1,
@@ -5639,10 +5893,8 @@ mod tests {
         )
         .with_collection_kind("recent_replies_received");
 
-        let summary = deterministic_repair_summary(
-            &collection,
-            &["at://reply-one", "at://reply-two"],
-        );
+        let summary =
+            deterministic_repair_summary(&collection, &["at://reply-one", "at://reply-two"]);
 
         assert!(summary.contains("[0] @bot-tan.suibari.com"));
         assert!(summary.contains("[1] @technobaboo.bsky.social"));
@@ -5710,9 +5962,35 @@ mod tests {
 
         assert!(rendered.contains("resolve_actor_refs"));
         assert!(rendered.contains("hydrate_actor_scope"));
+        assert!(rendered.contains("set_summary_scope"));
         assert!(rendered.contains("Tool: search"));
         assert!(rendered.contains("Tool: summary"));
         assert!(rendered.contains("search_global_posts"));
+    }
+
+    #[test]
+    fn validates_collection_id_rejects_bare_did_with_collection_hint() {
+        let err = validate_collection_id("did:plc:testactor").expect_err("expected invalid id");
+        assert!(err.contains("bare DID"));
+        assert!(err.contains("recent_posts_unaddressed:did:plc:testactor"));
+    }
+
+    #[test]
+    fn parse_requested_summary_scope_args_accepts_page_range() {
+        let scope = parse_requested_summary_scope_args(&serde_json::json!({
+            "kind": "page_range",
+            "start_page": 2,
+            "end_page": 1
+        }))
+        .expect("expected scope");
+
+        assert_eq!(
+            scope,
+            RequestedSummaryScope::PageRange {
+                start_page: 1,
+                end_page: 2,
+            }
+        );
     }
 
     #[test]
