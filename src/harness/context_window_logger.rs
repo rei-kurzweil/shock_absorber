@@ -100,7 +100,8 @@ fn agent_filename(node: &crate::harness::agents::AgentNode) -> String {
         crate::harness::agents::AgentNodeKind::ToolAgent => "tool_agent",
         crate::harness::agents::AgentNodeKind::CollectionSearchTool => "collection_search_tool",
         crate::harness::agents::AgentNodeKind::CollectionSummaryTool => "collection_summary_tool",
-        crate::harness::agents::AgentNodeKind::CollectionReviewAgent => "collection_review_agent",
+        crate::harness::agents::AgentNodeKind::SearchReviewAgent => "search_review_agent",
+        crate::harness::agents::AgentNodeKind::SummaryReviewAgent => "summary_review_agent",
     };
     let slug = slugify(&node.label);
     format!("agent_{:03}_{}_{}.md", node.agent_id.0, kind, slug)

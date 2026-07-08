@@ -159,9 +159,14 @@ impl CollectionReviewStatus {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CollectionReviewVerdict {
     pub status: CollectionReviewStatus,
+    pub grounded: bool,
+    pub sufficient: bool,
     pub reason: String,
     pub repair_needed: bool,
     pub repair_instructions: Option<String>,
+    pub additional_pages_needed: bool,
+    pub next_offset: Option<usize>,
+    pub required_total_items: Option<usize>,
 }
 
 pub struct LlmSearchExecution {
@@ -250,6 +255,27 @@ impl CollectionLeafToolKind {
         }
     }
 
+    fn review_agent_kind(self) -> AgentKind {
+        match self {
+            Self::Search => AgentKind::SearchReview,
+            Self::Summary => AgentKind::SummaryReview,
+        }
+    }
+
+    fn review_node_kind(self) -> AgentNodeKind {
+        match self {
+            Self::Search => AgentNodeKind::SearchReviewAgent,
+            Self::Summary => AgentNodeKind::SummaryReviewAgent,
+        }
+    }
+
+    fn review_label(self) -> &'static str {
+        match self {
+            Self::Search => "search review",
+            Self::Summary => "summary review",
+        }
+    }
+
     fn is_coverage_oriented(self) -> bool {
         matches!(self, Self::Summary)
     }
@@ -267,6 +293,12 @@ struct CollectionToolOutcome {
     collection_id: String,
     collection_label: String,
     execution: Result<LlmSearchExecution, String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SummaryScopeRequest {
+    Count { requested_total_items: usize },
+    Page { page_index: usize },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -727,6 +759,17 @@ impl BlueskyTools {
                         let outcome = collection_outcomes
                             .pop()
                             .ok_or("missing collection tool outcome")?;
+                        let mut outcome = outcome;
+                        if tool_kind == CollectionLeafToolKind::Summary {
+                            if let Ok(execution) = outcome.execution.as_mut() {
+                                apply_summary_sufficiency_gates(
+                                    &prompt,
+                                    &outcome.collection_id,
+                                    &outcomes,
+                                    execution,
+                                );
+                            }
+                        }
                         let rendered = match outcome.execution.as_ref() {
                             Ok(execution) => render_collection_outcome_result(
                                 outcome.tool_kind,
@@ -1296,16 +1339,16 @@ impl BlueskyTools {
         llm_client: &LlmApiClient,
         observer: Option<UnboundedSender<ToolProgressEvent>>,
     ) -> Result<LlmSearchExecution, Box<dyn std::error::Error>> {
+        let review_label = format!("{}: {}", tool_kind.review_label(), collection.label);
         if let Some(observer) = observer.as_ref() {
             let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                label: format!("collection review: {}", collection.label),
+                label: review_label.clone(),
                 depth: 3,
                 content: format!("collection_id: {}\nstatus: running", collection.id),
             });
         }
 
-        let review_context =
-            build_collection_review_context(tool_kind, collection, prompt, &execution);
+        let review_context = build_collection_review_context(tool_kind, collection, prompt, &execution);
         let review_window =
             build_context_window_report(&review_context, &llm_client.context_limits());
         let review_response = llm_client
@@ -1325,7 +1368,7 @@ impl BlueskyTools {
             .await
             .ok();
 
-        let heuristic = heuristic_collection_review(tool_kind, collection, &execution);
+        let heuristic = heuristic_collection_review(tool_kind, collection, prompt, &execution);
         let mut verdict = review_response
             .as_deref()
             .and_then(parse_collection_review_verdict)
@@ -1365,16 +1408,21 @@ impl BlueskyTools {
                 }
 
                 let post_repair_verdict =
-                    heuristic_collection_review(tool_kind, collection, &execution);
+                    heuristic_collection_review(tool_kind, collection, prompt, &execution);
                 if post_repair_verdict.status == CollectionReviewStatus::Pass {
                     execution.review_verdict = Some(CollectionReviewVerdict {
                         status: CollectionReviewStatus::Pass,
+                        grounded: true,
+                        sufficient: true,
                         reason: format!(
                             "Initial review failed but the repaired summary is now grounded in the selected records. Original reason: {}",
                             verdict.reason
                         ),
                         repair_needed: false,
                         repair_instructions: None,
+                        additional_pages_needed: false,
+                        next_offset: None,
+                        required_total_items: None,
                     });
                 } else {
                     execution.review_verdict = Some(post_repair_verdict.clone());
@@ -1399,7 +1447,7 @@ impl BlueskyTools {
                 .map(|verdict| verdict.status.as_str())
                 .unwrap_or("pass");
             let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                label: format!("collection review: {}", collection.label),
+                label: review_label,
                 depth: 3,
                 content: format!(
                     "collection_id: {}\nstatus: {}\n\nsummary:\n{}",
@@ -1831,8 +1879,15 @@ fn build_collection_review_context(
     prompt: &str,
     execution: &LlmSearchExecution,
 ) -> LLMContext {
-    let mut context = LLMContext::new(AgentKind::CollectionReview.system_prompt());
+    let mut context = LLMContext::new(tool_kind.review_agent_kind().system_prompt());
     context.push_section_with_kind("Search Prompt", ContextSectionKind::CurrentTask, prompt);
+    if tool_kind.is_coverage_oriented() {
+        context.push_section_with_kind(
+            "Harness Scope Assessment",
+            ContextSectionKind::CurrentTask,
+            render_summary_scope_assessment(prompt, collection),
+        );
+    }
     context.push_section_with_kind(
         "Collection Evidence",
         ContextSectionKind::ReviewEvidence,
@@ -1887,7 +1942,7 @@ fn render_review_collection_evidence(
         ));
         lines.push(format!(
             "search_window_total_items: {}",
-            collection_window_total_items(collection)
+            collection_window_size(collection)
         ));
     }
     for (index, post) in posts.into_iter().enumerate() {
@@ -1915,6 +1970,16 @@ fn parse_collection_review_verdict(response: &str) -> Option<CollectionReviewVer
         .filter(|value| !value.is_empty())
         .unwrap_or("No reason provided.")
         .to_string();
+    let grounded = response
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("grounded:").map(str::trim))
+        .map(|value| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(matches!(status, CollectionReviewStatus::Pass));
+    let sufficient = response
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("sufficient:").map(str::trim))
+        .map(|value| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(matches!(status, CollectionReviewStatus::Pass));
     let repair_needed = response
         .lines()
         .find_map(|line| line.trim().strip_prefix("repair_needed:").map(str::trim))
@@ -1929,18 +1994,45 @@ fn parse_collection_review_verdict(response: &str) -> Option<CollectionReviewVer
         })
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    let additional_pages_needed = response
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("additional_pages_needed:")
+                .map(str::trim)
+        })
+        .map(|value| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let next_offset = response.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("next_offset:")
+            .map(str::trim)
+            .and_then(|value| value.parse::<usize>().ok())
+    });
+    let required_total_items = response.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("required_total_items:")
+            .map(str::trim)
+            .and_then(|value| value.parse::<usize>().ok())
+    });
 
     Some(CollectionReviewVerdict {
         status,
+        grounded,
+        sufficient,
         reason,
         repair_needed,
         repair_instructions,
+        additional_pages_needed,
+        next_offset,
+        required_total_items,
     })
 }
 
 fn heuristic_collection_review(
     tool_kind: CollectionLeafToolKind,
     collection: &LabeledPostCollection,
+    prompt: &str,
     execution: &LlmSearchExecution,
 ) -> CollectionReviewVerdict {
     let Some(result) = execution
@@ -1950,9 +2042,14 @@ fn heuristic_collection_review(
     else {
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
+            grounded: false,
+            sufficient: false,
             reason: "No usable `summary:` paragraph exists.".to_string(),
             repair_needed: false,
             repair_instructions: None,
+            additional_pages_needed: false,
+            next_offset: None,
+            required_total_items: None,
         };
     };
 
@@ -1960,23 +2057,33 @@ fn heuristic_collection_review(
     if summary.is_empty() {
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
+            grounded: false,
+            sufficient: false,
             reason: "No usable `summary:` paragraph exists.".to_string(),
             repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Rewrite the summary as one paragraph grounded in the selected records."
                     .to_string(),
             ),
+            additional_pages_needed: false,
+            next_offset: None,
+            required_total_items: None,
         };
     }
 
     if summary.contains("\n\n") {
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
+            grounded: false,
+            sufficient: false,
             reason: "The summary is not a single paragraph.".to_string(),
             repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Condense the output into one grounded paragraph.".to_string(),
             ),
+            additional_pages_needed: false,
+            next_offset: None,
+            required_total_items: None,
         };
     }
 
@@ -1991,12 +2098,17 @@ fn heuristic_collection_review(
     {
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
+            grounded: false,
+            sufficient: false,
             reason: "The summary is fallback diagnostic text rather than a grounded collection summary.".to_string(),
             repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Rewrite the summary from the selected records, emphasizing repeated names, exact phrases, and the strongest versus secondary evidence."
                     .to_string(),
             ),
+            additional_pages_needed: false,
+            next_offset: None,
+            required_total_items: None,
         };
     }
 
@@ -2014,12 +2126,17 @@ fn heuristic_collection_review(
     if metadata_hits >= 3 {
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
+            grounded: false,
+            sufficient: false,
             reason: "The summary is dominated by identifiers or metadata placeholders.".to_string(),
             repair_needed: !tool_kind.is_coverage_oriented(),
             repair_instructions: Some(
                 "Replace metadata-heavy text with actual list names, descriptions, or post text."
                     .to_string(),
             ),
+            additional_pages_needed: false,
+            next_offset: None,
+            required_total_items: None,
         };
     }
 
@@ -2036,6 +2153,8 @@ fn heuristic_collection_review(
     if !evidence_hints.is_empty() && hint_matches == 0 {
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
+            grounded: false,
+            sufficient: false,
             reason: "The summary omits meaningful text that was available in the matched records."
                 .to_string(),
             repair_needed: !tool_kind.is_coverage_oriented(),
@@ -2043,72 +2162,20 @@ fn heuristic_collection_review(
                 "Include exact short phrases, list names, list descriptions, or matched reply text from the selected records."
                     .to_string(),
             ),
+            additional_pages_needed: false,
+            next_offset: None,
+            required_total_items: None,
         };
     }
 
     if tool_kind.is_coverage_oriented() {
-        let valid_window_uris = collection
-            .posts
-            .iter()
-            .map(|post| post.uri.as_str())
-            .collect::<HashSet<_>>();
-        let covered = &result.covered_item_uris;
-        let omitted = &result.omitted_item_uris;
-        let expected_total = collection_window_total_items(collection);
-        let expected_offset = collection_window_offset(collection).unwrap_or(0);
-
-        if result.window_total_items != Some(expected_total) {
-            return CollectionReviewVerdict {
-                status: CollectionReviewStatus::Fail,
-                reason: "The claimed `window_total_items` does not match the actual collection window size.".to_string(),
-                repair_needed: false,
-                repair_instructions: None,
-            };
-        }
-
-        if result.window_start != Some(expected_offset) {
-            return CollectionReviewVerdict {
-                status: CollectionReviewStatus::Fail,
-                reason:
-                    "The claimed `window_start` does not match the requested collection window."
-                        .to_string(),
-                repair_needed: false,
-                repair_instructions: None,
-            };
-        }
-
-        let mut seen = HashSet::new();
-        for uri in covered.iter().chain(omitted.iter()) {
-            if !valid_window_uris.contains(uri.as_str()) {
-                return CollectionReviewVerdict {
-                    status: CollectionReviewStatus::Fail,
-                    reason: "Coverage accounting includes URIs that are not part of the requested collection window.".to_string(),
-                    repair_needed: false,
-                    repair_instructions: None,
-                };
-            }
-            if !seen.insert(uri.as_str()) {
-                return CollectionReviewVerdict {
-                    status: CollectionReviewStatus::Fail,
-                    reason: "Coverage accounting repeats the same URI more than once.".to_string(),
-                    repair_needed: false,
-                    repair_instructions: None,
-                };
-            }
-        }
-
-        if seen.len() != collection.posts.len() {
-            return CollectionReviewVerdict {
-                status: CollectionReviewStatus::Fail,
-                reason: "Coverage accounting does not fully match the actual items in the requested window.".to_string(),
-                repair_needed: false,
-                repair_instructions: None,
-            };
-        }
+        return heuristic_summary_review(collection, prompt, result);
     }
 
     CollectionReviewVerdict {
         status: CollectionReviewStatus::Pass,
+        grounded: true,
+        sufficient: true,
         reason: if tool_kind.is_coverage_oriented() {
             "The summary is grounded and the coverage accounting matches the requested collection window."
                 .to_string()
@@ -2118,6 +2185,213 @@ fn heuristic_collection_review(
         },
         repair_needed: false,
         repair_instructions: None,
+        additional_pages_needed: false,
+        next_offset: None,
+        required_total_items: None,
+    }
+}
+
+fn heuristic_summary_review(
+    collection: &LabeledPostCollection,
+    prompt: &str,
+    result: &LlmSearchResult,
+) -> CollectionReviewVerdict {
+    let valid_window_uris = collection
+        .posts
+        .iter()
+        .map(|post| post.uri.as_str())
+        .collect::<HashSet<_>>();
+    let covered = &result.covered_item_uris;
+    let omitted = &result.omitted_item_uris;
+    let expected_window_items = collection_window_size(collection);
+    let expected_offset = collection_window_offset(collection).unwrap_or(0);
+
+    if result.window_total_items != Some(expected_window_items) {
+        return fail_summary_review(
+            false,
+            "The claimed `window_total_items` does not match the actual collection window size.",
+        );
+    }
+
+    if result.window_start != Some(expected_offset) {
+        return fail_summary_review(
+            false,
+            "The claimed `window_start` does not match the requested collection window.",
+        );
+    }
+
+    let mut seen = HashSet::new();
+    for uri in covered.iter().chain(omitted.iter()) {
+        if !valid_window_uris.contains(uri.as_str()) {
+            return fail_summary_review(
+                false,
+                "Coverage accounting includes URIs that are not part of the requested collection window.",
+            );
+        }
+        if !seen.insert(uri.as_str()) {
+            return fail_summary_review(false, "Coverage accounting repeats the same URI more than once.");
+        }
+    }
+
+    if seen.len() != collection.posts.len() {
+        return fail_summary_review(
+            false,
+            "Coverage accounting does not fully match the actual items in the requested window.",
+        );
+    }
+
+    let available_total_items = collection_available_total_items(collection);
+    let scope = detect_summary_scope_request(prompt);
+    match scope {
+        Some(SummaryScopeRequest::Page { page_index }) => {
+            let required_offset = page_index.saturating_mul(COLLECTION_SEARCH_PAGE_SIZE);
+            if expected_offset != required_offset {
+                return CollectionReviewVerdict {
+                    status: CollectionReviewStatus::Fail,
+                    grounded: true,
+                    sufficient: false,
+                    reason: format!(
+                        "This summary covers offset {expected_offset}, but the prompt requested page {page_index}."
+                    ),
+                    repair_needed: false,
+                    repair_instructions: None,
+                    additional_pages_needed: false,
+                    next_offset: None,
+                    required_total_items: Some(expected_window_items),
+                };
+            }
+        }
+        Some(SummaryScopeRequest::Count {
+            requested_total_items,
+        }) => {
+            let required_total_items = requested_total_items.min(available_total_items);
+            let covered_until = expected_offset.saturating_add(expected_window_items);
+            if expected_offset > 0 || covered_until < required_total_items {
+                return CollectionReviewVerdict {
+                    status: CollectionReviewStatus::Fail,
+                    grounded: true,
+                    sufficient: false,
+                    reason: format!(
+                        "This summary is grounded for items {}-{}, but the prompt requires {} total item(s) before parent synthesis is sufficient.",
+                        expected_offset.saturating_add(1),
+                        covered_until,
+                        required_total_items
+                    ),
+                    repair_needed: false,
+                    repair_instructions: None,
+                    additional_pages_needed: covered_until < required_total_items,
+                    next_offset: if covered_until < required_total_items {
+                        Some(covered_until)
+                    } else {
+                        None
+                    },
+                    required_total_items: Some(required_total_items),
+                };
+            }
+        }
+        None => {}
+    }
+
+    CollectionReviewVerdict {
+        status: CollectionReviewStatus::Pass,
+        grounded: true,
+        sufficient: true,
+        reason: "The summary is grounded, the coverage accounting matches the requested collection window, and the available coverage is sufficient for the requested scope.".to_string(),
+        repair_needed: false,
+        repair_instructions: None,
+        additional_pages_needed: false,
+        next_offset: None,
+        required_total_items: scope_required_total_items(scope, available_total_items),
+    }
+}
+
+fn fail_summary_review(grounded: bool, reason: impl Into<String>) -> CollectionReviewVerdict {
+    CollectionReviewVerdict {
+        status: CollectionReviewStatus::Fail,
+        grounded,
+        sufficient: false,
+        reason: reason.into(),
+        repair_needed: false,
+        repair_instructions: None,
+        additional_pages_needed: false,
+        next_offset: None,
+        required_total_items: None,
+    }
+}
+
+fn scope_required_total_items(
+    scope: Option<SummaryScopeRequest>,
+    available_total_items: usize,
+) -> Option<usize> {
+    match scope {
+        Some(SummaryScopeRequest::Count {
+            requested_total_items,
+        }) => Some(requested_total_items.min(available_total_items)),
+        Some(SummaryScopeRequest::Page { .. }) => Some(COLLECTION_SEARCH_PAGE_SIZE),
+        None => None,
+    }
+}
+
+fn detect_summary_scope_request(prompt: &str) -> Option<SummaryScopeRequest> {
+    let lower = prompt.to_ascii_lowercase();
+    let tokens = lower.split_whitespace().collect::<Vec<_>>();
+    for (index, token) in tokens.iter().enumerate() {
+        let cleaned = token.trim_matches(|ch: char| !ch.is_ascii_alphanumeric());
+        let Ok(value) = cleaned.parse::<usize>() else {
+            continue;
+        };
+
+        let prev = index.checked_sub(1).and_then(|i| tokens.get(i)).copied();
+        let next = tokens.get(index + 1).copied();
+        if [prev, next].into_iter().flatten().any(|neighbor| {
+            neighbor
+                .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+                .eq("page")
+        }) {
+            return Some(SummaryScopeRequest::Page { page_index: value });
+        }
+
+        if [prev, next].into_iter().flatten().any(|neighbor| {
+            matches!(
+                neighbor.trim_matches(|ch: char| !ch.is_ascii_alphanumeric()),
+                "post" | "posts" | "thing" | "things" | "item" | "items"
+            )
+        }) {
+            return Some(SummaryScopeRequest::Count {
+                requested_total_items: value,
+            });
+        }
+    }
+    None
+}
+
+fn render_summary_scope_assessment(prompt: &str, collection: &LabeledPostCollection) -> String {
+    let available_total_items = collection_available_total_items(collection);
+    match detect_summary_scope_request(prompt) {
+        Some(SummaryScopeRequest::Count {
+            requested_total_items,
+        }) => format!(
+            "requested_scope: last {} items\nrequired_total_items: {}\navailable_total_items: {}\ncurrent_window_offset: {}\ncurrent_window_size: {}",
+            requested_total_items,
+            requested_total_items.min(available_total_items),
+            available_total_items,
+            collection_window_offset(collection).unwrap_or(0),
+            collection_window_size(collection)
+        ),
+        Some(SummaryScopeRequest::Page { page_index }) => format!(
+            "requested_scope: page {}\nrequested_offset: {}\navailable_total_items: {}\ncurrent_window_offset: {}\ncurrent_window_size: {}",
+            page_index,
+            page_index.saturating_mul(COLLECTION_SEARCH_PAGE_SIZE),
+            available_total_items,
+            collection_window_offset(collection).unwrap_or(0),
+            collection_window_size(collection)
+        ),
+        None => format!(
+            "requested_scope: single current window\navailable_total_items: {}\ncurrent_window_offset: {}\ncurrent_window_size: {}",
+            available_total_items,
+            collection_window_offset(collection).unwrap_or(0),
+            collection_window_size(collection)
+        ),
     }
 }
 
@@ -2355,11 +2629,23 @@ fn render_review_summary(
     };
     let mut lines = vec![
         format!("status: {}", verdict.status.as_str()),
+        format!("grounded: {}", verdict.grounded),
+        format!("sufficient: {}", verdict.sufficient),
         format!("reason: {}", verdict.reason),
         format!("repair_needed: {}", verdict.repair_needed),
     ];
     if let Some(instructions) = verdict.repair_instructions.as_deref() {
         lines.push(format!("repair_instructions: {instructions}"));
+    }
+    lines.push(format!(
+        "additional_pages_needed: {}",
+        verdict.additional_pages_needed
+    ));
+    if let Some(next_offset) = verdict.next_offset {
+        lines.push(format!("next_offset: {next_offset}"));
+    }
+    if let Some(required_total_items) = verdict.required_total_items {
+        lines.push(format!("required_total_items: {required_total_items}"));
     }
     if let Some(diagnostic) = repair_diagnostic {
         lines.push(format!("repair_diagnostic: {diagnostic}"));
@@ -2649,7 +2935,7 @@ fn parse_collection_tool_result_json(
                 covered_item_uris: Vec::new(),
                 omitted_item_uris: Vec::new(),
                 window_start: collection_window_offset(collection),
-                window_total_items: Some(collection_window_total_items(collection)),
+                window_total_items: Some(collection_window_size(collection)),
             })
         }
         CollectionLeafToolKind::Summary => {
@@ -3021,8 +3307,22 @@ fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
     }
     if let Some(verdict) = execution.review_verdict.as_ref() {
         lines.push(format!("review_status: {}", verdict.status.as_str()));
+        lines.push(format!("review_grounded: {}", verdict.grounded));
+        lines.push(format!("review_sufficient: {}", verdict.sufficient));
         lines.push(format!("review_reason: {}", verdict.reason));
         lines.push(format!("review_repair_needed: {}", verdict.repair_needed));
+        lines.push(format!(
+            "review_additional_pages_needed: {}",
+            verdict.additional_pages_needed
+        ));
+        if let Some(next_offset) = verdict.next_offset {
+            lines.push(format!("review_next_offset: {next_offset}"));
+        }
+        if let Some(required_total_items) = verdict.required_total_items {
+            lines.push(format!(
+                "review_required_total_items: {required_total_items}"
+            ));
+        }
     }
     if let Some(repair_diagnostic) = execution.repair_diagnostic.as_deref() {
         lines.push(format!("repair_diagnostic: {repair_diagnostic}"));
@@ -3057,6 +3357,119 @@ fn render_collection_outcome_result(
     ];
     lines.push(render_llm_execution_result(execution));
     lines.join("\n")
+}
+
+fn apply_summary_sufficiency_gates(
+    prompt: &str,
+    collection_id: &str,
+    prior_outcomes: &[CollectionToolOutcome],
+    execution: &mut LlmSearchExecution,
+) {
+    let Some(result) = execution
+        .result
+        .as_ref()
+        .or(execution.original_result.as_ref())
+    else {
+        return;
+    };
+    let Some(scope) = detect_summary_scope_request(prompt) else {
+        return;
+    };
+
+    let current_start = result.window_start.unwrap_or(0);
+    let current_len = result.window_total_items.unwrap_or(0);
+    let current_end = current_start.saturating_add(current_len);
+    let current_available_total = execution
+        .review_verdict
+        .as_ref()
+        .and_then(|verdict| verdict.required_total_items)
+        .unwrap_or(current_end);
+
+    let mut ranges = prior_outcomes
+        .iter()
+        .filter(|outcome| {
+            outcome.tool_kind == CollectionLeafToolKind::Summary && outcome.collection_id == collection_id
+        })
+        .filter_map(|outcome| outcome.execution.as_ref().ok())
+        .filter_map(|prior| prior.result.as_ref().or(prior.original_result.as_ref()))
+        .filter_map(|result| Some((result.window_start?, result.window_total_items?)))
+        .collect::<Vec<_>>();
+    ranges.push((current_start, current_len));
+    ranges.sort_by_key(|(start, _)| *start);
+
+    let mut contiguous_coverage = 0usize;
+    for (start, len) in ranges {
+        if start > contiguous_coverage {
+            break;
+        }
+        contiguous_coverage = contiguous_coverage.max(start.saturating_add(len));
+    }
+
+    let (is_sufficient, additional_pages_needed, next_offset, required_total_items, reason) = match scope {
+        SummaryScopeRequest::Page { page_index } => {
+            let requested_offset = page_index.saturating_mul(COLLECTION_SEARCH_PAGE_SIZE);
+            (
+                current_start == requested_offset,
+                false,
+                None,
+                Some(COLLECTION_SEARCH_PAGE_SIZE),
+                if current_start == requested_offset {
+                    "The requested page was summarized with grounded full-window accounting."
+                        .to_string()
+                } else {
+                    format!(
+                        "The prompt requested page {page_index}, but the summarized window starts at offset {current_start}."
+                    )
+                },
+            )
+        }
+        SummaryScopeRequest::Count {
+            requested_total_items,
+        } => {
+            let required_total_items = requested_total_items.min(current_available_total);
+            let sufficient = contiguous_coverage >= required_total_items;
+            (
+                sufficient,
+                !sufficient,
+                if sufficient {
+                    None
+                } else {
+                    Some(contiguous_coverage)
+                },
+                Some(required_total_items),
+                if sufficient {
+                    format!(
+                        "Grounded summary coverage now reaches {} item(s), satisfying the requested {} item scope.",
+                        contiguous_coverage, required_total_items
+                    )
+                } else {
+                    format!(
+                        "Grounded summary coverage currently reaches {} item(s), but {} item(s) are required before parent synthesis is sufficient.",
+                        contiguous_coverage, required_total_items
+                    )
+                },
+            )
+        }
+    };
+
+    let status = if execution.review_verdict.as_ref().map(|v| v.grounded).unwrap_or(false)
+        && is_sufficient
+    {
+        CollectionReviewStatus::Pass
+    } else {
+        CollectionReviewStatus::Fail
+    };
+    if let Some(verdict) = execution.review_verdict.as_mut() {
+        verdict.status = status;
+        verdict.sufficient = is_sufficient;
+        verdict.additional_pages_needed = additional_pages_needed;
+        verdict.next_offset = next_offset;
+        verdict.required_total_items = required_total_items;
+        verdict.reason = reason;
+    }
+    if !is_sufficient {
+        execution.result = None;
+    }
 }
 
 fn render_llm_result_compact(result: Option<&LlmSearchResult>) -> String {
@@ -3230,18 +3643,21 @@ fn build_collection_tool_node(outcome: &CollectionToolOutcome) -> AgentNodeTempl
             .execution
             .as_ref()
             .ok()
-            .and_then(build_collection_review_agent_node)
+            .and_then(|execution| build_collection_review_agent_node(outcome.tool_kind, execution))
             .into_iter()
             .collect(),
     }
 }
 
-fn build_collection_review_agent_node(execution: &LlmSearchExecution) -> Option<AgentNodeTemplate> {
+fn build_collection_review_agent_node(
+    tool_kind: CollectionLeafToolKind,
+    execution: &LlmSearchExecution,
+) -> Option<AgentNodeTemplate> {
     let verdict = execution.review_verdict.as_ref()?;
     Some(AgentNodeTemplate {
-        agent_type: AgentNodeKind::CollectionReviewAgent,
-        agent_kind: Some(AgentKind::CollectionReview),
-        label: "collection review".to_string(),
+        agent_type: tool_kind.review_node_kind(),
+        agent_kind: Some(tool_kind.review_agent_kind()),
+        label: tool_kind.review_label().to_string(),
         status: match verdict.status {
             CollectionReviewStatus::Pass => AgentNodeStatus::Completed,
             CollectionReviewStatus::Fail => AgentNodeStatus::Failed,
@@ -3299,6 +3715,8 @@ fn build_llm_search_parent_context(prompt: &str, outcomes: &[CollectionToolOutco
                         }
                         if let Some(verdict) = execution.review_verdict.as_ref() {
                             lines.push(format!("review_status: {}", verdict.status.as_str()));
+                            lines.push(format!("review_grounded: {}", verdict.grounded));
+                            lines.push(format!("review_sufficient: {}", verdict.sufficient));
                             lines.push(format!("review_reason: {}", verdict.reason));
                         }
                         lines.push(render_llm_result_compact(
@@ -3650,8 +4068,16 @@ fn collection_window_offset(collection: &LabeledPostCollection) -> Option<usize>
         .and_then(|value| value.parse::<usize>().ok())
 }
 
-fn collection_window_total_items(collection: &LabeledPostCollection) -> usize {
+fn collection_window_size(collection: &LabeledPostCollection) -> usize {
     collection.posts.len()
+}
+
+fn collection_available_total_items(collection: &LabeledPostCollection) -> usize {
+    collection
+        .metadata
+        .get("search_window_total_items")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| collection_window_size(collection))
 }
 
 fn collection_search_offset(args: &Value) -> Result<usize, Box<dyn std::error::Error>> {
@@ -4393,11 +4819,13 @@ mod tests {
     #[test]
     fn parses_collection_review_verdict_block() {
         let verdict = parse_collection_review_verdict(
-            "status: fail\nreason: summary is metadata-heavy\nrepair_needed: true\nrepair_instructions: cite the actual list names",
+            "status: fail\ngrounded: false\nsufficient: false\nreason: summary is metadata-heavy\nrepair_needed: true\nrepair_instructions: cite the actual list names",
         )
         .expect("expected verdict");
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
         assert!(verdict.repair_needed);
+        assert!(!verdict.grounded);
+        assert!(!verdict.sufficient);
     }
 
     #[test]
@@ -4435,8 +4863,12 @@ mod tests {
             repair_diagnostic: None,
         };
 
-        let verdict =
-            heuristic_collection_review(CollectionLeafToolKind::Search, &collection, &execution);
+        let verdict = heuristic_collection_review(
+            CollectionLeafToolKind::Search,
+            &collection,
+            "what does this say?",
+            &execution,
+        );
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
     }
 
@@ -4466,9 +4898,15 @@ mod tests {
             repair_diagnostic: None,
         };
 
-        let verdict =
-            heuristic_collection_review(CollectionLeafToolKind::Search, &collection, &execution);
+        let verdict = heuristic_collection_review(
+            CollectionLeafToolKind::Search,
+            &collection,
+            "what does this say?",
+            &execution,
+        );
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+        assert!(verdict.grounded);
+        assert!(verdict.sufficient);
     }
 
     #[test]
@@ -4504,8 +4942,12 @@ mod tests {
             repair_diagnostic: None,
         };
 
-        let verdict =
-            heuristic_collection_review(CollectionLeafToolKind::Search, &collection, &execution);
+        let verdict = heuristic_collection_review(
+            CollectionLeafToolKind::Search,
+            &collection,
+            "what does this say?",
+            &execution,
+        );
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
         assert!(verdict.repair_needed);
     }
@@ -4554,10 +4996,73 @@ mod tests {
             repair_diagnostic: None,
         };
 
-        let verdict =
-            heuristic_collection_review(CollectionLeafToolKind::Summary, &collection, &execution);
+        let verdict = heuristic_collection_review(
+            CollectionLeafToolKind::Summary,
+            &collection,
+            "analyze the last 50 posts by alpha.test",
+            &execution,
+        );
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
         assert!(!verdict.repair_needed);
+        assert!(!verdict.grounded);
+        assert!(!verdict.sufficient);
+    }
+
+    #[test]
+    fn heuristic_collection_review_marks_grounded_summary_as_insufficient_for_larger_scope() {
+        let posts = (0..30)
+            .map(|index| PostRecord {
+                uri: format!("at://{index}"),
+                author_handle: "alpha.test".to_string(),
+                body: format!("topic {index}"),
+            })
+            .collect::<Vec<_>>();
+        let full_collection = LabeledPostCollection::new("recent:test", "Recent", posts);
+        let collection = paged_search_collection(&full_collection, 0, 25);
+        let covered_item_uris = collection
+            .posts
+            .iter()
+            .map(|post| post.uri.clone())
+            .collect::<Vec<_>>();
+        let search_results = covered_item_uris
+            .iter()
+            .map(|uri| super::LlmSearchResultItem {
+                uri: uri.clone(),
+                source_collection_id: Some("recent:test".to_string()),
+            })
+            .collect::<Vec<_>>();
+        let result = super::LlmSearchResult {
+            title: "window".to_string(),
+            summary: "The first 25 posts form a grounded page summary, with repeated short updates like \"topic 0,\" \"topic 12,\" and \"topic 24\" showing the full opening window."
+                .to_string(),
+            search_results,
+            covered_item_uris,
+            omitted_item_uris: Vec::new(),
+            window_start: Some(0),
+            window_total_items: Some(25),
+        };
+        let execution = LlmSearchExecution {
+            result: Some(result.clone()),
+            original_result: Some(result),
+            context_window: empty_test_window(),
+            diagnostic: None,
+            review_verdict: None,
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+
+        let verdict = heuristic_collection_review(
+            CollectionLeafToolKind::Summary,
+            &collection,
+            "analyze the last 50 posts by alpha.test",
+            &execution,
+        );
+        assert_eq!(verdict.status, CollectionReviewStatus::Fail);
+        assert!(verdict.grounded);
+        assert!(!verdict.sufficient);
+        assert!(verdict.additional_pages_needed);
+        assert_eq!(verdict.next_offset, Some(25));
+        assert_eq!(verdict.required_total_items, Some(30));
     }
 
     #[test]
@@ -4610,9 +5115,92 @@ mod tests {
             repair_diagnostic: None,
         };
 
-        let verdict =
-            heuristic_collection_review(CollectionLeafToolKind::Summary, &collection, &execution);
+        let verdict = heuristic_collection_review(
+            CollectionLeafToolKind::Summary,
+            &collection,
+            "summarize page 0",
+            &execution,
+        );
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+        assert!(verdict.grounded);
+        assert!(verdict.sufficient);
+    }
+
+    #[test]
+    fn summary_sufficiency_gates_pass_after_contiguous_multi_page_coverage() {
+        let page0 = LlmSearchExecution {
+            result: Some(super::LlmSearchResult {
+                title: "page 0".to_string(),
+                summary: "page 0".to_string(),
+                search_results: Vec::new(),
+                covered_item_uris: Vec::new(),
+                omitted_item_uris: Vec::new(),
+                window_start: Some(0),
+                window_total_items: Some(25),
+            }),
+            original_result: None,
+            context_window: empty_test_window(),
+            diagnostic: None,
+            review_verdict: Some(super::CollectionReviewVerdict {
+                status: CollectionReviewStatus::Fail,
+                grounded: true,
+                sufficient: false,
+                reason: "need more pages".to_string(),
+                repair_needed: false,
+                repair_instructions: None,
+                additional_pages_needed: true,
+                next_offset: Some(25),
+                required_total_items: Some(50),
+            }),
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+        let mut page1 = LlmSearchExecution {
+            result: Some(super::LlmSearchResult {
+                title: "page 1".to_string(),
+                summary: "page 1".to_string(),
+                search_results: Vec::new(),
+                covered_item_uris: Vec::new(),
+                omitted_item_uris: Vec::new(),
+                window_start: Some(25),
+                window_total_items: Some(25),
+            }),
+            original_result: None,
+            context_window: empty_test_window(),
+            diagnostic: None,
+            review_verdict: Some(super::CollectionReviewVerdict {
+                status: CollectionReviewStatus::Fail,
+                grounded: true,
+                sufficient: false,
+                reason: "need more pages".to_string(),
+                repair_needed: false,
+                repair_instructions: None,
+                additional_pages_needed: true,
+                next_offset: Some(50),
+                required_total_items: Some(50),
+            }),
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+        let prior_outcomes = vec![super::CollectionToolOutcome {
+            tool_kind: CollectionLeafToolKind::Summary,
+            collection_id: "recent:test".to_string(),
+            collection_label: "Recent".to_string(),
+            execution: Ok(page0),
+        }];
+
+        super::apply_summary_sufficiency_gates(
+            "analyze the last 50 posts by alpha.test",
+            "recent:test",
+            &prior_outcomes,
+            &mut page1,
+        );
+
+        let verdict = page1.review_verdict.expect("verdict");
+        assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+        assert!(verdict.sufficient);
+        assert!(!verdict.additional_pages_needed);
+        assert_eq!(verdict.required_total_items, Some(50));
     }
 
     #[test]

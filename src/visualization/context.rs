@@ -96,7 +96,7 @@ pub fn snapshot_from_agent_node(node: &AgentNode, depth: usize) -> Option<Prompt
             .context_window_report
             .as_ref()
             .map(|window| snapshot_from_llm_search_window(title, window)),
-        AgentNodeKind::CollectionReviewAgent => node
+        AgentNodeKind::SearchReviewAgent | AgentNodeKind::SummaryReviewAgent => node
             .context_window_report
             .as_ref()
             .map(|window| snapshot_from_tool_agent_window(title, window)),

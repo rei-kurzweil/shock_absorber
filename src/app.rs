@@ -322,7 +322,8 @@ impl App {
                     AgentNodeKind::ToolAgent => "tool",
                     AgentNodeKind::CollectionSearchTool => "search",
                     AgentNodeKind::CollectionSummaryTool => "summary",
-                    AgentNodeKind::CollectionReviewAgent => "review",
+                    AgentNodeKind::SearchReviewAgent => "search_review",
+                    AgentNodeKind::SummaryReviewAgent => "summary_review",
                 };
                 let line = format!(
                     "{}#{:<3} [{:<9}] {:<8} {}",
@@ -355,7 +356,8 @@ impl App {
                     AgentNodeKind::ToolAgent => "tool",
                     AgentNodeKind::CollectionSearchTool => "collection_search",
                     AgentNodeKind::CollectionSummaryTool => "collection_summary",
-                    AgentNodeKind::CollectionReviewAgent => "collection_review",
+                    AgentNodeKind::SearchReviewAgent => "search_review",
+                    AgentNodeKind::SummaryReviewAgent => "summary_review",
                 }
             ),
         ];

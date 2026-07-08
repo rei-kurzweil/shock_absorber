@@ -10,7 +10,8 @@ pub enum AgentNodeKind {
     ToolAgent,
     CollectionSearchTool,
     CollectionSummaryTool,
-    CollectionReviewAgent,
+    SearchReviewAgent,
+    SummaryReviewAgent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
