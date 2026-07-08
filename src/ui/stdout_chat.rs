@@ -129,7 +129,7 @@ impl StdoutChatRenderer {
         queue!(
             writer,
             MoveUp(move_up),
-            MoveToColumn(editor_view.cursor_column),
+            MoveToColumn(editor_view.cursor_column)
         )?;
         writer.flush()?;
 

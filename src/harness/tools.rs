@@ -5589,8 +5589,8 @@ mod tests {
         serialize_collection, source_collection_id_from_post, validate_collection_id,
         validate_internal_tool_response,
     };
-    use crate::harness::llm_api::ChatCompletionResponseFormat;
     use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
+    use crate::harness::llm_api::ChatCompletionResponseFormat;
     use crate::model::{LabeledPostCollection, PostRecord};
     use crate::net_backend::{NotificationStore, PostDetails, PostFacet};
 
