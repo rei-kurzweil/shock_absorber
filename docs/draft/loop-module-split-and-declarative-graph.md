@@ -500,33 +500,110 @@ Instead:
 
 That gets most of the clarity benefit without a big framework rewrite.
 
-## Suggested First Slice
+## Suggested Slices
 
 ### Slice 1
+
+Landed shape:
 
 - add `src/harness/loop/mod.rs`
 - move loop-heavy functions out of `tools.rs` into:
   - `loop/root.rs`
   - `loop/llm_search.rs`
   - `loop/collection_summary.rs`
-- keep behavior unchanged
+- keep handlers imperative
+
+This gives us actual loop ownership boundaries without forcing a generic runtime yet.
 
 ### Slice 2
 
-- add a small `LoopNode` / `LoopPort` representation
-- use it first for `collection_summary`
-- keep handlers imperative
+Landed shape:
+
+- add a small `LoopDefinition` / `LoopNodeDefinition` / `LoopPort` representation
+- define static node tables in:
+  - `loop/root.rs`
+  - `loop/llm_search.rs`
+  - `loop/collection_summary.rs`
+- use explicit port wiring for the current happy-path transitions
+
+This is enough to make the control-flow graph visible in code, but it is still mostly descriptive metadata.
 
 ### Slice 3
 
-- migrate `llm_search` planner loop to the same representation
-- make repair / review / continue edges explicit
-- add runtime port-budget tracking such as `uses_remaining`
-- add upward pagination-state propagation from `collection_summary`
+Next step:
+
+- add a runtime traversal helper that walks a `LoopDefinition`
+- remove ad hoc per-loop `next_node(...)` lookup logic
+- make terminal outcomes explicit:
+  - `return`
+  - `fail`
+- keep node handlers as ordinary Rust functions returning typed step outcomes
+
+The goal of this slice is to stop duplicating graph traversal logic inside each loop implementation.
 
 ### Slice 4
 
-- evaluate whether `root` should use the same runtime primitive or remain a thinner orchestrator
+Next step:
+
+- introduce `LoopRuntimeState`
+- introduce per-node or per-port mutable runtime tracking
+- record transition history as harness-authored state
+- make room for recovery-edge budgets such as:
+  - `uses_remaining`
+  - `last_used_step`
+  - `exhausted`
+
+This is the slice where the declarative graph stops being static documentation and starts carrying real runtime truth.
+
+### Slice 5
+
+Next step:
+
+- move `collection_summary` pagination state into harness-owned runtime structs
+- add explicit runtime events or shared-state updates for:
+  - pagination advance
+  - coverage updates
+  - recovery-route consumption
+- stop relying on LLM-authored prose as the source of cursor truth
+
+This should be the first slice that materially improves runtime correctness rather than just code organization.
+
+### Slice 6
+
+Next step:
+
+- migrate `llm_search` to consume child-loop state directly
+- let `llm_search` observe collection progress as harness truth
+- make repair / review / continue routes explicit runtime transitions
+- use runtime edge availability instead of scattered local booleans
+
+At that point `llm_search` becomes a real orchestrator over child loop state, not just a caller that infers progress from text.
+
+### Slice 7
+
+Later evaluation:
+
+- decide whether `root` should share the same traversal/runtime primitive
+- or keep `root` as a thinner orchestrator with a lighter-weight graph
+
+`root` is probably the right place to be conservative because its orchestration needs are simpler than `llm_search` and `collection_summary`.
+
+## Immediate Next Slice Recommendation
+
+The best next implementation slice is Slice 3.
+
+Reason:
+
+- Slice 1 and Slice 2 are already represented in the codebase
+- `collection_summary` and `llm_search` already have static node tables
+- the biggest remaining duplication is graph traversal and terminal-state handling
+- adding runtime state before a shared traversal shape would likely produce more one-off loop logic
+
+So the order should be:
+
+1. shared traversal helper
+2. runtime state and edge budgets
+3. harness-owned pagination and upward state propagation
 
 ## Good Boundaries
 
