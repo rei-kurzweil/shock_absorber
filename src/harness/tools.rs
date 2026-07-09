@@ -144,30 +144,32 @@ pub struct LlmSummaryResult {
     pub summary: String,
     pub covered_item_uris: Vec<String>,
     pub omitted_item_uris: Vec<String>,
+    pub concatenated_window_summaries: Option<String>,
     pub window_offset: Option<usize>,
     pub window_size: Option<usize>,
     pub page_index: Option<usize>,
     pub page_size: Option<usize>,
     pub collection_total_items: Option<usize>,
     pub has_more: Option<bool>,
+    pub source_exhausted: Option<bool>,
     pub window_start: Option<usize>,
     pub window_total_items: Option<usize>,
 }
 
 impl LlmSummaryResult {
-    fn processed_window_offset(&self) -> Option<usize> {
+    pub(crate) fn processed_window_offset(&self) -> Option<usize> {
         self.window_offset.or(self.window_start)
     }
 
-    fn processed_window_size(&self) -> Option<usize> {
+    pub(crate) fn processed_window_size(&self) -> Option<usize> {
         self.window_size.or(self.window_total_items)
     }
 
-    fn processed_page_size(&self) -> Option<usize> {
+    pub(crate) fn processed_page_size(&self) -> Option<usize> {
         self.page_size.or(Some(COLLECTION_SEARCH_PAGE_SIZE))
     }
 
-    fn processed_page_index(&self) -> Option<usize> {
+    pub(crate) fn processed_page_index(&self) -> Option<usize> {
         self.page_index.or_else(|| {
             self.processed_window_offset()
                 .zip(self.processed_page_size())
@@ -175,9 +177,13 @@ impl LlmSummaryResult {
         })
     }
 
-    fn processed_collection_total_items(&self) -> Option<usize> {
+    pub(crate) fn processed_collection_total_items(&self) -> Option<usize> {
         self.collection_total_items
             .or_else(|| self.processed_window_size())
+    }
+
+    pub(crate) fn concatenated_window_summaries(&self) -> Option<&str> {
+        self.concatenated_window_summaries.as_deref()
     }
 }
 
@@ -209,7 +215,7 @@ impl CollectionLeafResult {
         }
     }
 
-    fn as_summary(&self) -> Option<&LlmSummaryResult> {
+    pub(crate) fn as_summary(&self) -> Option<&LlmSummaryResult> {
         match self {
             Self::Search(_) => None,
             Self::Summary(result) => Some(result),
@@ -429,7 +435,7 @@ pub(crate) enum RequestedSummaryScope {
 }
 
 impl RequestedSummaryScope {
-    fn render_for_planner(self) -> String {
+    pub(crate) fn render_for_planner(self) -> String {
         match self {
             Self::CurrentWindow => "kind: current_window".to_string(),
             Self::Count { requested_items } => {
@@ -4016,12 +4022,14 @@ fn parse_collection_summary_result_tool_call(
         summary,
         covered_item_uris,
         omitted_item_uris,
+        concatenated_window_summaries: None,
         window_offset: Some(window_offset),
         window_size: Some(window_size),
         page_index: Some(page_index),
         page_size: Some(page_size),
         collection_total_items: Some(available_total_items),
         has_more: Some(has_more),
+        source_exhausted: None,
         window_start: Some(window_offset),
         window_total_items: Some(window_size),
     };
@@ -4246,12 +4254,14 @@ fn parse_collection_summary_result_tagged(response: &str) -> Result<LlmSummaryRe
         summary: parsed.summary.unwrap_or_default(),
         covered_item_uris: parsed.covered_item_uris,
         omitted_item_uris: parsed.omitted_item_uris,
+        concatenated_window_summaries: None,
         window_offset: parsed.window_offset,
         window_size: parsed.window_size,
         page_index: parsed.page_index,
         page_size: parsed.page_size,
         collection_total_items: parsed.collection_total_items,
         has_more: parsed.has_more,
+        source_exhausted: None,
         window_start: parsed.window_offset,
         window_total_items: parsed.window_size,
     })
@@ -4374,12 +4384,14 @@ fn parse_collection_summary_result_tagged_partial(
                 summary,
                 covered_item_uris,
                 omitted_item_uris,
+                concatenated_window_summaries: None,
                 window_offset: inferred_window_offset,
                 window_size: Some(window_size),
                 page_index,
                 page_size: Some(page_size),
                 collection_total_items,
                 has_more,
+                source_exhausted: None,
                 window_start: inferred_window_offset,
                 window_total_items: Some(window_size),
             },
@@ -4450,6 +4462,7 @@ fn parse_collection_summary_result_json(
         summary,
         covered_item_uris,
         omitted_item_uris,
+        concatenated_window_summaries: None,
         window_offset: object
             .get("window_offset")
             .or_else(|| object.get("window_start"))
@@ -4474,6 +4487,7 @@ fn parse_collection_summary_result_json(
             .and_then(Value::as_u64)
             .map(|value| value as usize),
         has_more: object.get("has_more").and_then(Value::as_bool),
+        source_exhausted: None,
         window_start: object
             .get("window_start")
             .and_then(Value::as_u64)
@@ -4878,6 +4892,15 @@ fn render_llm_result(result: Option<&CollectionLeafResult>) -> String {
             }
             if let Some(has_more) = result.has_more {
                 lines.push(format!("has_more: {has_more}"));
+            }
+            if let Some(source_exhausted) = result.source_exhausted {
+                lines.push(format!("source_exhausted: {source_exhausted}"));
+            }
+            if let Some(concatenated) = result.concatenated_window_summaries() {
+                lines.push(format!(
+                    "concatenated_window_summaries:\n{}",
+                    truncate_diagnostic_block(concatenated, 4000)
+                ));
             }
             for (index, uri) in result.covered_item_uris.iter().enumerate() {
                 lines.push(format!("covered_item_{}_uri: {}", index + 1, uri));
@@ -6982,12 +7005,14 @@ mod tests {
             summary: "The window mostly discusses first-topic material.".to_string(),
             covered_item_uris: vec!["at://one".to_string()],
             omitted_item_uris: Vec::new(),
+            concatenated_window_summaries: None,
             window_offset: Some(0),
             window_size: Some(2),
             page_index: Some(0),
             page_size: Some(25),
             collection_total_items: Some(2),
             has_more: Some(false),
+            source_exhausted: None,
             window_start: Some(0),
             window_total_items: Some(2),
         };
@@ -7038,12 +7063,14 @@ mod tests {
                 .to_string(),
             covered_item_uris,
             omitted_item_uris: Vec::new(),
+            concatenated_window_summaries: None,
             window_offset: Some(0),
             window_size: Some(25),
             page_index: Some(0),
             page_size: Some(25),
             collection_total_items: Some(30),
             has_more: Some(true),
+            source_exhausted: None,
             window_start: Some(0),
             window_total_items: Some(25),
         };
@@ -7101,12 +7128,14 @@ mod tests {
             summary: "The two-post window splits between \"first topic\" and \"second topic,\" so the summary accounts for the entire page rather than only one standout item.".to_string(),
             covered_item_uris: vec!["at://one".to_string(), "at://two".to_string()],
             omitted_item_uris: Vec::new(),
+            concatenated_window_summaries: None,
             window_offset: Some(0),
             window_size: Some(2),
             page_index: Some(0),
             page_size: Some(25),
             collection_total_items: Some(2),
             has_more: Some(false),
+            source_exhausted: None,
             window_start: Some(0),
             window_total_items: Some(2),
         };
@@ -7140,12 +7169,14 @@ mod tests {
                 summary: "page 0".to_string(),
                 covered_item_uris: vec!["at://0".to_string()],
                 omitted_item_uris: Vec::new(),
+                concatenated_window_summaries: None,
                 window_offset: Some(0),
                 window_size: Some(25),
                 page_index: Some(0),
                 page_size: Some(25),
                 collection_total_items: Some(50),
                 has_more: Some(true),
+                source_exhausted: None,
                 window_start: Some(0),
                 window_total_items: Some(25),
             })),
@@ -7174,12 +7205,14 @@ mod tests {
                 summary: "page 1".to_string(),
                 covered_item_uris: vec!["at://25".to_string()],
                 omitted_item_uris: Vec::new(),
+                concatenated_window_summaries: None,
                 window_offset: Some(25),
                 window_size: Some(25),
                 page_index: Some(1),
                 page_size: Some(25),
                 collection_total_items: Some(50),
                 has_more: Some(false),
+                source_exhausted: None,
                 window_start: Some(25),
                 window_total_items: Some(25),
             })),
@@ -7233,12 +7266,14 @@ mod tests {
                 summary: "only page".to_string(),
                 covered_item_uris: (0..7).map(|index| format!("at://{index}")).collect(),
                 omitted_item_uris: Vec::new(),
+                concatenated_window_summaries: None,
                 window_offset: Some(0),
                 window_size: Some(7),
                 page_index: Some(0),
                 page_size: Some(25),
                 collection_total_items: Some(73),
                 has_more: Some(true),
+                source_exhausted: None,
                 window_start: Some(0),
                 window_total_items: Some(7),
             })),
