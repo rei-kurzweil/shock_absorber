@@ -17,7 +17,7 @@ Its contract is roughly:
 
 - inspect one 25-item collection window
 - choose the strongest supporting records
-- return a grounded paragraph plus a small set of cited URIs
+- return a grounded paragraph plus a small set of chosen records
 
 That is good for:
 
@@ -82,6 +82,7 @@ Minimum behavior:
 - account for every item in that window
 - return a grounded summary over the whole window
 - return explicit coverage metadata
+- allow harness-owned concatenation of page summaries across multiple windows
 
 ## Proposed Arguments
 
@@ -112,19 +113,11 @@ Suggested structured result:
 ```json
 {
   "title": "short title",
-  "summary": "grounded paragraph or short multi-paragraph summary",
+  "summary": "grounded paragraph for this exact window",
   "window_start": 0,
   "window_size": 25,
   "window_total_items": 25,
-  "covered_item_uris": ["at://..."],
-  "omitted_item_uris": [],
-  "coverage_notes": "all 25 items were grouped into recurring topics; no omissions",
-  "theme_buckets": [
-    {
-      "label": "topic or pattern",
-      "item_uris": ["at://..."]
-    }
-  ]
+  "coverage_notes": "all 25 items were grouped into recurring topics; no omissions"
 }
 ```
 
@@ -136,8 +129,6 @@ The most important fields are:
 - `window_start`
 - `window_size`
 - `window_total_items`
-- `covered_item_uris`
-- `omitted_item_uris`
 
 ## Key Difference From `collection_search`
 
@@ -148,8 +139,6 @@ The most important fields are:
 `collection_window_summary` should be required to say:
 
 - this summary covers items 0-24
-- these URIs were covered directly
-- these items were omitted or collapsed
 - here is the grounded aggregate interpretation of the whole window
 
 That difference should be visible in both the prompt and the verifier.
@@ -162,15 +151,15 @@ Current groundedness is not enough.
 
 The verifier should reject outputs when:
 
-- `covered_item_uris.len() + omitted_item_uris.len()` does not match the window item count
-- listed URIs are not real items from the searched window
 - the summary clearly discusses fewer items than the accounting claims
-- the model returns only a small hand-picked subset without explicit omissions
+- window accounting metadata contradicts the provided window
+- the model returns a narrow picked-subset writeup that ignores the rest of the window
 
 The verifier should accept outputs when:
 
-- every item in the window is explicitly covered
-- or omissions are explicit, real, and justified
+- the summary is grounded in the provided window
+- the harness-owned accounting says the whole window was considered
+- the summary is suitable for later concatenation with other windows
 
 ## Planner-Level Usage
 
@@ -185,7 +174,9 @@ For "last 50 posts" the planner should naturally decompose into:
 
 1. summarize page 0
 2. summarize page 1
-3. synthesize across both summaries
+3. concatenate both accepted page summaries in harness state
+4. run a planner step over the concatenated summaries after each page
+5. run a final notes/synthesis step across the full concatenated summary state
 
 That is better than asking the root agent to invent vague follow-up queries like:
 
@@ -203,6 +194,19 @@ It can reuse:
 
 The important change is the child contract, not the paging primitive.
 
+## Multi-Window Contract
+
+For multi-page coverage requests, raw per-item outputs should not be the main upward contract.
+
+Instead:
+
+- each page/window produces one grounded summary
+- the harness concatenates accepted page summaries in coverage order
+- an internal planner node can see that concatenated text at each step
+- a final notes node runs after requested coverage is complete or the source is exhausted
+
+That keeps the coverage tool summary-first while still letting the harness preserve exact coverage truth separately.
+
 ## Important Non-Goal
 
 This draft does not solve incorrect collection contents.
@@ -218,5 +222,8 @@ This design is ready for implementation when we agree that:
 - `collection_search` remains relevance-oriented
 - a separate internal worker is introduced for exhaustive window coverage
 - the new worker emits structured coverage/accounting fields
+- the new worker returns per-window summaries rather than raw evidence lists
+- the harness concatenates those per-window summaries across pages
+- a final notes pass can summarize cross-window patterns
 - the harness verifier checks actual coverage counts
 - `llm_search` can compose multiple windows for 50-item and 100-item requests

@@ -78,6 +78,23 @@ The parent should synthesize from:
 
 It should not synthesize from free-floating identifier text with no item identity.
 
+## Coverage-Oriented Child Contract
+
+Coverage-oriented collection summary workers are different from selective `collection_search` workers.
+
+For coverage-oriented child loops:
+
+- the main upward contract should be summaries, not raw result lists
+- each covered page/window should produce one grounded local summary
+- the harness may concatenate those local summaries as internal state
+- a planner node may inspect the concatenated summary state after each step
+- a final notes node may write one scope-level summary after coverage completes or the source is exhausted
+
+Near-term implication:
+
+- coverage-oriented child results do not need to expose raw `search_results` in their final returned payload if the harness already preserves coverage truth internally
+- parent `llm_search` can synthesize from the final scope-level summary plus harness-owned coverage metadata
+
 ## Naming Guidance
 
 Prefer `search_result` over `anchor item`, `citation`, or `chosen_item` in the internal structure.
@@ -123,7 +140,8 @@ If the parent has no grounded child results:
 The child node diagnostics should show:
 
 - the local summary
-- the search results
+- coverage/accounting state
+- eventually the concatenated summary state for coverage-oriented loops
 
 The parent node diagnostics should show:
 
@@ -136,7 +154,8 @@ The current implementation should converge toward:
 
 - child result struct:
   - `summary`
-  - `search_results`
+  - optional `search_results` for selective search workers
+  - coverage/accounting metadata for coverage workers
 
 - parent result struct:
   - `summary`

@@ -439,12 +439,21 @@ parse_or_output_repair
   failure -> fail
 
 review_page
-  complete -> return_summary
+  complete -> collection_summary_planner
   continue -> advance_cursor
+  failure -> fail
+
+collection_summary_planner
+  continue -> advance_cursor
+  complete -> collection_summary_notes
   failure -> fail
 
 advance_cursor
   success -> summarize_page
+  failure -> fail
+
+collection_summary_notes
+  success -> return_summary
   failure -> fail
 
 return_summary
@@ -486,6 +495,13 @@ fallback_or_fail
 Again, the important thing is not eliminating imperative code.
 
 The important thing is making the graph itself explicit.
+
+For coverage-oriented loops, the important runtime truth is:
+
+- each page/query-result window produces one accepted summary
+- the harness concatenates those summaries as shared loop state
+- `collection_summary_planner` can inspect that concatenated state after each accepted page
+- `collection_summary_notes` runs once the source is exhausted or the requested items have been considered
 
 ## Practical Near-Term Design
 
