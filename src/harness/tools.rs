@@ -3,6 +3,7 @@ use crate::harness::context_window::{
     BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
 };
 use crate::harness::llm_api::{ChatCompletionResponseFormat, ChatMessage, LlmApiClient};
+use crate::harness::r#loop::collection_summary::render_summary_collection_loop_result;
 use crate::harness::prompts::{AgentKind, tool_prompt};
 use crate::harness::tool_call_parser::{
     extract_leading_tool_call_block, parse_prompt_tool_call as parse_prompt_tool_call_result,
@@ -338,13 +339,13 @@ struct TaggedSummaryBody {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CollectionLeafToolKind {
+pub(crate) enum CollectionLeafToolKind {
     Search,
     Summary,
 }
 
 impl CollectionLeafToolKind {
-    fn tool_name(self) -> &'static str {
+    pub(crate) fn tool_name(self) -> &'static str {
         match self {
             Self::Search => "search",
             Self::Summary => "summary",
@@ -412,15 +413,15 @@ struct ResolvedActorRef {
     did: Did,
 }
 
-struct CollectionToolOutcome {
-    tool_kind: CollectionLeafToolKind,
-    collection_id: String,
-    collection_label: String,
-    execution: Result<LlmSearchExecution, String>,
+pub(crate) struct CollectionToolOutcome {
+    pub(crate) tool_kind: CollectionLeafToolKind,
+    pub(crate) collection_id: String,
+    pub(crate) collection_label: String,
+    pub(crate) execution: Result<LlmSearchExecution, String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RequestedSummaryScope {
+pub(crate) enum RequestedSummaryScope {
     CurrentWindow,
     Count { requested_items: usize },
     Page { page_index: usize },
@@ -545,7 +546,7 @@ impl<'a> LlmSearchComparator<'a> {
 
 pub struct BlueskyTools;
 
-const COLLECTION_SEARCH_PAGE_SIZE: usize = 25;
+pub(crate) const COLLECTION_SEARCH_PAGE_SIZE: usize = 25;
 const MAX_COLLECTION_SEARCH_RESULTS: usize = 10;
 const ACTOR_SEARCH_POST_TARGET: usize = 25;
 const ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT: usize = 100;
@@ -1342,7 +1343,7 @@ impl BlueskyTools {
         }
     }
 
-    async fn run_collection_tools(
+    pub(crate) async fn run_collection_tools(
         &self,
         tool_kind: CollectionLeafToolKind,
         collections: &[LabeledPostCollection],
@@ -1423,76 +1424,6 @@ impl BlueskyTools {
                 collection_label: collection.label.clone(),
                 execution,
             });
-        }
-
-        outcomes
-    }
-
-    async fn run_collection_summary_loop(
-        &self,
-        collection: &LabeledPostCollection,
-        prompt: &str,
-        requested_summary_scope: RequestedSummaryScope,
-        llm_client: &LlmApiClient,
-        observer: Option<UnboundedSender<ToolProgressEvent>>,
-    ) -> Vec<CollectionToolOutcome> {
-        let mut outcomes = Vec::new();
-        let mut offset = summary_scope_initial_offset(requested_summary_scope);
-        let max_pages = summary_scope_max_pages(requested_summary_scope, collection.posts.len());
-        let mut pages_processed = 0usize;
-        let mut seen_offsets = HashSet::new();
-
-        while pages_processed < max_pages
-            && offset < collection.posts.len()
-            && seen_offsets.insert(offset)
-        {
-            let paged = paged_search_collection(collection, offset, COLLECTION_SEARCH_PAGE_SIZE);
-            let mut page_outcomes = self
-                .run_collection_tools(
-                    CollectionLeafToolKind::Summary,
-                    &[paged],
-                    prompt,
-                    requested_summary_scope,
-                    llm_client,
-                    observer.clone(),
-                )
-                .await;
-            let Some(mut outcome) = page_outcomes.pop() else {
-                break;
-            };
-            if let Ok(execution) = outcome.execution.as_mut() {
-                apply_summary_sufficiency_gates(
-                    requested_summary_scope,
-                    &outcome.collection_id,
-                    &outcomes,
-                    execution,
-                );
-                if execution.diagnostic.is_none() {
-                    execution.diagnostic = Some(format!(
-                        "summary cursor processed offset {offset} (page {} of at most {max_pages})",
-                        pages_processed + 1
-                    ));
-                }
-            }
-
-            let next_offset = outcome
-                .execution
-                .as_ref()
-                .ok()
-                .and_then(|execution| execution.review_verdict.as_ref())
-                .and_then(|verdict| {
-                    verdict
-                        .additional_pages_needed
-                        .then_some(verdict.next_offset)
-                })
-                .flatten();
-            outcomes.push(outcome);
-            pages_processed += 1;
-
-            let Some(next_offset) = next_offset else {
-                break;
-            };
-            offset = next_offset;
         }
 
         outcomes
@@ -3162,7 +3093,7 @@ fn detect_requested_summary_scope(prompt: &str) -> RequestedSummaryScope {
     RequestedSummaryScope::CurrentWindow
 }
 
-fn summary_scope_initial_offset(scope: RequestedSummaryScope) -> usize {
+pub(crate) fn summary_scope_initial_offset(scope: RequestedSummaryScope) -> usize {
     match scope {
         RequestedSummaryScope::CurrentWindow | RequestedSummaryScope::Count { .. } => 0,
         RequestedSummaryScope::Page { page_index } => {
@@ -3174,7 +3105,10 @@ fn summary_scope_initial_offset(scope: RequestedSummaryScope) -> usize {
     }
 }
 
-fn summary_scope_max_pages(scope: RequestedSummaryScope, available_total_items: usize) -> usize {
+pub(crate) fn summary_scope_max_pages(
+    scope: RequestedSummaryScope,
+    available_total_items: usize,
+) -> usize {
     match scope {
         RequestedSummaryScope::CurrentWindow => 1,
         RequestedSummaryScope::Count { requested_items } => requested_items
@@ -5002,7 +4936,7 @@ fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
     lines.join("\n")
 }
 
-fn render_collection_outcome_result(
+pub(crate) fn render_collection_outcome_result(
     tool_kind: CollectionLeafToolKind,
     collection_id: &str,
     collection_label: &str,
@@ -5025,33 +4959,7 @@ fn render_collection_outcome_result(
     lines.join("\n")
 }
 
-fn render_summary_collection_loop_result(outcomes: &[CollectionToolOutcome]) -> String {
-    if outcomes.is_empty() {
-        return "status: failed\nreason: no summary pages were processed".to_string();
-    }
-
-    let mut lines = vec![format!("summary_pages_processed: {}", outcomes.len())];
-    for outcome in outcomes {
-        match outcome.execution.as_ref() {
-            Ok(execution) => lines.push(render_collection_outcome_result(
-                outcome.tool_kind,
-                &outcome.collection_id,
-                &outcome.collection_label,
-                execution,
-            )),
-            Err(err) => lines.push(format!(
-                "tool_name: {}\ncollection_id: {}\ncollection_label: {}\nstatus: failed\nerror: {}",
-                outcome.tool_kind.tool_name(),
-                outcome.collection_id,
-                outcome.collection_label,
-                err
-            )),
-        }
-    }
-    lines.join("\n\n")
-}
-
-fn apply_summary_sufficiency_gates(
+pub(crate) fn apply_summary_sufficiency_gates(
     requested_summary_scope: RequestedSummaryScope,
     collection_id: &str,
     prior_outcomes: &[CollectionToolOutcome],
@@ -5701,7 +5609,7 @@ fn reduced_search_collection(
     }
 }
 
-fn paged_search_collection(
+pub(crate) fn paged_search_collection(
     collection: &LabeledPostCollection,
     offset: usize,
     page_size: usize,

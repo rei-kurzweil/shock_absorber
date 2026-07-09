@@ -153,6 +153,10 @@ Examples:
 - `complete`
 - `return`
 
+Ports should not be treated as single fixed edges only.
+
+For some nodes, especially failure/recovery nodes, one port should be allowed to expose multiple candidate next nodes with harness-owned runtime selection.
+
 ### Executor
 
 Execution may still be imperative.
@@ -191,6 +195,230 @@ PortMap
 - continue -> next_node
 - complete -> return
 ```
+
+That is the minimal shape.
+
+The next practical shape should be slightly richer:
+
+```text
+LoopEdge
+- from_node
+- port_name
+- to_node
+- priority
+- uses_allowed
+- consumes_budget
+- guard_key
+```
+
+This allows a single port such as `failure` to have several possible recovery routes.
+
+## Runtime State
+
+Declarative graph shape alone is not enough.
+
+The harness also needs mutable runtime state that records:
+
+- which recovery routes have already been used
+- which pagination advances have occurred
+- which inner loops updated shared state
+- which paths are still legal
+
+## Proposed Runtime Structs
+
+### `LoopRuntimeState`
+
+Owns mutable state for one active loop run.
+
+Suggested responsibilities:
+
+- shared state visible to the loop
+- node/edge budget tracking
+- runtime events emitted by inner harness steps
+
+Possible shape:
+
+```text
+LoopRuntimeState
+- shared
+- node_state_by_id
+- transition_log
+```
+
+### `NodeRuntimeState`
+
+Owns mutable budget/use tracking for one node.
+
+Possible shape:
+
+```text
+NodeRuntimeState
+- port_state_by_name
+```
+
+### `PortRuntimeState`
+
+Tracks remaining available uses for a named port or its candidate edges.
+
+Possible shape:
+
+```text
+PortRuntimeState
+- uses_remaining
+- exhausted
+- last_used_step
+```
+
+### `SharedLoopState`
+
+Owns loop-wide state that should not come from LLM text.
+
+This is where pagination truth should live.
+
+Possible shape:
+
+```text
+SharedLoopState
+- pagination_by_collection_id
+- recovery_events
+- loop_flags
+```
+
+### `PaginationState`
+
+This is the key new structure for `collection_summary`.
+
+The inner harness loop should own and update this directly.
+
+Possible shape:
+
+```text
+PaginationState
+- current_offset
+- current_page
+- pages_attempted
+- pages_completed
+- next_offset
+- next_page
+- covered_ranges
+- available_total_items
+- cursor_advanced
+```
+
+Important rule:
+
+- pagination state must be harness-authored
+- it must not depend on LLM prose being the source of truth
+
+## Failure Ports With Multiple Recovery Options
+
+The failure port should be able to describe several available follow-up nodes.
+
+Example:
+
+```text
+summarize_page
+  failure ->
+    repair_summary_output   uses_allowed=1
+    retry_compaction        uses_allowed=1
+    fail                    terminal
+```
+
+When one of those routes is used:
+
+- its `uses_remaining` is decremented
+- the harness decides whether it is still available later
+
+This is much better than scattered local booleans such as:
+
+- `already_repaired`
+- `already_retried`
+- `saw_parse_failure_once`
+
+Those are really runtime edge-budget facts and should be modeled that way.
+
+## Upward State Propagation
+
+Inner harness loops should be able to publish state changes upward without routing that truth through the LLM.
+
+Example:
+
+- `collection_summary` updates per-collection pagination state
+- `llm_search` receives or observes that update
+- `llm_search` uses the updated state as harness truth
+
+That means:
+
+- `collection_summary` owns per-collection pagination
+- `llm_search` owns collection-level orchestration
+- the parent planner does not need to infer paging from text
+
+## Suggested Runtime Events
+
+Near-term, upward state propagation can be modeled as explicit harness events.
+
+Examples:
+
+```text
+PaginationAdvanced
+- collection_id
+- from_offset
+- to_offset
+- from_page
+- to_page
+```
+
+```text
+CoverageUpdated
+- collection_id
+- covered_ranges
+- available_total_items
+```
+
+```text
+RecoveryRouteUsed
+- node_id
+- port_name
+- target_node_id
+- uses_remaining
+```
+
+These do not need to be user-visible transcript messages first.
+
+They can simply update `LoopRuntimeState`.
+
+## Example: `collection_summary`
+
+`collection_summary` is the clearest first target for this runtime model.
+
+It should:
+
+- read `PaginationState` from harness-owned loop state
+- run `summarize_page`
+- run `review_page`
+- decide between:
+  - `complete`
+  - `continue`
+  - `failure`
+- update `PaginationState` directly on continuation
+
+The key point is:
+
+- `collection_summary` should update `llm_search` about cursor/coverage progress as harness state
+- not by asking the LLM to describe where the cursor is
+
+## Example: `llm_search`
+
+`llm_search` should be able to observe:
+
+- this collection has already paged through offsets `0` and `25`
+- the next valid offset is `50`
+- a recovery path has already been consumed
+- a collection summary loop completed or failed
+
+That is orchestration state.
+
+It belongs in harness runtime structures, not in LLM-generated summaries.
 
 ## Example: `collection_summary`
 
@@ -293,6 +521,8 @@ That gets most of the clarity benefit without a big framework rewrite.
 
 - migrate `llm_search` planner loop to the same representation
 - make repair / review / continue edges explicit
+- add runtime port-budget tracking such as `uses_remaining`
+- add upward pagination-state propagation from `collection_summary`
 
 ### Slice 4
 
@@ -328,6 +558,8 @@ It should remain a one-shot worker unless requirements change.
 - Should ports be fixed names like `success` / `failure` / `continue`, or arbitrary labels?
 - Should review and repair be first-class node kinds, or simply ordinary nodes with handler keys?
 - Should loop node execution always produce a typed result object, or can some nodes remain text-only during migration?
+- Should `uses_remaining` live on ports, edges, or both?
+- Should upward loop-state propagation use explicit event structs, direct shared-state mutation, or both?
 
 ## Recommendation
 
