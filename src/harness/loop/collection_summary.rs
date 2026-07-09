@@ -99,12 +99,44 @@ const COLLECTION_SUMMARY_NODES: &[LoopNodeDefinition] = &[
         handler_key: "collection_summary_planner",
         ports: &[
             LoopPort {
+                name: "success",
+                target: LoopPortTarget::Node("collection_summary_planner_review"),
+            },
+            LoopPort {
+                name: "failure",
+                target: LoopPortTarget::Node("collection_summary_planner_repair"),
+            },
+        ],
+    },
+    LoopNodeDefinition {
+        id: "collection_summary_planner_review",
+        kind: LoopNodeKind::Review,
+        executor: LoopExecutor::Harness,
+        handler_key: "collection_summary_planner_review",
+        ports: &[
+            LoopPort {
                 name: "continue",
                 target: LoopPortTarget::Node("advance_cursor"),
             },
             LoopPort {
                 name: "complete",
                 target: LoopPortTarget::Node("collection_summary_notes"),
+            },
+            LoopPort {
+                name: "failure",
+                target: LoopPortTarget::Node("collection_summary_planner_repair"),
+            },
+        ],
+    },
+    LoopNodeDefinition {
+        id: "collection_summary_planner_repair",
+        kind: LoopNodeKind::Repair,
+        executor: LoopExecutor::Harness,
+        handler_key: "collection_summary_planner_repair",
+        ports: &[
+            LoopPort {
+                name: "success",
+                target: LoopPortTarget::Node("collection_summary_planner_review"),
             },
             LoopPort {
                 name: "failure",
@@ -136,7 +168,39 @@ const COLLECTION_SUMMARY_NODES: &[LoopNodeDefinition] = &[
         ports: &[
             LoopPort {
                 name: "success",
+                target: LoopPortTarget::Node("collection_summary_notes_review"),
+            },
+            LoopPort {
+                name: "failure",
+                target: LoopPortTarget::Node("collection_summary_notes_repair"),
+            },
+        ],
+    },
+    LoopNodeDefinition {
+        id: "collection_summary_notes_review",
+        kind: LoopNodeKind::Review,
+        executor: LoopExecutor::Harness,
+        handler_key: "collection_summary_notes_review",
+        ports: &[
+            LoopPort {
+                name: "success",
                 target: LoopPortTarget::Node("return_summary"),
+            },
+            LoopPort {
+                name: "failure",
+                target: LoopPortTarget::Node("collection_summary_notes_repair"),
+            },
+        ],
+    },
+    LoopNodeDefinition {
+        id: "collection_summary_notes_repair",
+        kind: LoopNodeKind::Repair,
+        executor: LoopExecutor::Harness,
+        handler_key: "collection_summary_notes_repair",
+        ports: &[
+            LoopPort {
+                name: "success",
+                target: LoopPortTarget::Node("collection_summary_notes_review"),
             },
             LoopPort {
                 name: "failure",
@@ -163,8 +227,12 @@ const NODE_INIT_WINDOW: &str = "init_window";
 const NODE_SUMMARIZE_PAGE: &str = "summarize_page";
 const NODE_REVIEW_PAGE: &str = "review_page";
 const NODE_COLLECTION_SUMMARY_PLANNER: &str = "collection_summary_planner";
+const NODE_COLLECTION_SUMMARY_PLANNER_REVIEW: &str = "collection_summary_planner_review";
+const NODE_COLLECTION_SUMMARY_PLANNER_REPAIR: &str = "collection_summary_planner_repair";
 const NODE_ADVANCE_CURSOR: &str = "advance_cursor";
 const NODE_COLLECTION_SUMMARY_NOTES: &str = "collection_summary_notes";
+const NODE_COLLECTION_SUMMARY_NOTES_REVIEW: &str = "collection_summary_notes_review";
+const NODE_COLLECTION_SUMMARY_NOTES_REPAIR: &str = "collection_summary_notes_repair";
 const NODE_RETURN_SUMMARY: &str = "return_summary";
 const PORT_SUCCESS: &str = "success";
 const PORT_CONTINUE: &str = "continue";
@@ -184,6 +252,18 @@ struct SummaryLoopAccumulator {
     notes_context_window: Option<BuiltContextWindow>,
     planner_raw_response: Option<String>,
     notes_raw_response: Option<String>,
+    pending_planner_update: Option<String>,
+    pending_notes_summary: Option<String>,
+    pending_planner_context_window: Option<BuiltContextWindow>,
+    pending_notes_context_window: Option<BuiltContextWindow>,
+    pending_planner_raw_response: Option<String>,
+    pending_notes_raw_response: Option<String>,
+    pending_planner_failure_reason: Option<String>,
+    pending_notes_failure_reason: Option<String>,
+    planner_repair_attempted: bool,
+    notes_repair_attempted: bool,
+    final_notes_summary: Option<String>,
+    accepted_windows: Vec<(usize, usize)>,
 }
 
 impl SummaryLoopAccumulator {
@@ -217,6 +297,8 @@ impl SummaryLoopAccumulator {
         self.covered_post_count += result.processed_window_size().unwrap_or(0);
         self.collection_total_items = Some(collection_total_items);
         self.source_exhausted = result.has_more == Some(false);
+        self.accepted_windows
+            .push((offset, result.processed_window_size().unwrap_or(0)));
         self.accepted_page_summaries.push(result.summary.trim().to_string());
     }
 
@@ -229,6 +311,15 @@ impl SummaryLoopAccumulator {
     }
 
     fn final_summary_text(&self) -> String {
+        if let Some(notes) = self
+            .final_notes_summary
+            .as_deref()
+            .map(str::trim)
+            .filter(|summary| !summary.is_empty())
+        {
+            return notes.to_string();
+        }
+
         if let Some(notes) = self
             .planner_updates
             .last()
@@ -379,6 +470,178 @@ fn summarize_progress_excerpt(text: &str, limit: usize) -> String {
         cutoff = next;
     }
     format!("{}...", trimmed[..cutoff].trim_end())
+}
+
+fn normalize_synthesis_response(text: String) -> String {
+    text.replace("\\\"", "\"")
+}
+
+#[derive(Clone, Copy)]
+enum SummarySynthesisKind {
+    Planner,
+    Notes,
+}
+
+fn paragraph_count(text: &str) -> usize {
+    text.split("\n\n")
+        .map(str::trim)
+        .filter(|paragraph| !paragraph.is_empty())
+        .count()
+}
+
+fn contains_metadata_lines(text: &str) -> bool {
+    [
+        "status:",
+        "summary:",
+        "collection_id:",
+        "collection_label:",
+        "covered_window_offsets:",
+        "covered_post_count:",
+        "window_offset:",
+        "window_size:",
+        "page_index:",
+        "page_size:",
+        "collection_total_items:",
+        "source_exhausted:",
+        "TOOL_CALL",
+        "args:",
+        "name:",
+    ]
+    .iter()
+    .any(|prefix| {
+        text.lines()
+            .map(str::trim_start)
+            .any(|line| line.starts_with(prefix))
+    })
+}
+
+fn ends_with_suspicious_truncation(text: &str) -> bool {
+    let trimmed = text.trim_end();
+    if trimmed.is_empty() {
+        return true;
+    }
+    if trimmed.ends_with(':') || trimmed.ends_with(',') || trimmed.ends_with('(') {
+        return true;
+    }
+    trimmed.matches('"').count() % 2 == 1
+}
+
+fn extract_quoted_snippets(text: &str) -> Vec<String> {
+    let mut snippets = Vec::new();
+    let mut current = String::new();
+    let mut in_quote = false;
+
+    for ch in text.chars() {
+        if ch == '"' {
+            if in_quote {
+                let snippet = current.trim();
+                if !snippet.is_empty() {
+                    snippets.push(snippet.to_string());
+                }
+                current.clear();
+            }
+            in_quote = !in_quote;
+            continue;
+        }
+
+        if in_quote {
+            current.push(ch);
+        }
+    }
+
+    snippets
+}
+
+fn covered_post_bodies<'a>(
+    collection: &'a LabeledPostCollection,
+    accepted_windows: &[(usize, usize)],
+) -> Vec<&'a str> {
+    let mut bodies = Vec::new();
+    for (offset, window_size) in accepted_windows {
+        let end = offset.saturating_add(*window_size).min(collection.posts.len());
+        for post in collection
+            .posts
+            .iter()
+            .skip(*offset)
+            .take(end.saturating_sub(*offset))
+        {
+            bodies.push(post.body.as_str());
+        }
+    }
+    bodies
+}
+
+fn review_synthesis_text(
+    kind: SummarySynthesisKind,
+    text: &str,
+    collection: &LabeledPostCollection,
+    accumulator: &SummaryLoopAccumulator,
+) -> Result<(), String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("response was empty".to_string());
+    }
+    if trimmed.contains("```") {
+        return Err("response contained markdown fences".to_string());
+    }
+    if contains_metadata_lines(trimmed) {
+        return Err("response included harness metadata instead of plain prose".to_string());
+    }
+    if ends_with_suspicious_truncation(trimmed) {
+        return Err("response appears truncated".to_string());
+    }
+
+    let paragraphs = paragraph_count(trimmed);
+    match kind {
+        SummarySynthesisKind::Planner => {
+            if paragraphs != 1 {
+                return Err(format!(
+                    "planner synthesis must be exactly one paragraph, got {paragraphs}"
+                ));
+            }
+        }
+        SummarySynthesisKind::Notes => {
+            if !(1..=3).contains(&paragraphs) {
+                return Err(format!(
+                    "final notes synthesis must be 1-3 paragraphs, got {paragraphs}"
+                ));
+            }
+
+            let covered_bodies = covered_post_bodies(collection, &accumulator.accepted_windows);
+            for snippet in extract_quoted_snippets(trimmed) {
+                if !covered_bodies.iter().any(|body| body.contains(&snippet)) {
+                    return Err(format!(
+                        "quoted snippet {:?} was not found in the covered posts",
+                        snippet
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn build_repair_context(
+    base_prompt: &str,
+    prior_context: &BuiltContextWindow,
+    prior_response: &str,
+    failure_reason: &str,
+) -> LLMContext {
+    let mut context = LLMContext::new(base_prompt);
+    context.push_section_with_kind(
+        "Original Context",
+        ContextSectionKind::ParentSearchResults,
+        prior_context.rendered.clone(),
+    );
+    context.push_section("Invalid Prior Response", prior_response);
+    context.push_section(
+        "Repair Instructions",
+        format!(
+            "Rewrite the response as valid plain prose only. Fix this specific problem: {failure_reason}"
+        ),
+    );
+    context
 }
 
 fn build_collection_summary_planner_context(
@@ -580,44 +843,52 @@ impl BlueskyTools {
                     };
                 }
                 NODE_COLLECTION_SUMMARY_PLANNER => {
-                    let Some((grounded, summary, window_size, has_more)) = accumulator
+                    let Some(grounded) = accumulator
                         .page_outcomes
                         .last()
                         .and_then(|outcome| outcome.execution.as_ref().ok())
-                        .and_then(|execution| {
-                            let grounded = execution
+                        .map(|execution| {
+                            execution
                                 .review_verdict
                                 .as_ref()
                                 .map(|verdict| verdict.grounded)
-                                .unwrap_or(false);
-                            execution
-                                .result
-                                .as_ref()
-                                .or(execution.original_result.as_ref())
-                                .and_then(CollectionLeafResult::as_summary)
-                                .map(|result| {
-                                    (
-                                        grounded,
-                                        result.summary.trim().to_string(),
-                                        result.processed_window_size().unwrap_or(0),
-                                        result.has_more == Some(false),
-                                    )
-                                })
+                                .unwrap_or(false)
                         })
                     else {
                         current_node = next_node(
                             NODE_COLLECTION_SUMMARY_PLANNER,
                             PORT_FAILURE,
                         )
-                        .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES);
+                        .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REPAIR);
                         continue;
                     };
                     if grounded {
-                        accumulator.covered_window_offsets.push(offset);
-                        accumulator.covered_post_count += window_size;
-                        accumulator.collection_total_items = Some(collection.posts.len());
-                        accumulator.source_exhausted = has_more;
-                        accumulator.accepted_page_summaries.push(summary);
+                        if let Some((window_size, source_exhausted, page_summary)) = accumulator
+                            .page_outcomes
+                            .last()
+                            .and_then(|outcome| outcome.execution.as_ref().ok())
+                            .and_then(|execution| {
+                                execution
+                                    .result
+                                    .as_ref()
+                                    .or(execution.original_result.as_ref())
+                                    .and_then(CollectionLeafResult::as_summary)
+                                    .map(|result| {
+                                        (
+                                            result.processed_window_size().unwrap_or(0),
+                                            result.has_more == Some(false),
+                                            result.summary.trim().to_string(),
+                                        )
+                                    })
+                            })
+                        {
+                            accumulator.covered_window_offsets.push(offset);
+                            accumulator.covered_post_count += window_size;
+                            accumulator.collection_total_items = Some(collection.posts.len());
+                            accumulator.source_exhausted = source_exhausted;
+                            accumulator.accepted_windows.push((offset, window_size));
+                            accumulator.accepted_page_summaries.push(page_summary);
+                        }
                         let planner_context = build_collection_summary_planner_context(
                             collection,
                             prompt,
@@ -644,32 +915,137 @@ impl BlueskyTools {
                             )
                             .await
                             .ok()
-                            .map(|response| response.trim().to_string())
+                            .map(|response| normalize_synthesis_response(response.trim().to_string()))
                             .filter(|response| !response.is_empty());
-                        if let Some(response) = planner_response.clone() {
-                            accumulator.planner_updates.push(response.clone());
-                            accumulator.planner_raw_response = Some(response.clone());
-                            accumulator.planner_context_window = Some(planner_window.clone());
-                            if let Some(observer) = observer.as_ref() {
-                                let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                                    label: "collection_summary_planner".to_string(),
-                                    depth: 3,
-                                    content: format!(
-                                        "collection_id: {}\nstatus: completed\ncovered_post_count: {}\nsummary:\n{}",
-                                        collection.id,
-                                        accumulator.covered_post_count,
-                                        summarize_progress_excerpt(&response, 500)
-                                    ),
-                                });
+                        accumulator.pending_planner_update = planner_response.clone();
+                        accumulator.pending_planner_context_window = Some(planner_window);
+                        accumulator.pending_planner_raw_response = planner_response;
+                        accumulator.pending_planner_failure_reason = None;
+                        accumulator.planner_repair_attempted = false;
+                    } else {
+                        accumulator.pending_planner_update = None;
+                        accumulator.pending_planner_context_window = None;
+                        accumulator.pending_planner_raw_response = None;
+                        accumulator.pending_planner_failure_reason = None;
+                    }
+                    current_node = if accumulator.pending_planner_update.is_some() {
+                        next_node(NODE_COLLECTION_SUMMARY_PLANNER, PORT_SUCCESS)
+                            .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW)
+                    } else {
+                        next_node(NODE_COLLECTION_SUMMARY_PLANNER, PORT_FAILURE)
+                            .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REPAIR)
+                    };
+                }
+                NODE_COLLECTION_SUMMARY_PLANNER_REVIEW => {
+                    let review_result = accumulator
+                        .pending_planner_update
+                        .as_deref()
+                        .ok_or_else(|| "planner response missing".to_string())
+                        .and_then(|response| {
+                            review_synthesis_text(
+                                SummarySynthesisKind::Planner,
+                                response,
+                                collection,
+                                &accumulator,
+                            )
+                        });
+                    match review_result {
+                        Ok(()) => {
+                            if let Some(response) = accumulator.pending_planner_update.take() {
+                                accumulator.planner_updates.push(response.clone());
+                                accumulator.planner_raw_response = Some(
+                                    accumulator
+                                        .pending_planner_raw_response
+                                        .take()
+                                        .unwrap_or_else(|| response.clone()),
+                                );
+                                accumulator.pending_planner_failure_reason = None;
+                                accumulator.planner_context_window =
+                                    accumulator.pending_planner_context_window.take();
+                                if let Some(observer) = observer.as_ref() {
+                                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                                        label: "collection_summary_planner".to_string(),
+                                        depth: 3,
+                                        content: format!(
+                                            "collection_id: {}\nstatus: completed\ncovered_post_count: {}\nsummary:\n{}",
+                                            collection.id,
+                                            accumulator.covered_post_count,
+                                            summarize_progress_excerpt(&response, 500)
+                                        ),
+                                    });
+                                }
+                            }
+                            current_node = if pending_next_offset.is_some() {
+                                next_node(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW, PORT_CONTINUE)
+                                    .unwrap_or(NODE_ADVANCE_CURSOR)
+                            } else {
+                                next_node(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW, PORT_COMPLETE)
+                                    .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES)
+                            };
+                        }
+                        Err(reason) => {
+                            if accumulator.planner_repair_attempted {
+                                break;
+                            } else {
+                                accumulator.pending_planner_failure_reason = Some(reason);
+                                current_node =
+                                    next_node(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW, PORT_FAILURE)
+                                        .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REPAIR);
                             }
                         }
                     }
-                    current_node = if pending_next_offset.is_some() {
-                        next_node(NODE_COLLECTION_SUMMARY_PLANNER, PORT_CONTINUE)
-                            .unwrap_or(NODE_ADVANCE_CURSOR)
+                }
+                NODE_COLLECTION_SUMMARY_PLANNER_REPAIR => {
+                    if accumulator.planner_repair_attempted {
+                        break;
+                    }
+                    let Some(prior_context) = accumulator.pending_planner_context_window.clone() else {
+                        break;
+                    };
+                    let prior_response = accumulator
+                        .pending_planner_update
+                        .clone()
+                        .unwrap_or_default();
+                    let failure_reason = accumulator
+                        .pending_planner_failure_reason
+                        .clone()
+                        .unwrap_or_else(|| "planner synthesis failed validation".to_string());
+                    let repair_context = build_repair_context(
+                        COLLECTION_SUMMARY_PLANNER_PROMPT,
+                        &prior_context,
+                        &prior_response,
+                        &failure_reason,
+                    );
+                    let repair_window =
+                        build_context_window_report(&repair_context, &llm_client.context_limits());
+                    let repair_response = llm_client
+                        .complete_chat(
+                            vec![
+                                ChatMessage {
+                                    role: "system".to_string(),
+                                    content: repair_context.header().to_string(),
+                                },
+                                ChatMessage {
+                                    role: "user".to_string(),
+                                    content: repair_window.rendered.clone(),
+                                },
+                            ],
+                            256,
+                        )
+                        .await
+                        .ok()
+                        .map(|response| normalize_synthesis_response(response.trim().to_string()))
+                        .filter(|response| !response.is_empty());
+                    accumulator.pending_planner_update = repair_response.clone();
+                    accumulator.pending_planner_context_window = Some(repair_window);
+                    accumulator.pending_planner_raw_response = repair_response;
+                    accumulator.pending_planner_failure_reason = None;
+                    accumulator.planner_repair_attempted = true;
+                    current_node = if accumulator.pending_planner_update.is_some() {
+                        next_node(NODE_COLLECTION_SUMMARY_PLANNER_REPAIR, PORT_SUCCESS)
+                            .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW)
                     } else {
-                        next_node(NODE_COLLECTION_SUMMARY_PLANNER, PORT_COMPLETE)
-                            .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES)
+                        break;
                     };
                 }
                 NODE_ADVANCE_CURSOR => {
@@ -706,28 +1082,129 @@ impl BlueskyTools {
                         )
                         .await
                         .ok()
-                        .map(|response| response.trim().to_string())
+                        .map(|response| normalize_synthesis_response(response.trim().to_string()))
                         .filter(|response| !response.is_empty());
-                    if let Some(response) = notes_response.clone() {
-                        accumulator.planner_updates.push(response.clone());
-                        accumulator.notes_raw_response = Some(response.clone());
-                        accumulator.notes_context_window = Some(notes_window);
-                        if let Some(observer) = observer.as_ref() {
-                            let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                                label: "collection_summary_notes".to_string(),
-                                depth: 3,
-                                content: format!(
-                                    "collection_id: {}\nstatus: completed\nsummary:\n{}",
-                                    collection.id,
-                                    summarize_progress_excerpt(&response, 700)
-                                ),
-                            });
+                    accumulator.pending_notes_summary = notes_response.clone();
+                    accumulator.pending_notes_context_window = Some(notes_window);
+                    accumulator.pending_notes_raw_response = notes_response;
+                    accumulator.pending_notes_failure_reason = None;
+                    accumulator.notes_repair_attempted = false;
+                    current_node = if accumulator.pending_notes_summary.is_some() {
+                        next_node(NODE_COLLECTION_SUMMARY_NOTES, PORT_SUCCESS)
+                            .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES_REVIEW)
+                    } else {
+                        next_node(NODE_COLLECTION_SUMMARY_NOTES, PORT_FAILURE)
+                            .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES_REPAIR)
+                    };
+                }
+                NODE_COLLECTION_SUMMARY_NOTES_REVIEW => {
+                    let review_result = accumulator
+                        .pending_notes_summary
+                        .as_deref()
+                        .ok_or_else(|| "notes response missing".to_string())
+                        .and_then(|response| {
+                            review_synthesis_text(
+                                SummarySynthesisKind::Notes,
+                                response,
+                                collection,
+                                &accumulator,
+                            )
+                        });
+                    match review_result {
+                        Ok(()) => {
+                            if let Some(response) = accumulator.pending_notes_summary.take() {
+                                accumulator.final_notes_summary = Some(response.clone());
+                                accumulator.notes_raw_response = Some(
+                                    accumulator
+                                        .pending_notes_raw_response
+                                        .take()
+                                        .unwrap_or_else(|| response.clone()),
+                                );
+                                accumulator.pending_notes_failure_reason = None;
+                                accumulator.notes_context_window =
+                                    accumulator.pending_notes_context_window.take();
+                                if let Some(observer) = observer.as_ref() {
+                                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                                        label: "collection_summary_notes".to_string(),
+                                        depth: 3,
+                                        content: format!(
+                                            "collection_id: {}\nstatus: completed\nsummary:\n{}",
+                                            collection.id,
+                                            summarize_progress_excerpt(&response, 700)
+                                        ),
+                                    });
+                                }
+                            }
+                            let Some(next) =
+                                next_node(NODE_COLLECTION_SUMMARY_NOTES_REVIEW, PORT_SUCCESS)
+                            else {
+                                break;
+                            };
+                            current_node = next;
+                        }
+                        Err(reason) => {
+                            if accumulator.notes_repair_attempted {
+                                break;
+                            }
+                            accumulator.pending_notes_failure_reason = Some(reason);
+                            current_node =
+                                next_node(NODE_COLLECTION_SUMMARY_NOTES_REVIEW, PORT_FAILURE)
+                                    .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES_REPAIR);
                         }
                     }
-                    let Some(next) = next_node(NODE_COLLECTION_SUMMARY_NOTES, PORT_SUCCESS) else {
+                }
+                NODE_COLLECTION_SUMMARY_NOTES_REPAIR => {
+                    if accumulator.notes_repair_attempted {
+                        break;
+                    }
+                    let Some(prior_context) = accumulator.pending_notes_context_window.clone() else {
                         break;
                     };
-                    current_node = next;
+                    let prior_response = accumulator
+                        .pending_notes_summary
+                        .clone()
+                        .unwrap_or_default();
+                    let failure_reason = accumulator
+                        .pending_notes_failure_reason
+                        .clone()
+                        .unwrap_or_else(|| "notes synthesis failed validation".to_string());
+                    let repair_context = build_repair_context(
+                        COLLECTION_SUMMARY_NOTES_PROMPT,
+                        &prior_context,
+                        &prior_response,
+                        &failure_reason,
+                    );
+                    let repair_window =
+                        build_context_window_report(&repair_context, &llm_client.context_limits());
+                    let repair_response = llm_client
+                        .complete_chat(
+                            vec![
+                                ChatMessage {
+                                    role: "system".to_string(),
+                                    content: repair_context.header().to_string(),
+                                },
+                                ChatMessage {
+                                    role: "user".to_string(),
+                                    content: repair_window.rendered.clone(),
+                                },
+                            ],
+                            384,
+                        )
+                        .await
+                        .ok()
+                        .map(|response| normalize_synthesis_response(response.trim().to_string()))
+                        .filter(|response| !response.is_empty());
+                    accumulator.pending_notes_summary = repair_response.clone();
+                    accumulator.pending_notes_context_window = Some(repair_window);
+                    accumulator.pending_notes_raw_response = repair_response;
+                    accumulator.pending_notes_failure_reason = None;
+                    accumulator.notes_repair_attempted = true;
+                    current_node = if accumulator.pending_notes_summary.is_some() {
+                        next_node(NODE_COLLECTION_SUMMARY_NOTES_REPAIR, PORT_SUCCESS)
+                            .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES_REVIEW)
+                    } else {
+                        break;
+                    };
                 }
                 NODE_RETURN_SUMMARY => break,
                 _ => break,
@@ -839,8 +1316,8 @@ mod tests {
             "final summary: {:?}",
             result.summary
         );
-        assert!(result.summary.contains("\\\"alpha\\\""), "final summary: {:?}", result.summary);
-        assert!(result.summary.contains("\\\"beta\\\""), "final summary: {:?}", result.summary);
+        assert!(result.summary.contains("\"alpha\""), "final summary: {:?}", result.summary);
+        assert!(result.summary.contains("\"beta\""), "final summary: {:?}", result.summary);
 
         let verdict = execution.review_verdict.as_ref().expect("review verdict");
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
@@ -852,5 +1329,47 @@ mod tests {
         let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
         assert!(diagnostic.contains("collection_summary_planner accepted 2 page summaries"));
         assert!(diagnostic.contains("covered_post_count: 50"));
+    }
+
+    #[tokio::test]
+    async fn run_collection_summary_loop_repairs_invalid_planner_and_notes_synthesis() {
+        let llm_client = start_mock_llm_client(vec![
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
+            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 25 item(s), but 50 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 25\nrequired_total_items: 50".to_string(),
+            "status: completed\nsummary: invalid planner metadata".to_string(),
+            "Across the covered windows so far, the posts repeatedly circle the \\\"alpha\\\" theme, with terse updates and quoted snippets showing a steady, narrow focus rather than abrupt topic changes.".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 25: theme beta\\\" and \\\"quote: \\\"snippet 39\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
+            "status: pass\ngrounded: true\nsufficient: true\nreason: Grounded summary coverage reaches 50 item(s), satisfying the requested 50 item scope.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 50".to_string(),
+            "Taken together, the covered windows move from a concentrated \\\"alpha\\\" run into a broader \\\"beta\\\" run, so the collection now shows both continuity and a visible topic shift across the requested scope.".to_string(),
+            "summary: The first 50 posts split into two clear phases, with \\\"snippet 0\\\" showing the early focus and \\\"invented quote\\\"".to_string(),
+            "The first 50 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 25\\\" and \\\"snippet 39\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
+        ]);
+        let tools = BlueskyTools::new();
+        let collection = test_collection(50);
+
+        let outcomes = tools
+            .run_collection_summary_loop(
+                &collection,
+                "summarize the last 50 posts by alpha.test",
+                RequestedSummaryScope::Count {
+                    requested_items: 50,
+                },
+                &llm_client,
+                None,
+            )
+            .await;
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = outcomes.first().expect("aggregated outcome");
+        let execution = outcome.execution.as_ref().expect("successful execution");
+        let result = execution
+            .result
+            .as_ref()
+            .and_then(CollectionLeafResult::as_summary)
+            .expect("summary result");
+
+        assert!(result.summary.contains("The first 50 posts split into two clear phases."));
+        assert!(result.summary.contains("\"snippet 39\""));
+        assert!(!result.summary.contains("invented quote"));
     }
 }
