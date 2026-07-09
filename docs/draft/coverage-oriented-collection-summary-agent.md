@@ -170,13 +170,13 @@ Recommended planner behavior:
 - user asks for reputation or strongest evidence -> use `collection_search`
 - user asks for exact last 25/50/100 posts -> use `collection_window_summary`
 
-For "last 50 posts" the planner should naturally decompose into:
+For "last 50 posts" the harness-owned `collection_summary` loop should naturally decompose into:
 
 1. summarize page 0
 2. summarize page 1
 3. concatenate both accepted page summaries in harness state
-4. run a planner step over the concatenated summaries after each page
-5. run a final notes/synthesis step across the full concatenated summary state
+4. run a planner inner review/repair subloop over the concatenated summaries after each accepted page
+5. run a terminal notes inner review/repair subloop across the full concatenated summary state only after requested coverage is actually reached or the source is exhausted
 
 That is better than asking the root agent to invent vague follow-up queries like:
 
@@ -203,7 +203,11 @@ Instead:
 - each page/window produces one grounded summary
 - the harness concatenates accepted page summaries in coverage order
 - an internal planner node can see that concatenated text at each step
-- a final notes node runs after requested coverage is complete or the source is exhausted
+- that planner node should be wrapped by a harness-managed review/repair subloop after each accepted page
+- that planner node is not a loop owner and does not decide paging
+- a final notes node runs only after requested coverage is complete or the source is exhausted
+- that final notes node should be wrapped by a harness-managed terminal review/repair subloop
+- that final notes node is not a loop owner; it is the terminal synthesis node inside the outer `collection_summary` loop
 
 That keeps the coverage tool summary-first while still letting the harness preserve exact coverage truth separately.
 
@@ -224,6 +228,6 @@ This design is ready for implementation when we agree that:
 - the new worker emits structured coverage/accounting fields
 - the new worker returns per-window summaries rather than raw evidence lists
 - the harness concatenates those per-window summaries across pages
-- a final notes pass can summarize cross-window patterns
+- a terminal final notes inner subloop can summarize cross-window patterns after coverage completion or source exhaustion
 - the harness verifier checks actual coverage counts
 - `llm_search` can compose multiple windows for 50-item and 100-item requests

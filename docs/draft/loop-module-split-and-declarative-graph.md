@@ -444,16 +444,32 @@ review_page
   failure -> fail
 
 collection_summary_planner
+  success -> collection_summary_planner_review
+  failure -> collection_summary_planner_repair
+
+collection_summary_planner_review
   continue -> advance_cursor
   complete -> collection_summary_notes
+  failure -> collection_summary_planner_repair
+
+collection_summary_planner_repair
+  success -> collection_summary_planner_review
+  failure -> fail
+
+collection_summary_notes
+  success -> collection_summary_notes_review
   failure -> fail
 
 advance_cursor
   success -> summarize_page
   failure -> fail
 
-collection_summary_notes
+collection_summary_notes_review
   success -> return_summary
+  failure -> collection_summary_notes_repair
+
+collection_summary_notes_repair
+  success -> collection_summary_notes_review
   failure -> fail
 
 return_summary
@@ -500,8 +516,9 @@ For coverage-oriented loops, the important runtime truth is:
 
 - each page/query-result window produces one accepted summary
 - the harness concatenates those summaries as shared loop state
-- `collection_summary_planner` can inspect that concatenated state after each accepted page
-- `collection_summary_notes` runs once the source is exhausted or the requested items have been considered
+- `collection_summary_planner` is not a loop owner; it is an LLM node inside a harness-managed inner review/repair subloop that runs after each accepted page
+- `collection_summary_notes` is not a loop owner; it is a terminal LLM node inside a harness-managed inner review/repair subloop
+- `collection_summary_notes` runs only once the source is exhausted or the requested items have been considered
 
 ## Practical Near-Term Design
 

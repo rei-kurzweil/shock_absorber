@@ -4,6 +4,11 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
+#[cfg(test)]
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 use tokio::time::sleep;
 
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 90;
@@ -69,6 +74,8 @@ impl OpenAiRestConfig {
 pub struct LlmApiClient {
     http: Client,
     config: OpenAiRestConfig,
+    #[cfg(test)]
+    scripted_responses: Option<Arc<Mutex<VecDeque<String>>>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -98,6 +105,22 @@ impl LlmApiClient {
                 .build()
                 .expect("reqwest client should build"),
             config,
+            #[cfg(test)]
+            scripted_responses: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn scripted_for_tests(config: OpenAiRestConfig, responses: Vec<String>) -> Self {
+        Self {
+            http: Client::builder()
+                .timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
+                .build()
+                .expect("reqwest client should build"),
+            config,
+            scripted_responses: Some(Arc::new(Mutex::new(
+                responses.into_iter().collect::<VecDeque<_>>(),
+            ))),
         }
     }
 
@@ -166,6 +189,19 @@ impl LlmApiClient {
         max_tokens: usize,
         response_format: Option<ChatCompletionResponseFormat>,
     ) -> Result<String, Box<dyn std::error::Error>> {
+        #[cfg(test)]
+        if let Some(scripted) = self.scripted_responses.as_ref() {
+            let mut queued = scripted.lock().expect("lock scripted llm responses");
+            let response = queued.pop_front().ok_or_else(|| {
+                LlmApiError::message(format!(
+                    "scripted llm responses exhausted for request with {} messages and max_tokens {}",
+                    messages.len(),
+                    max_tokens
+                ))
+            })?;
+            return Ok(response);
+        }
+
         let request = ChatCompletionRequest {
             model: self.config.model_name.clone(),
             messages,

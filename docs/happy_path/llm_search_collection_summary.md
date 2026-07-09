@@ -25,8 +25,8 @@ The happy path is ready when one root query can reliably do all of the following
 5. cover two 25-item windows for a 50-post request
 6. produce one summary for each page or query-result window it reads
 7. concatenate those summaries as harness-owned state
-8. let an internal `collection_summary_planner` node see that concatenated state at each step
-9. run `collection_summary_notes` after the source is exhausted or the requested scope is covered
+8. run a harness-managed `collection_summary_planner` inner review/repair subloop after each accepted page summary
+9. run a terminal harness-managed `collection_summary_notes` inner review/repair subloop only after the source is exhausted or the requested scope has actually been covered by accepted windows
 10. merge them into one combined child result
 11. send that combined result back to parent `llm_search`
 12. let `llm_search` produce a grounded final answer without inventing any extra evidence
@@ -50,7 +50,7 @@ But the current child contract is still too narrow for this happy path:
 - the child is explicitly told not to emit URI arrays or page bookkeeping
 - the current flow returns per-page outcomes rather than one combined child payload
 - there is not yet an explicit inner planner node that sees the concatenated per-window summaries at each step
-- there is not yet a final `collection_summary_notes` pass for cross-window themes
+- there is not yet a final `collection_summary_notes` pass for cross-window themes that runs only at real terminal coverage or exhaustion
 - parent `llm_search` still reasons mostly from summary text plus the old result shape
 - there is not yet one clean end-to-end test that proves "50 covered posts in, quoted 2-3 paragraph summary out"
 
@@ -98,8 +98,8 @@ That page traversal belongs in the harness-owned `collection_summary` loop.
 - tracks coverage state
 - produces one summary for each page/query-result window
 - concatenates those summaries as harness-owned state
-- feeds that concatenated state into its own planner node after each accepted page summary
-- runs a final notes step for cross-window patterns
+- runs a planner inner review/repair subloop after each accepted page summary
+- runs a final notes inner review/repair subloop for cross-window patterns only at terminal coverage or exhaustion
 - returns one combined payload for the requested scope
 
 For a 50-post request over a 25-item page size, that means:
@@ -108,11 +108,17 @@ For a 50-post request over a 25-item page size, that means:
 - review page 0
 - update concatenated summary state
 - run `collection_summary_planner`
+- run `collection_summary_planner_review`
+- run `collection_summary_planner_repair` only if needed
 - summarize page 1
 - review page 1
 - update concatenated summary state
 - run `collection_summary_planner`
-- run `collection_summary_notes` after requested coverage is reached or the source is exhausted
+- run `collection_summary_planner_review`
+- run `collection_summary_planner_repair` only if needed
+- run `collection_summary_notes` only after requested coverage is reached or the source is exhausted
+- run `collection_summary_notes_review`
+- run `collection_summary_notes_repair` only if needed
 - stop only when at least 50 authored posts are covered or the collection ends
 - return one aggregated child result
 
@@ -127,11 +133,17 @@ init_window
   -> summarize_page
   -> review_page
   -> collection_summary_planner
+  -> collection_summary_planner_review
+  -> collection_summary_planner_repair?
   -> advance_cursor
   -> summarize_page
   -> review_page
   -> collection_summary_planner
+  -> collection_summary_planner_review
+  -> collection_summary_planner_repair?
   -> collection_summary_notes
+  -> collection_summary_notes_review
+  -> collection_summary_notes_repair?
   -> return_summary
 ```
 
@@ -139,9 +151,13 @@ Where:
 
 - `summarize_page` is the per-page or per-query-result LLM step
 - `review_page` verifies groundedness and coverage facts for that page
-- `collection_summary_planner` is an inner planner node that sees the concatenated accepted summaries after each step
+- `collection_summary_planner` is an LLM node inside a harness-managed inner review/repair subloop that runs after each accepted page summary
+- `collection_summary_planner_review` is a harness-owned verifier for the interim planner synthesis
+- `collection_summary_planner_repair` is a harness-owned single repair path for malformed or truncated interim planner synthesis
 - `advance_cursor` is harness-owned pagination state
-- `collection_summary_notes` is a final cross-window synthesis step owned by `collection_summary`
+- `collection_summary_notes` is a terminal LLM node inside a harness-managed inner review/repair subloop
+- `collection_summary_notes_review` is a harness-owned verifier for the final notes synthesis
+- `collection_summary_notes_repair` is a harness-owned single repair path for malformed or truncated final notes synthesis
 - `return_summary` returns one combined child payload to parent `llm_search`
 
 `collection_summary_planner` is the new incremental piece.
@@ -155,7 +171,8 @@ It should receive:
 
 It should produce:
 
-- planner guidance about whether to continue
+- interim result-set synthesis over accepted pages so far
+- no paging decision authority; the harness still decides whether to continue, stop at requested coverage, or continue until exhaustion
 - updated result-set summary state
 
 `collection_summary_notes` is the final synthesis piece.
@@ -164,13 +181,18 @@ It should receive:
 
 - the full concatenated summary text across accepted windows
 - the requested scope and actual covered-post count
-- exhaustion or completion state
+- terminal loop state showing either requested coverage completion or source exhaustion
 
 It should produce:
 
 - a final 1-3 paragraph scope-level summary
 - cross-window notes about recurring patterns, shifts, or contrasts
 - the final combined child result metadata
+
+Important ownership rule:
+
+- neither `collection_summary_planner` nor `collection_summary_notes` is a standalone loop owner
+- both are LLM-backed nodes wrapped by harness-managed inner review/repair subloops inside the outer `collection_summary` loop
 
 ## Combined Child Result Shape
 
@@ -229,8 +251,8 @@ Current behavior is close to:
 For this happy path we need:
 
 - a loop-local accumulator
-- one incremental planner node that consumes the concatenated accepted page summaries
-- one final notes node that synthesizes across the full concatenated summary state
+- one incremental planner node that consumes the concatenated accepted page summaries and is wrapped by harness review/repair
+- one final notes node that synthesizes across the full concatenated summary state and is wrapped by terminal harness review/repair
 - one final aggregated result emitted after the requested scope is satisfied
 
 That accumulator should track at least:
@@ -241,7 +263,7 @@ That accumulator should track at least:
 - concatenated summary text
 - collection total items
 
-## 2. Add An Explicit `collection_summary_planner` Loop Node
+## 2. Add An Explicit `collection_summary_planner` Inner Subloop
 
 `collection_summary` should not jump directly from "last page reviewed" to "return combined result."
 
@@ -253,7 +275,7 @@ Responsibilities of this node:
 
 - receive each accepted page summary
 - inspect the concatenated summary state
-- decide whether more windows are still needed
+- synthesize the accepted coverage so far
 - update scope-level result-set summary state
 - prepare inputs for the final `collection_summary_notes` pass
 
@@ -264,7 +286,14 @@ This is better than burying the aggregation logic in:
 
 Because it keeps the coverage-oriented planning inside the `collection_summary` loop that already owns the paging truth.
 
-## 3. Add A Final `collection_summary_notes` Loop Node
+The harness, not this node, decides whether more windows are still needed.
+
+This node should be wrapped by:
+
+- `collection_summary_planner_review`
+- optional one-shot `collection_summary_planner_repair`
+
+## 3. Add A Final `collection_summary_notes` Inner Subloop
 
 `collection_summary` also needs a final notes/synthesis step after:
 
@@ -281,6 +310,16 @@ Responsibilities of this node:
 - identify recurring patterns or themes across all accepted page summaries
 - write the final 1-3 paragraph summary returned upward
 
+This node should be wrapped by:
+
+- `collection_summary_notes_review`
+- optional one-shot `collection_summary_notes_repair`
+
+It must run only when:
+
+- requested coverage is complete
+- or the source is exhausted
+
 ## 4. Widen The `collection_summary` Prompt Contract
 
 The current prompt still requests:
@@ -291,13 +330,14 @@ That should become a contract closer to:
 
 - produce page-grounded notes or summaries suitable for concatenation
 - allow `collection_summary_planner` to see the concatenated state after each accepted page
-- allow `collection_summary_notes` to write the final combined summary once coverage is complete or the source is exhausted
+- allow `collection_summary_notes` to write the final combined summary only once coverage is complete or the source is exhausted
+- allow both planner and notes outputs to be reviewed and repaired by harness-managed inner subloops
 
 Two viable paths:
 
 ### Option A
 
-Keep per-page child LLM calls narrow, then add `collection_summary_planner` plus `collection_summary_notes` inside `collection_summary`.
+Keep per-page child LLM calls narrow, then add `collection_summary_planner` plus `collection_summary_notes` inside `collection_summary`, each wrapped by harness-managed review/repair steps.
 
 This is the safer path because it preserves page-level verification and gives one explicit incremental planner node plus one explicit final notes node before the final combined summary is produced.
 
@@ -313,7 +353,7 @@ Recommended path:
 
 ## 5. Add A Final Result-Set Notes Step Inside `collection_summary`
 
-After the paging loop reaches sufficient coverage or the source ends, `collection_summary` should run `collection_summary_notes`, which:
+After the paging loop reaches actual requested coverage or the source ends, `collection_summary` should run the terminal `collection_summary_notes` inner subloop, which:
 
 - receives the page-level summaries
 - receives the concatenated summary text
@@ -374,9 +414,9 @@ Concrete work:
 
 - add an accumulator struct in `src/harness/loop/collection_summary.rs`
 - collect page-level outcomes into one scope-level intermediate state
-- add a `collection_summary_planner` node to the loop definition
-- add a `collection_summary_notes` node to the loop definition
-- route accepted page summaries into the planner node
+- add `collection_summary_planner`, `collection_summary_planner_review`, and `collection_summary_planner_repair` to the loop definition
+- add `collection_summary_notes`, `collection_summary_notes_review`, and `collection_summary_notes_repair` to the loop definition
+- route accepted page summaries into the planner inner subloop
 - return one final combined result instead of only raw page outcomes
 
 ## Slice 2
@@ -391,12 +431,14 @@ Concrete work:
 
 ## Slice 3
 
-Add the `collection_summary_planner` and `collection_summary_notes` handler implementations.
+Add the `collection_summary_planner` and `collection_summary_notes` handler implementations plus their harness review/repair handlers.
 
 Concrete work:
 
 - define the planner prompt or handler
 - define the final notes prompt or handler
+- define planner review/repair rules
+- define notes review/repair rules
 - require 1-3 paragraphs in the final notes output
 - require short exact quotes
 - ensure the final notes step only sees concatenated grounded summaries plus harness-owned coverage state
@@ -436,8 +478,10 @@ One test should prove:
 - scope resolves to `RequestedSummaryScope::Count { requested_items: 50 }`
 - `collection_summary` covers offsets `0` and `25`
 - `collection_summary` produces one accepted page summary for each covered window
-- `collection_summary_planner` sees the concatenated summary state after each accepted window
-- `collection_summary_notes` runs after coverage is complete or the source is exhausted
+- `collection_summary_planner` sees the concatenated summary state after each accepted window but does not own pagination decisions
+- planner review/repair runs before the loop proceeds
+- `collection_summary_notes` runs only after coverage is complete or the source is exhausted
+- notes review/repair runs before the final payload is returned
 - `covered_post_count >= 50`
 - combined child result contains concatenated summary state plus final summary text
 - final summary contains 1 to 3 paragraphs
@@ -453,7 +497,9 @@ That test should prove:
 - the loop keeps paging until 50 are covered
 - the loop produces one summary per covered page/query result
 - the loop runs `collection_summary_planner` after each accepted page summary
-- the loop runs `collection_summary_notes` after page coverage is sufficient
+- the loop runs planner review/repair before proceeding
+- the loop runs `collection_summary_notes` only at terminal coverage/exhaustion, not after partial coverage
+- the loop runs notes review/repair before returning the final payload
 - the final combined payload includes both:
   - the concatenated summary state
   - the final summary
@@ -470,7 +516,7 @@ This is the fastest path to confidence before wiring the whole root flow.
 
 - Should the concatenated summary state be persisted verbatim, or compacted between planner rounds?
 - Should page-level summary outputs stay text-first, or should they return richer structured theme buckets later?
-- Should `collection_summary_planner` be allowed to mutate the concatenated notes, or only read them?
+- Should `collection_summary_planner` be allowed to rewrite prior concatenated notes, or should it be restricted to producing a fresh interim synthesis over harness-owned state?
 - Should the combined child result expose the concatenated window summaries upward, or keep them internal and return only the final summary?
 
 ## Recommendation
@@ -480,8 +526,8 @@ The cleanest happy-path setup is:
 1. keep root simple
 2. keep `llm_search` as the parent orchestrator
 3. make `collection_summary` own page traversal, page-summary production, and coverage accounting
-4. add a `collection_summary_planner` inner node that sees concatenated summaries after each accepted page
-5. add a final `collection_summary_notes` node for cross-window patterns after coverage completes or the source ends
+4. add a `collection_summary_planner` inner harness review/repair subloop after each accepted page
+5. add a terminal `collection_summary_notes` inner harness review/repair subloop after coverage completes or the source ends
 6. make `collection_summary` return one combined result containing:
    - concatenated summary state
    - a final 1-3 paragraph quoted summary

@@ -740,3 +740,117 @@ impl BlueskyTools {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::harness::llm_api::{LlmApiClient, OpenAiRestConfig};
+    use crate::model::PostRecord;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    fn start_mock_llm_client(responses: Vec<String>) -> LlmApiClient {
+        LlmApiClient::scripted_for_tests(
+            OpenAiRestConfig::llama_cpp("http://scripted.test", "test-model"),
+            responses,
+        )
+    }
+
+    fn test_collection(post_count: usize) -> LabeledPostCollection {
+        let posts = (0..post_count)
+            .map(|index| PostRecord {
+                uri: format!("at://post/{index}"),
+                author_handle: "alpha.test".to_string(),
+                body: format!(
+                    "post {index}: theme {}\nquote: \"snippet {index}\"",
+                    if index < 25 { "alpha" } else { "beta" }
+                ),
+            })
+            .collect::<Vec<_>>();
+        LabeledPostCollection::new("recent_posts:did:plc:test", "Recent posts", posts)
+            .with_collection_kind("recent_posts")
+    }
+
+    #[tokio::test]
+    async fn run_collection_summary_loop_returns_aggregated_summary_payload() {
+        let llm_client = start_mock_llm_client(vec![
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
+            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 25 item(s), but 50 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 25\nrequired_total_items: 50".to_string(),
+            "Across the covered windows so far, the posts repeatedly circle the \\\"alpha\\\" theme, with terse updates and quoted snippets showing a steady, narrow focus rather than abrupt topic changes.".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 25: theme beta\\\" and \\\"quote: \\\"snippet 39\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
+            "status: pass\ngrounded: true\nsufficient: true\nreason: Grounded summary coverage reaches 50 item(s), satisfying the requested 50 item scope.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 50".to_string(),
+            "Taken together, the covered windows move from a concentrated \\\"alpha\\\" run into a broader \\\"beta\\\" run, so the collection now shows both continuity and a visible topic shift across the requested scope.".to_string(),
+            "The first 50 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 25\\\" and \\\"snippet 39\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
+        ]);
+        let tools = BlueskyTools::new();
+        let collection = test_collection(50);
+        let (observer, mut receiver) = unbounded_channel();
+
+        let outcomes = tools
+            .run_collection_summary_loop(
+                &collection,
+                "summarize the last 50 posts by alpha.test",
+                RequestedSummaryScope::Count {
+                    requested_items: 50,
+                },
+                &llm_client,
+                Some(observer),
+            )
+            .await;
+
+        let mut progress = Vec::new();
+        while let Ok(event) = receiver.try_recv() {
+            match event {
+                ToolProgressEvent::AgentUpdate { label, content, .. } => {
+                    progress.push(format!("{label}\n{content}"));
+                }
+            }
+        }
+
+        assert_eq!(outcomes.len(), 1, "progress:\n{}", progress.join("\n\n---\n\n"));
+        let outcome = outcomes.first().expect("aggregated outcome");
+        let execution = outcome.execution.as_ref().expect("successful execution");
+        let result = execution
+            .result
+            .as_ref()
+            .and_then(CollectionLeafResult::as_summary)
+            .expect("summary result");
+
+        assert_eq!(result.window_offset, Some(0));
+        assert_eq!(
+            result.window_size,
+            Some(50),
+            "diagnostic: {:?}\nconcatenated: {:?}\nsummary: {:?}\nprogress:\n{}",
+            execution.diagnostic,
+            result.concatenated_window_summaries(),
+            result.summary,
+            progress.join("\n\n---\n\n")
+        );
+        assert_eq!(result.collection_total_items, Some(50));
+        assert_eq!(result.source_exhausted, Some(true));
+
+        let concatenated = result
+            .concatenated_window_summaries()
+            .expect("concatenated summaries");
+        assert!(concatenated.contains("The first window repeatedly returns to \"theme alpha\" posts"));
+        assert!(concatenated.contains("The second window shifts toward \"theme beta\" posts"));
+
+        assert!(
+            result.summary.contains("The first 50 posts split into two clear phases."),
+            "final summary: {:?}",
+            result.summary
+        );
+        assert!(result.summary.contains("\\\"alpha\\\""), "final summary: {:?}", result.summary);
+        assert!(result.summary.contains("\\\"beta\\\""), "final summary: {:?}", result.summary);
+
+        let verdict = execution.review_verdict.as_ref().expect("review verdict");
+        assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+        assert!(verdict.grounded);
+        assert!(verdict.sufficient);
+        assert!(!verdict.additional_pages_needed);
+        assert_eq!(verdict.required_total_items, Some(50));
+
+        let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
+        assert!(diagnostic.contains("collection_summary_planner accepted 2 page summaries"));
+        assert!(diagnostic.contains("covered_post_count: 50"));
+    }
+}
