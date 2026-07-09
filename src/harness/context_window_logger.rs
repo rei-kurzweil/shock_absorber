@@ -1,6 +1,8 @@
 use crate::harness::agents::AgentGraph;
 use crate::visualization::context::{ContextCategory, PromptContextSnapshot};
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub fn reset_debug_dir(base_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -87,6 +89,21 @@ pub fn log_root_prompt_snapshot(
         debug_dir(base_dir).join("root_prompt_snapshot.md"),
         render_prompt_context_snapshot(snapshot),
     )?;
+    Ok(())
+}
+
+pub fn append_debug_trace(
+    base_dir: &Path,
+    filename: &str,
+    entry: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = debug_dir(base_dir).join(filename);
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    file.write_all(entry.as_bytes())?;
+    if !entry.ends_with('\n') {
+        file.write_all(b"\n")?;
+    }
+    file.write_all(b"\n")?;
     Ok(())
 }
 

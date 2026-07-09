@@ -7,6 +7,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use serde_json::{Map, Value};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ROOT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -76,13 +77,15 @@ pub struct RootToolCallRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SuccessfulRootLlmSearch {
+pub struct SuccessfulRootToolRun {
+    pub tool_name: String,
     pub query: String,
     pub rendered_result: String,
     pub summary: String,
     pub actor_refs: Vec<String>,
     pub collection_ids: Vec<String>,
     pub intent: String,
+    pub requested_post_count: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -107,7 +110,7 @@ pub struct RootRunState {
     rounds: Vec<RootRunRound>,
     active_tool_entry: Option<String>,
     final_response: Option<String>,
-    latest_successful_llm_search: Option<SuccessfulRootLlmSearch>,
+    latest_successful_tool_runs: HashMap<String, SuccessfulRootToolRun>,
     agent_graph: AgentGraph,
     context_visualization: Option<ContextVisualizationData>,
 }
@@ -131,7 +134,7 @@ impl RootRunState {
             rounds: Vec::new(),
             active_tool_entry: None,
             final_response: None,
-            latest_successful_llm_search: None,
+            latest_successful_tool_runs: HashMap::new(),
             agent_graph,
             context_visualization: None,
         }
@@ -288,12 +291,15 @@ impl RootRunState {
         self.final_response = Some(response.into());
     }
 
-    pub fn latest_successful_llm_search(&self) -> Option<&SuccessfulRootLlmSearch> {
-        self.latest_successful_llm_search.as_ref()
+    pub fn latest_successful_tool_run(&self, tool_name: &str) -> Option<&SuccessfulRootToolRun> {
+        self.latest_successful_tool_runs.get(tool_name)
     }
 
-    pub fn set_latest_successful_llm_search(&mut self, result: Option<SuccessfulRootLlmSearch>) {
-        self.latest_successful_llm_search = result;
+    pub fn set_latest_successful_tool_run(&mut self, result: Option<SuccessfulRootToolRun>) {
+        if let Some(result) = result {
+            self.latest_successful_tool_runs
+                .insert(result.tool_name.clone(), result);
+        }
     }
 
     pub fn agent_graph(&self) -> &AgentGraph {

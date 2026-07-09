@@ -6,18 +6,18 @@
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
 - input_budget_tokens: 31744
-- used_input_tokens: 1706
+- used_input_tokens: 1930
 - truncated: false
 
 ## Category Totals
 
 - system_prompt: 81
-- tool_protocol: 628
-- tool_definitions: 426
-- ui: 83
-- task: 60
-- chat: 168
-- tool_output: 260
+- tool_protocol: 694
+- tool_definitions: 635
+- ui: 235
+- task: 22
+- chat: 78
+- tool_output: 185
 - collection_evidence: 0
 - review_evidence: 0
 - parent_search_results: 0
@@ -25,12 +25,12 @@
 ## Segments
 
 - System Prompt: 81 tokens
-- Tool Instructions: 607 tokens
+- Tool Instructions: 673 tokens
 - Root Instructions: 21 tokens
-- Tools: 426 tokens
-- Search Hints: 66 tokens
-- Current UI Context: 17 tokens
-- Current Task: 60 tokens
-- Tool Request #1: 52 tokens
-- Tool Result #1: 208 tokens
-- Assistant Reply: 168 tokens
+- Tools: 635 tokens
+- Search Hints: 74 tokens
+- Current UI Context: 161 tokens
+- Current Task: 22 tokens
+- Tool Request #1: 22 tokens
+- Tool Result #1: 163 tokens
+- Assistant Reply: 78 tokens

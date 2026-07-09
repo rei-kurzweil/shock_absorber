@@ -1,11 +1,13 @@
 pub mod collection_summary;
-pub mod llm_search;
+pub mod search;
+pub mod summary;
 pub mod root;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoopKind {
     Root,
-    LlmSearch,
+    Search,
+    Summary,
     CollectionSummary,
 }
 

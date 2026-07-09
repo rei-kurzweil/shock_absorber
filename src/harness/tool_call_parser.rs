@@ -374,11 +374,11 @@ mod tests {
     #[test]
     fn parses_prompt_tool_call_block() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: llm_search\nargs: {\"query\":\"who is rei-cast.xyz?\"}",
+            "TOOL_CALL\nname: search\nargs: {\"query\":\"who is rei-cast.xyz?\"}",
         )
         .expect("expected tool call");
 
-        assert_eq!(tool_call.name, "llm_search");
+        assert_eq!(tool_call.name, "search");
         assert_eq!(tool_call.args["query"], "who is rei-cast.xyz?");
     }
 
@@ -396,11 +396,11 @@ mod tests {
     #[test]
     fn parses_prompt_tool_call_block_with_repaired_args_json() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: llm_search\nargs:\n{query:<|\"|>what are people on Bluesky saying about topic x<|\"|>}",
+            "TOOL_CALL\nname: search\nargs:\n{query:<|\"|>what are people on Bluesky saying about topic x<|\"|>}",
         )
         .expect("expected tool call");
 
-        assert_eq!(tool_call.name, "llm_search");
+        assert_eq!(tool_call.name, "search");
         assert_eq!(
             tool_call.args["query"],
             "what are people on Bluesky saying about topic x"
@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn parses_first_tool_call_when_trailing_thought_continues() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: list_collections\nargs: {actor_did: \"did:plc:testactor\"}\n\n<|channel>thought\nextra commentary\n<channel|>TOOL_CALL\nname: llm_search\nargs: {query:\"who is rei-cast.xyz?\"}",
+            "TOOL_CALL\nname: list_collections\nargs: {actor_did: \"did:plc:testactor\"}\n\n<|channel>thought\nextra commentary\n<channel|>TOOL_CALL\nname: search\nargs: {query:\"who is rei-cast.xyz?\"}",
         )
         .expect("expected first tool call");
 

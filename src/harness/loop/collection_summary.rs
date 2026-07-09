@@ -1,3 +1,4 @@
+use crate::harness::context_window_logger::append_debug_trace;
 use crate::harness::context_window::{
     BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
 };
@@ -16,12 +17,18 @@ use crate::harness::tools::{
 };
 use crate::model::LabeledPostCollection;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use tokio::sync::mpsc::UnboundedSender;
 
 const COLLECTION_SUMMARY_PLANNER_PROMPT: &str =
     include_str!("../prompts/agents/collection_summary_planner.md");
 const COLLECTION_SUMMARY_NOTES_PROMPT: &str =
     include_str!("../prompts/agents/collection_summary_notes.md");
+
+fn append_summary_trace(entry: impl AsRef<str>) {
+    let debug_base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let _ = append_debug_trace(&debug_base_dir, "summary_trace.md", entry.as_ref());
+}
 
 const COLLECTION_SUMMARY_NODES: &[LoopNodeDefinition] = &[
     LoopNodeDefinition {
@@ -776,21 +783,116 @@ impl BlueskyTools {
             match current_node {
                 NODE_INIT_WINDOW => {
                     offset = summary_scope_initial_offset(requested_summary_scope);
+                    append_summary_trace(format!(
+                        "[collection_summary_loop]\nnode: init_window\ncollection_id: {}\ncollection_posts: {}\ninitial_offset: {}\nmax_pages: {}\nrequested_scope: {:?}",
+                        collection.id,
+                        collection.posts.len(),
+                        offset,
+                        max_pages,
+                        requested_summary_scope
+                    ));
+                    if let Some(observer) = observer.as_ref() {
+                        let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                            label: "collection_summary_trace".to_string(),
+                            depth: 2,
+                            content: format!(
+                                "node: init_window\nstatus: completed\ncollection_id: {}\ncollection_posts: {}\ninitial_offset: {}\nmax_pages: {}\nrequested_scope: {:?}",
+                                collection.id,
+                                collection.posts.len(),
+                                offset,
+                                max_pages,
+                                requested_summary_scope
+                            ),
+                        });
+                    }
                     let Some(next) = next_node(NODE_INIT_WINDOW, PORT_SUCCESS) else {
                         break;
                     };
                     current_node = next;
                 }
                 NODE_SUMMARIZE_PAGE => {
-                    if pages_processed >= max_pages
-                        || offset >= collection.posts.len()
-                        || !seen_offsets.insert(offset)
-                    {
+                    if pages_processed >= max_pages {
+                        append_summary_trace(format!(
+                            "[collection_summary_loop]\nnode: summarize_page\nstatus: break\nreason: reached_max_pages\npages_processed: {}\nmax_pages: {}\ncurrent_offset: {}",
+                            pages_processed, max_pages, offset
+                        ));
+                        if let Some(observer) = observer.as_ref() {
+                            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                                label: "collection_summary_trace".to_string(),
+                                depth: 2,
+                                content: format!(
+                                    "node: summarize_page\nstatus: break\nreason: reached_max_pages\npages_processed: {}\nmax_pages: {}\ncurrent_offset: {}",
+                                    pages_processed,
+                                    max_pages,
+                                    offset
+                                ),
+                            });
+                        }
                         break;
+                    }
+                    if offset >= collection.posts.len() {
+                        append_summary_trace(format!(
+                            "[collection_summary_loop]\nnode: summarize_page\nstatus: break\nreason: offset_out_of_range\ncurrent_offset: {}\ncollection_posts: {}\npages_processed: {}\nmax_pages: {}",
+                            offset, collection.posts.len(), pages_processed, max_pages
+                        ));
+                        if let Some(observer) = observer.as_ref() {
+                            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                                label: "collection_summary_trace".to_string(),
+                                depth: 2,
+                                content: format!(
+                                    "node: summarize_page\nstatus: break\nreason: offset_out_of_range\ncurrent_offset: {}\ncollection_posts: {}\npages_processed: {}\nmax_pages: {}",
+                                    offset,
+                                    collection.posts.len(),
+                                    pages_processed,
+                                    max_pages
+                                ),
+                            });
+                        }
+                        break;
+                    }
+                    if !seen_offsets.insert(offset) {
+                        append_summary_trace(format!(
+                            "[collection_summary_loop]\nnode: summarize_page\nstatus: break\nreason: repeated_offset\ncurrent_offset: {}\npages_processed: {}",
+                            offset, pages_processed
+                        ));
+                        if let Some(observer) = observer.as_ref() {
+                            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                                label: "collection_summary_trace".to_string(),
+                                depth: 2,
+                                content: format!(
+                                    "node: summarize_page\nstatus: break\nreason: repeated_offset\ncurrent_offset: {}\npages_processed: {}",
+                                    offset,
+                                    pages_processed
+                                ),
+                            });
+                        }
+                        break;
+                    }
+                    append_summary_trace(format!(
+                        "[collection_summary_loop]\nnode: summarize_page\nstatus: running\ncollection_id: {}\npage_index: {}\noffset: {}\nwindow_size: {}",
+                        collection.id,
+                        pages_processed,
+                        offset,
+                        COLLECTION_SEARCH_PAGE_SIZE
+                    ));
+                    if let Some(observer) = observer.as_ref() {
+                        let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                            label: "collection_summary_trace".to_string(),
+                            depth: 2,
+                            content: format!(
+                                "node: summarize_page\nstatus: running\ncollection_id: {}\npage_index: {}\noffset: {}\nwindow_size: {}",
+                                collection.id,
+                                pages_processed,
+                                offset,
+                                COLLECTION_SEARCH_PAGE_SIZE
+                            ),
+                        });
                     }
 
                     let paged =
                         paged_search_collection(collection, offset, COLLECTION_SEARCH_PAGE_SIZE);
+                    let paged_collection_id = paged.id.clone();
+                    let paged_post_count = paged.posts.len();
                     let mut page_outcomes = self
                         .run_collection_tools(
                             CollectionLeafToolKind::Summary,
@@ -802,6 +904,22 @@ impl BlueskyTools {
                         )
                         .await;
                     let Some(mut outcome) = page_outcomes.pop() else {
+                        append_summary_trace(format!(
+                            "[collection_summary_loop]\nnode: summarize_page\nstatus: break\nreason: missing_page_outcome\ncollection_id: {}\noffset: {}\nwindow_post_count: {}",
+                            paged_collection_id, offset, paged_post_count
+                        ));
+                        if let Some(observer) = observer.as_ref() {
+                            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                                label: "collection_summary_trace".to_string(),
+                                depth: 2,
+                                content: format!(
+                                    "node: summarize_page\nstatus: break\nreason: missing_page_outcome\ncollection_id: {}\noffset: {}\nwindow_post_count: {}",
+                                    paged_collection_id,
+                                    offset,
+                                    paged_post_count
+                                ),
+                            });
+                        }
                         break;
                     };
                     if let Ok(execution) = outcome.execution.as_mut() {
@@ -817,6 +935,64 @@ impl BlueskyTools {
                                 pages_processed + 1
                             ));
                         }
+                    }
+                    append_summary_trace(match outcome.execution.as_ref() {
+                        Ok(execution) => format!(
+                            "[collection_summary_loop]\nnode: summarize_page\nstatus: page_outcome\ncollection_id: {}\noffset: {}\nresult_present: {}\nreview_status: {}\nreview_reason: {}\ndiagnostic: {}",
+                            outcome.collection_id,
+                            offset,
+                            execution.result.is_some(),
+                            execution
+                                .review_verdict
+                                .as_ref()
+                                .map(|verdict| match verdict.status {
+                                    CollectionReviewStatus::Pass => "pass",
+                                    CollectionReviewStatus::Fail => "fail",
+                                })
+                                .unwrap_or("<none>"),
+                            execution
+                                .review_verdict
+                                .as_ref()
+                                .map(|verdict| verdict.reason.as_str())
+                                .unwrap_or("<none>"),
+                            execution.diagnostic.as_deref().unwrap_or("<none>")
+                        ),
+                        Err(err) => format!(
+                            "[collection_summary_loop]\nnode: summarize_page\nstatus: page_outcome_failed\ncollection_id: {}\noffset: {}\nerror: {}",
+                            outcome.collection_id, offset, err
+                        ),
+                    });
+                    if let Some(observer) = observer.as_ref() {
+                        let execution_summary = match outcome.execution.as_ref() {
+                            Ok(execution) => format!(
+                                "status: page_outcome\nusable: {}\nreview: {}\ndiagnostic: {}",
+                                execution.result.is_some()
+                                    && !matches!(
+                                        execution
+                                            .review_verdict
+                                            .as_ref()
+                                            .map(|verdict| &verdict.status),
+                                        Some(CollectionReviewStatus::Fail)
+                                    ),
+                                execution
+                                    .review_verdict
+                                    .as_ref()
+                                    .map(|verdict| verdict.reason.as_str())
+                                    .unwrap_or("<none>"),
+                                execution.diagnostic.as_deref().unwrap_or("<none>")
+                            ),
+                            Err(err) => format!("status: page_outcome_failed\nerror: {err}"),
+                        };
+                        let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                            label: "collection_summary_trace".to_string(),
+                            depth: 2,
+                            content: format!(
+                                "node: summarize_page\ncollection_id: {}\noffset: {}\n{}",
+                                outcome.collection_id,
+                                offset,
+                                execution_summary
+                            ),
+                        });
                     }
 
                     let next_offset = outcome

@@ -3,12 +3,12 @@ use crate::harness::r#loop::{
     LoopPortTarget,
 };
 
-const LLM_SEARCH_NODES: &[LoopNodeDefinition] = &[
+const SEARCH_NODES: &[LoopNodeDefinition] = &[
     LoopNodeDefinition {
         id: "planner_decide",
         kind: LoopNodeKind::Branch,
         executor: LoopExecutor::Llm,
-        handler_key: "llm_search_planner_round",
+        handler_key: "search_planner_round",
         ports: &[
             LoopPort {
                 name: "tool_call",
@@ -28,7 +28,7 @@ const LLM_SEARCH_NODES: &[LoopNodeDefinition] = &[
         id: "planner_protocol_repair",
         kind: LoopNodeKind::Repair,
         executor: LoopExecutor::Harness,
-        handler_key: "repair_planner_protocol",
+        handler_key: "repair_search_planner_protocol",
         ports: &[
             LoopPort {
                 name: "success",
@@ -44,7 +44,7 @@ const LLM_SEARCH_NODES: &[LoopNodeDefinition] = &[
         id: "execute_internal_tool",
         kind: LoopNodeKind::Tool,
         executor: LoopExecutor::Harness,
-        handler_key: "execute_llm_search_internal_tool",
+        handler_key: "execute_search_internal_tool",
         ports: &[
             LoopPort {
                 name: "success",
@@ -64,7 +64,7 @@ const LLM_SEARCH_NODES: &[LoopNodeDefinition] = &[
         id: "tool_call_repair",
         kind: LoopNodeKind::Repair,
         executor: LoopExecutor::Harness,
-        handler_key: "repair_llm_search_tool_call",
+        handler_key: "repair_search_tool_call",
         ports: &[
             LoopPort {
                 name: "success",
@@ -79,7 +79,7 @@ const LLM_SEARCH_NODES: &[LoopNodeDefinition] = &[
 ];
 
 pub const DEFINITION: LoopDefinition = LoopDefinition {
-    kind: LoopKind::LlmSearch,
+    kind: LoopKind::Search,
     entry_node: "planner_decide",
-    nodes: LLM_SEARCH_NODES,
+    nodes: SEARCH_NODES,
 };

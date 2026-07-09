@@ -4,7 +4,8 @@ pub enum AgentKind {
     CollectionSummary,
     SearchReview,
     SummaryReview,
-    LlmSearch,
+    Search,
+    Summary,
 }
 
 impl AgentKind {
@@ -14,7 +15,8 @@ impl AgentKind {
             Self::CollectionSummary => "collection_summary",
             Self::SearchReview => "search_review",
             Self::SummaryReview => "summary_review",
-            Self::LlmSearch => "llm_search",
+            Self::Search => "search",
+            Self::Summary => "summary",
         }
     }
 
@@ -24,7 +26,8 @@ impl AgentKind {
             Self::CollectionSummary => include_str!("prompts/agents/collection_summary.md").trim(),
             Self::SearchReview => include_str!("prompts/agents/search_review.md").trim(),
             Self::SummaryReview => include_str!("prompts/agents/summary_review.md").trim(),
-            Self::LlmSearch => include_str!("prompts/agents/llm_search.md").trim(),
+            Self::Search => include_str!("prompts/agents/search.md").trim(),
+            Self::Summary => include_str!("prompts/agents/summary.md").trim(),
         }
     }
 }

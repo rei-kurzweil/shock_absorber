@@ -244,6 +244,68 @@ If backward compatibility is needed during migration, keep the old field tempora
 
 The harness should be able to answer these cases deterministically:
 
+## Continuation Ownership
+
+The current failure mode shows a boundary mistake between:
+
+- page-level summary validity
+- run-level summary sufficiency
+
+Those are not the same thing.
+
+For coverage-oriented summary runs, the leaf page summary worker should answer only:
+
+- what window it processed
+- whether that window summary is grounded
+- what exact page/window metadata applies to that result
+
+It should not destroy or null out an otherwise grounded page result merely because the overall requested scope has not yet been satisfied.
+
+That continuation decision belongs to the outer `collection_summary` loop.
+
+### Required behavior
+
+When the first page of a `last 50 posts` request produces a grounded summary for items `0-24`, the harness should preserve that page result and then continue.
+
+The expected sequence is:
+
+1. page worker summarizes window `0-24`
+2. page review confirms the result is grounded for that window
+3. outer `collection_summary` accounting determines that additional coverage is still needed
+4. outer loop sets or preserves `next_offset: 25`
+5. outer planner receives the accepted first-page summary in its accumulated context
+6. loop advances to page `25-49`
+7. final planner/notes synthesis summarizes both accepted windows together
+
+### Explicit non-goal
+
+The page-level sufficiency gate must not erase `execution.result` just because:
+
+- the page is only one chunk of a larger count request
+- `additional_pages_needed` is true
+
+That behavior collapses a valid first page into an apparent total failure, which prevents:
+
+- planner accumulation
+- cursor advancement
+- final multi-page synthesis
+
+### Correct role split
+
+The correct ownership split is:
+
+- leaf summary worker: summarize one requested page/window
+- page review: validate groundedness and page/window accounting for that one window
+- outer `collection_summary` loop: decide whether another page is required for the run-level scope
+- outer planner and notes steps: synthesize accepted windows across the full requested scope
+
+In other words:
+
+- `grounded page summary` is enough to keep and accumulate
+- `full requested scope satisfied` is only required before final run-level completion
+
+This distinction should remain explicit in both the implementation and the documentation so future sufficiency-gate changes do not regress multi-page continuation.
+
 ### Count requests
 
 Example:

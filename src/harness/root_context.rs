@@ -206,7 +206,7 @@ pub fn build_tool_aware_query_context_window(
         selected_actor_did
             .map(search_hints_for_actor_did)
             .unwrap_or_else(|| {
-                "Use `llm_search` with a natural-language `query` when you need Bluesky-grounded evidence about a handle/user or about a broader topic. The harness will decide whether to look up actors, hydrate actor collections, or search Bluesky posts globally.".to_string()
+                "Use `search` with a natural-language `query` when you need selective Bluesky-grounded evidence about a handle/user or broader topic questions. Use `summary` for coverage-oriented requests like summarizing the last 50 posts by an actor.".to_string()
             }),
     );
 
@@ -242,7 +242,7 @@ pub fn build_tool_aware_query_context_window(
 fn search_hints_for_actor_did(did: &bsky_sdk::api::types::string::Did) -> String {
     let did = did.as_str();
     format!(
-        "The selected actor is {did}. Use `llm_search` with a natural-language `query` when you need grounded evidence about this actor or related topics. The harness may reuse cached actor collections, load more actor data, or search Bluesky posts globally as needed."
+        "The selected actor is {did}. Use `search` with a natural-language `query` when you need selective grounded evidence about this actor or related topics. Use `summary` when you need broad coverage such as summarizing the actor's recent posts or replies."
     )
 }
 

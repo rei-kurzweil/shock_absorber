@@ -355,9 +355,9 @@ fn legend_line() -> Line<'static> {
         ("  ", Color::Cyan, " task "),
         ("  ", Color::Rgb(245, 215, 95), " chat "),
         ("  ", Color::Rgb(242, 186, 92), " tool output "),
-        ("  ", Color::Rgb(226, 128, 168), " collected data"),
-        ("  ", Color::Rgb(244, 176, 205), " review"),
-        ("  ", Color::Rgb(215, 170, 120), " parent search results "),
+        ("  ", Color::Rgb(226, 128, 168), " collected data "),
+        ("  ", Color::Rgb(244, 176, 205), " review "),
+        ("  ", Color::Rgb(215, 170, 120), " parent results "),
         ("  ", Color::Rgb(80, 80, 80), " final 25% "),
         ("  ", Color::DarkGray, " unused "),
     ];

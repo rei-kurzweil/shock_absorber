@@ -4,19 +4,18 @@
 - agent_type: SummaryReviewAgent
 - agent_kind: SummaryReview
 - label: summary review
-- status: failed
+- status: completed
 - parent_agent_id: 2
 - child_agent_ids: <none>
 
 ## Result Summary
 
-status: fail
+status: pass
 grounded: true
-sufficient: false
-reason: collection_summary_notes produced a partial scope summary after considering 25 posts before exhaustion.
+sufficient: true
+reason: collection_summary_notes produced a final scope summary after considering 20 posts.
 repair_needed: false
-additional_pages_needed: true
-required_total_items: 50
+additional_pages_needed: false
 
 ## Context Window Stats
 
@@ -24,16 +23,16 @@ required_total_items: 50
 - model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
-- used_input_tokens: 641
+- used_input_tokens: 587
 - truncated: false
 
 ## Included Sections
 
-- Task [generic]: used 25 / estimated 25
+- Task [generic]: used 14 / estimated 14
 - Collection [generic]: used 51 / estimated 51
-- Requested Scope [generic]: used 13 / estimated 13
-- Coverage State [generic]: used 31 / estimated 31
-- Accepted Window Summaries [collection_evidence]: used 321 / estimated 321
+- Requested Scope [generic]: used 11 / estimated 11
+- Coverage State [generic]: used 30 / estimated 30
+- Accepted Window Summaries [collection_evidence]: used 281 / estimated 281
 
 ## Rendered Context Window
 
@@ -58,24 +57,23 @@ Rules:
 
 
 ## Task
-Summarize the last 50 posts, focusing on patterns, emotions, sentiment, and motivations.
+summarize this actor's 50 most recent posts
 
 ## Collection
-collection_id: recent_posts:did:plc:frudpt5kpurby7s7qdaz7zyw
-collection_label: Recent posts by did:plc:frudpt5kpurby7s7qdaz7zyw
-item_count: 100
-actor_did: did:plc:frudpt5kpurby7s7qdaz7zyw
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_label: Recent posts by did:plc:nynvpc2sqsiplptgs7uet4cv
+item_count: 20
+actor_did: did:plc:nynvpc2sqsiplptgs7uet4cv
 
 ## Requested Scope
-kind: count
-requested_items: 50
+kind: current_window
 
 ## Coverage State
-covered_window_offsets: 25
-covered_post_count: 25
-collection_total_items: 100
-source_exhausted: false
+covered_window_offsets: 0
+covered_post_count: 20
+collection_total_items: 20
+source_exhausted: true
 
 ## Accepted Window Summaries
-The recent posts heavily revolve around the development and capabilities of an AI harness, particularly in analyzing social media data from Bluesky. A major theme is the architecture of this harness, which utilizes tools like `llm_search` and `read_collection_item` to manage data retrieval, often caching information from Clear Sky and Blue Sky APIs. The author is actively working on improving this system, noting bottlenecks in how much 'signal reaches the user facing agent' and discussing the need for the harness to 'add and remove things from a context window' while delegating tasks to sub-agents. Specific technical discussions include the 'shock_absorber' premise for summarizing notifications, the integration of 'mittens/cat engine' for visualization, and the use of KeyFrame{} components for timed animations. Beyond the technical build, there is a focus on the *output* of the AI, questioning if a bot analysis would make users feel 'misunderstood,' and discussing the AI's ability to model 'situations and dramas.' Finally, there are lighter, more conversational points, such as noting that 'the rules don't just apply to humans' when discussing sexual organs, and a brief mention of a 'crazy list' being a personal conflict designation.
+The recent posts from lostjared.bsky.social heavily focus on a personal, passion-driven software project developed over the summer, centered around GPU and game programming. Key accomplishments include creating a new graphics and networking set of reusable libraries, culminating in a network playable game titled '3D Tetris,' which has since been expanded. This project utilizes a custom graphics engine named MXVK, described as the 'Vulkan evolution of the MX2 engine,' built from scratch using Vulkan 1.4 and SDL3. The developer also highlights related work, such as a 'mini 3D math library' and game demos like '3D Pong.' Beyond the core project, there are updates on versioning (e.g., 'Updated to v0.19.0' and 'v0.17.0 Full Doxygen documentation'), technical explorations like porting apps to MoltenVK for macOS, and creative coding pieces such as 'Tunnel of Encoded Light.' The author notes a preference for functional code over art, often using placeholder images for demos, and shares various visual outputs, including 'Artwork' and a video variation that 'looks much better in 4K.'
 ```

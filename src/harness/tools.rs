@@ -1,3 +1,4 @@
+use crate::harness::context_window_logger::append_debug_trace;
 use crate::harness::agents::{AgentNodeKind, AgentNodeStatus, AgentNodeTemplate};
 use crate::harness::context_window::{
     BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
@@ -20,9 +21,15 @@ use bsky_sdk::api::app::bsky::notification::list_notifications::Notification;
 use bsky_sdk::api::types::string::Did;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub use crate::harness::tool_call_parser::PromptToolCall;
+
+fn append_summary_trace(entry: impl AsRef<str>) {
+    let debug_base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let _ = append_debug_trace(&debug_base_dir, "summary_trace.md", entry.as_ref());
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolArgumentSpec {
@@ -64,8 +71,8 @@ impl ToolRegistry {
                 ],
             },
             ToolSpec {
-                name: "llm_search".to_string(),
-                description: "Search Bluesky at a high level, including looking up handles/users or searching posts by topic, then return grounded evidence anchored to real records.".to_string(),
+                name: "search".to_string(),
+                description: "Search Bluesky at a high level for selective grounded evidence about handles/users or broader topics.".to_string(),
                 arguments: vec![
                     ToolArgumentSpec {
                         name: "query".to_string(),
@@ -74,13 +81,29 @@ impl ToolRegistry {
                         required: true,
                     },
                 ],
-                when_to_use: "Use when you need Bluesky-grounded evidence about one or more handles/users, or about a broader topic that requires searching posts.".to_string(),
+                when_to_use: "Use when you need selective Bluesky-grounded evidence about one or more handles/users, or about a broader topic that requires searching posts.".to_string(),
                 notes: vec![
                     "The root agent only supplies the high-level query; the harness decides whether to do handle lookup, actor-centric collection search, or broader Bluesky post search.".to_string(),
                     "If the query names a handle or user, the search should anchor on that actor's profile and may inspect posts for grounding.".to_string(),
                     "If the query is topical rather than person-centric, the search may use Bluesky-wide post search and normalize the results into a collection before running narrower LLM search.".to_string(),
                     "When a collection contains structured fields such as `list_name` or `list_description`, use those exact fields as evidence instead of inventing new labels or categories.".to_string(),
                     "Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated themes from the matching items.".to_string(),
+                ],
+            },
+            ToolSpec {
+                name: "summary".to_string(),
+                description: "Summarize an actor-backed Bluesky collection with broad grounded coverage, such as the last 50 posts by a handle.".to_string(),
+                arguments: vec![ToolArgumentSpec {
+                    name: "query".to_string(),
+                    value_type: "string".to_string(),
+                    description: "The user's coverage-oriented summary request in natural language.".to_string(),
+                    required: true,
+                }],
+                when_to_use: "Use when the user explicitly asks for broad coverage such as summarizing recent posts, replies, pages, or the last N posts by an actor.".to_string(),
+                notes: vec![
+                    "The root agent only supplies the high-level query; the harness resolves the actor, hydrates the actor scope, picks the target collection, and delegates coverage work to `collection_summary`.".to_string(),
+                    "The first summary slice is actor-centric and defaults to the actor's `recent_posts` collection unless the query explicitly asks for replies or another collection target.".to_string(),
+                    "Returns a grounded coverage summary with covered item URIs and source-exhaustion metadata when applicable.".to_string(),
                 ],
             },
         ])
@@ -353,8 +376,8 @@ pub(crate) enum CollectionLeafToolKind {
 impl CollectionLeafToolKind {
     pub(crate) fn tool_name(self) -> &'static str {
         match self {
-            Self::Search => "search",
-            Self::Summary => "summary",
+            Self::Search => "collection_search",
+            Self::Summary => "collection_summary",
         }
     }
 
@@ -417,6 +440,98 @@ struct ResolvedActorRef {
     actor_ref: String,
     handle: String,
     did: Did,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ActorAnchorSource {
+    ExplicitQueryRef,
+    SelectedActorFallback,
+}
+
+impl ActorAnchorSource {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::ExplicitQueryRef => "explicit_query_ref",
+            Self::SelectedActorFallback => "selected_actor_fallback",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PreparedActorAnchor {
+    pub(crate) actor_ref: Option<String>,
+    pub(crate) actor_did: Did,
+    pub(crate) actor_handle: Option<String>,
+    pub(crate) source: ActorAnchorSource,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SummaryCollectionTargetHint {
+    RecentPosts,
+    Replies,
+    PinnedPosts,
+    Profile,
+}
+
+impl SummaryCollectionTargetHint {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::RecentPosts => "recent_posts",
+            Self::Replies => "recent_replies_received",
+            Self::PinnedPosts => "pinned_posts",
+            Self::Profile => "actor_profile",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PreparedSearchInput {
+    pub(crate) original_query: String,
+    pub(crate) actor_anchor: Option<PreparedActorAnchor>,
+    pub(crate) scope_hints: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PreparedSummaryInput {
+    pub(crate) original_query: String,
+    pub(crate) actor_anchor: PreparedActorAnchor,
+    pub(crate) requested_summary_scope: RequestedSummaryScope,
+    pub(crate) collection_target_hint: SummaryCollectionTargetHint,
+    pub(crate) collection_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PreparedPromptToolInput {
+    Search(PreparedSearchInput),
+    Summary(PreparedSummaryInput),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ToolPrepMissingPrerequisite {
+    Query,
+    ActorAnchor,
+    SummaryScope,
+    CollectionTarget,
+}
+
+impl ToolPrepMissingPrerequisite {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::ActorAnchor => "actor_anchor",
+            Self::SummaryScope => "summary_scope",
+            Self::CollectionTarget => "collection_target",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ToolPrepFailure {
+    pub(crate) tool_name: String,
+    pub(crate) attempt_count: usize,
+    pub(crate) missing: Vec<ToolPrepMissingPrerequisite>,
+    pub(crate) actor_anchor_source: Option<ActorAnchorSource>,
+    pub(crate) tried: Vec<String>,
 }
 
 pub(crate) struct CollectionToolOutcome {
@@ -625,6 +740,115 @@ impl BlueskyTools {
         ToolRegistry::harness_defaults()
     }
 
+    pub(crate) fn prepare_root_tool_input(
+        &self,
+        tool_call: &PromptToolCall,
+        selected_actor_did: Option<&Did>,
+        store: &NotificationStore,
+    ) -> Result<PreparedPromptToolInput, ToolPrepFailure> {
+        match tool_call.name.as_str() {
+            "search" => {
+                let query = require_string_arg(&tool_call.args, "query")
+                    .map_err(|_| ToolPrepFailure {
+                        tool_name: "search".to_string(),
+                        attempt_count: 1,
+                        missing: vec![ToolPrepMissingPrerequisite::Query],
+                        actor_anchor_source: None,
+                        tried: vec!["validate_query".to_string()],
+                    })?;
+                let actor_anchor =
+                    resolve_prepared_actor_anchor(&query, selected_actor_did, store);
+                let mut scope_hints = Vec::new();
+                if let Some(anchor) = actor_anchor.as_ref() {
+                    scope_hints.push(format!("prepared_actor_did: {}", anchor.actor_did.as_str()));
+                    if let Some(handle) = anchor.actor_handle.as_deref() {
+                        scope_hints.push(format!("prepared_actor_handle: {handle}"));
+                    }
+                    scope_hints.push(format!(
+                        "prepared_actor_anchor_source: {}",
+                        anchor.source.as_str()
+                    ));
+                }
+                Ok(PreparedPromptToolInput::Search(PreparedSearchInput {
+                    original_query: query,
+                    actor_anchor,
+                    scope_hints,
+                }))
+            }
+            "summary" => {
+                let query = require_string_arg(&tool_call.args, "query")
+                    .map_err(|_| ToolPrepFailure {
+                        tool_name: "summary".to_string(),
+                        attempt_count: 1,
+                        missing: vec![ToolPrepMissingPrerequisite::Query],
+                        actor_anchor_source: None,
+                        tried: vec!["validate_query".to_string()],
+                    })?;
+                let requested_summary_scope = detect_requested_summary_scope(&query);
+                let collection_target_hint = detect_summary_collection_target_hint(&query);
+                let Some(actor_anchor) =
+                    resolve_prepared_actor_anchor(&query, selected_actor_did, store)
+                else {
+                    return Err(ToolPrepFailure {
+                        tool_name: "summary".to_string(),
+                        attempt_count: 1,
+                        missing: vec![ToolPrepMissingPrerequisite::ActorAnchor],
+                        actor_anchor_source: None,
+                        tried: vec![
+                            "resolve_explicit_actor_ref".to_string(),
+                            "resolve_selected_actor_fallback".to_string(),
+                        ],
+                    });
+                };
+                let collection_id = self
+                    .select_summary_collection_for_hint(
+                        store,
+                        &actor_anchor.actor_did,
+                        &collection_target_hint,
+                    )
+                    .map(|collection| collection.id);
+                let Some(collection_id) = collection_id else {
+                    return Err(ToolPrepFailure {
+                        tool_name: "summary".to_string(),
+                        attempt_count: 1,
+                        missing: vec![ToolPrepMissingPrerequisite::CollectionTarget],
+                        actor_anchor_source: Some(actor_anchor.source.clone()),
+                        tried: vec![
+                            format!("resolve_actor_anchor: {}", actor_anchor.actor_did.as_str()),
+                            format!(
+                                "select_collection_target_hint: {}",
+                                collection_target_hint.as_str()
+                            ),
+                        ],
+                    });
+                };
+                Ok(PreparedPromptToolInput::Summary(PreparedSummaryInput {
+                    original_query: query,
+                    actor_anchor,
+                    requested_summary_scope,
+                    collection_target_hint,
+                    collection_id,
+                }))
+            }
+            other => Err(ToolPrepFailure {
+                tool_name: other.to_string(),
+                attempt_count: 1,
+                missing: Vec::new(),
+                actor_anchor_source: None,
+                tried: vec!["unsupported_tool".to_string()],
+            }),
+        }
+    }
+
+    pub(crate) fn prepared_actor_anchor(
+        prepared_input: &PreparedPromptToolInput,
+    ) -> Option<&PreparedActorAnchor> {
+        match prepared_input {
+            PreparedPromptToolInput::Search(prepared) => prepared.actor_anchor.as_ref(),
+            PreparedPromptToolInput::Summary(prepared) => Some(&prepared.actor_anchor),
+        }
+    }
+
     pub fn render_tool_inventory(&self) -> String {
         self.tool_registry().render_for_prompt()
     }
@@ -645,24 +869,51 @@ impl BlueskyTools {
         llm_client: &LlmApiClient,
         observer: Option<UnboundedSender<ToolProgressEvent>>,
     ) -> Result<ToolExecutionOutput, Box<dyn std::error::Error>> {
+        self.execute_prepared_prompt_tool_call(
+            tool_call,
+            None,
+            selected_notification,
+            agent,
+            store,
+            llm_client,
+            observer,
+        )
+        .await
+    }
+
+    pub async fn execute_prepared_prompt_tool_call(
+        &self,
+        tool_call: &PromptToolCall,
+        prepared_input: Option<&PreparedPromptToolInput>,
+        selected_notification: Option<&Notification>,
+        agent: &BskyAgent,
+        store: &mut NotificationStore,
+        llm_client: &LlmApiClient,
+        observer: Option<UnboundedSender<ToolProgressEvent>>,
+    ) -> Result<ToolExecutionOutput, Box<dyn std::error::Error>> {
         match tool_call.name.as_str() {
             "read_selected_post" => Ok(ToolExecutionOutput {
                 rendered: self.read_selected_post(selected_notification),
                 context_windows: Vec::new(),
                 agent_node: None,
             }),
-            "llm_search" => {
+            "search" => {
                 let query = require_string_arg(&tool_call.args, "query")?;
                 if let Some(observer) = observer.as_ref() {
                     let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                        label: "llm_search tool agent".to_string(),
+                        label: "search tool agent".to_string(),
                         depth: 1,
                         content: format!("query:\n{query}\n\nstatus: running"),
                     });
                 }
+                let prepared_search = match prepared_input {
+                    Some(PreparedPromptToolInput::Search(prepared)) => Some(prepared.clone()),
+                    _ => None,
+                };
                 let (rendered, outcomes) = self
-                    .execute_internal_llm_search(
+                    .execute_internal_search(
                         &query,
+                        prepared_search.as_ref(),
                         selected_notification,
                         agent,
                         store,
@@ -672,7 +923,7 @@ impl BlueskyTools {
                     .await?;
                 if let Some(observer) = observer.as_ref() {
                     let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                        label: "llm_search tool agent".to_string(),
+                        label: "search tool agent".to_string(),
                         depth: 1,
                         content: format!(
                             "status: completed\n\nsummary:\n{}",
@@ -686,22 +937,75 @@ impl BlueskyTools {
                         .iter()
                         .filter_map(|outcome| match outcome.execution.as_ref() {
                             Ok(execution) => Some(ToolContextWindow {
-                                title: format!("llm_search: {}", outcome.collection_label),
+                                title: format!("search: {}", outcome.collection_label),
                                 window: execution.context_window.clone(),
                             }),
                             Err(_) => None,
                         })
                         .collect(),
-                    agent_node: Some(build_llm_search_agent_node(&query, &outcomes, llm_client)),
+                    agent_node: Some(build_search_agent_node(&query, &outcomes, llm_client)),
+                })
+            }
+            "summary" => {
+                let query = require_string_arg(&tool_call.args, "query")?;
+                let prepared_summary = match prepared_input {
+                    Some(PreparedPromptToolInput::Summary(prepared)) => Some(prepared.clone()),
+                    _ => None,
+                };
+                let summary_input = if let Some(prepared) = prepared_summary.as_ref() {
+                    prepared
+                } else {
+                    return Err("summary requires a prepared actor-backed input".into());
+                };
+                if let Some(observer) = observer.as_ref() {
+                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                        label: "summary tool agent".to_string(),
+                        depth: 1,
+                        content: format!("query:\n{query}\n\nstatus: running"),
+                    });
+                }
+                let (rendered, outcomes) = self
+                    .execute_public_summary(
+                        summary_input,
+                        agent,
+                        store,
+                        llm_client,
+                        observer.clone(),
+                    )
+                    .await?;
+                if let Some(observer) = observer.as_ref() {
+                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                        label: "summary tool agent".to_string(),
+                        depth: 1,
+                        content: format!(
+                            "status: completed\n\nsummary:\n{}",
+                            summarize_progress_text(&rendered)
+                        ),
+                    });
+                }
+                Ok(ToolExecutionOutput {
+                    rendered,
+                    context_windows: outcomes
+                        .iter()
+                        .filter_map(|outcome| match outcome.execution.as_ref() {
+                            Ok(execution) => Some(ToolContextWindow {
+                                title: format!("summary: {}", outcome.collection_label),
+                                window: execution.context_window.clone(),
+                            }),
+                            Err(_) => None,
+                        })
+                        .collect(),
+                    agent_node: Some(build_summary_agent_node(&query, &outcomes, llm_client)),
                 })
             }
             other => Err(format!("unknown tool `{other}`").into()),
         }
     }
 
-    async fn execute_internal_llm_search(
+    async fn execute_internal_search(
         &self,
         query: &str,
+        prepared_input: Option<&PreparedSearchInput>,
         selected_notification: Option<&Notification>,
         agent: &BskyAgent,
         store: &mut NotificationStore,
@@ -710,7 +1014,21 @@ impl BlueskyTools {
     ) -> Result<(String, Vec<CollectionToolOutcome>), Box<dyn std::error::Error>> {
         let search_intent = classify_search_intent(query);
         let requested_summary_scope = detect_requested_summary_scope(query);
-        let resolved_actor_refs = if let Some(actor_refs) = detect_actor_refs(query) {
+        let resolved_actor_refs = if let Some(prepared_actor) =
+            prepared_input.and_then(|input| input.actor_anchor.as_ref())
+        {
+            Some(vec![ResolvedActorRef {
+                actor_ref: prepared_actor
+                    .actor_ref
+                    .clone()
+                    .unwrap_or_else(|| prepared_actor.actor_did.as_str().to_string()),
+                handle: prepared_actor
+                    .actor_handle
+                    .clone()
+                    .unwrap_or_else(|| prepared_actor.actor_did.as_str().to_string()),
+                did: prepared_actor.actor_did.clone(),
+            }])
+        } else if let Some(actor_refs) = detect_actor_refs(query) {
             Some(self.resolve_actor_refs(agent, store, &actor_refs).await?)
         } else {
             None
@@ -725,6 +1043,12 @@ impl BlueskyTools {
             )
         } else if let Some(post_uri) = detect_post_uri(query) {
             format!("detected_post_uri: {post_uri}")
+        } else if let Some(prepared_input) = prepared_input {
+            if prepared_input.scope_hints.is_empty() {
+                "No actor refs detected from the query. Use `search_global_posts` if you need a Bluesky-wide topical search.".to_string()
+            } else {
+                prepared_input.scope_hints.join("\n")
+            }
         } else {
             "No actor refs detected from the query. Use `search_global_posts` if you need a Bluesky-wide topical search.".to_string()
         };
@@ -734,8 +1058,8 @@ impl BlueskyTools {
                 role: "system".to_string(),
                 content: format!(
                     "{}\n\n{}",
-                    AgentKind::LlmSearch.system_prompt(),
-                    render_internal_llm_search_tool_protocol()
+                    AgentKind::Search.system_prompt(),
+                    render_internal_search_tool_protocol()
                 ),
             },
             ChatMessage {
@@ -773,7 +1097,7 @@ impl BlueskyTools {
                     ));
                     if let Some(observer) = observer.as_ref() {
                         let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                            label: "llm_search planner".to_string(),
+                            label: "search planner".to_string(),
                             depth: 2,
                             content: diagnostic.clone(),
                         });
@@ -811,14 +1135,14 @@ impl BlueskyTools {
                 ));
                 if let Some(observer) = observer.as_ref() {
                     let _ = observer.send(ToolProgressEvent::AgentUpdate {
-                        label: "llm_search planner".to_string(),
+                        label: "search planner".to_string(),
                         depth: 2,
                         content: diagnostic,
                     });
                 }
             }
 
-            let accepted_tool_call = match validate_internal_llm_search_tool_call(
+            let accepted_tool_call = match validate_internal_search_tool_call(
                 &accepted_tool_call.tool_call,
             ) {
                 Ok(_) => accepted_tool_call,
@@ -852,7 +1176,7 @@ impl BlueskyTools {
                         resolved_actor_refs.as_deref(),
                     );
                     match self
-                        .repair_invalid_internal_llm_search_tool_call(
+                        .repair_invalid_internal_search_tool_call(
                             query,
                             search_intent,
                             requested_summary_scope,
@@ -881,7 +1205,7 @@ impl BlueskyTools {
                         None => {
                             consecutive_invalid_tool_calls += 1;
                             if let Some(repaired_tool_call) =
-                                deterministic_repair_internal_llm_search_tool_call(
+                                deterministic_repair_internal_search_tool_call(
                                     &accepted_tool_call.tool_call,
                                     query,
                                     search_intent,
@@ -956,80 +1280,53 @@ impl BlueskyTools {
                     )
                     .await?
                 }
-                "search" | "summary" => {
-                    let tool_kind = if tool_call.name == "summary" {
-                        CollectionLeafToolKind::Summary
-                    } else {
-                        CollectionLeafToolKind::Search
-                    };
+                "collection_search" => {
+                    let tool_kind = CollectionLeafToolKind::Search;
                     let collection_id = require_string_arg(&tool_call.args, "collection_id")?;
                     let prompt = require_string_arg(&tool_call.args, "prompt")?;
-                    let offset = if tool_kind == CollectionLeafToolKind::Summary {
-                        summary_scope_initial_offset(requested_summary_scope)
-                    } else {
-                        collection_search_offset(&tool_call.args)?
-                    };
-                    let dedupe_key = if tool_kind == CollectionLeafToolKind::Summary {
-                        format!("summary:{collection_id}:scope_loop")
-                    } else {
-                        format!("{}:{collection_id}:{offset}", tool_kind.tool_name())
-                    };
+                    let offset = collection_search_offset(&tool_call.args)?;
+                    let dedupe_key = format!("{}:{collection_id}:{offset}", tool_kind.tool_name());
                     if !searched_collection_keys.insert(dedupe_key) {
                         format!(
-                            "collection_id: {collection_id}\nstatus: skipped\nreason: this exact collection window was already processed in this llm_search run"
+                            "collection_id: {collection_id}\nstatus: skipped\nreason: this exact collection window was already processed in this search run"
                         )
                     } else {
                         let collection = self
                             .resolve_collection_by_id(store, &collection_id)
                             .ok_or_else(|| format!("unknown collection `{collection_id}`"))?;
-                        if tool_kind == CollectionLeafToolKind::Summary {
-                            let mut summary_outcomes = self
-                                .run_collection_summary_loop(
-                                    &collection,
-                                    &prompt,
-                                    requested_summary_scope,
-                                    llm_client,
-                                    observer.clone(),
+                        let collection = paged_search_collection(
+                            &collection,
+                            offset,
+                            COLLECTION_SEARCH_PAGE_SIZE,
+                        );
+                        let mut collection_outcomes = self
+                            .run_collection_tools(
+                                tool_kind,
+                                &[collection],
+                                &prompt,
+                                requested_summary_scope,
+                                llm_client,
+                                observer.clone(),
+                            )
+                            .await;
+                        let outcome = collection_outcomes
+                            .pop()
+                            .ok_or("missing collection tool outcome")?;
+                        let rendered = match outcome.execution.as_ref() {
+                            Ok(execution) => render_collection_outcome_result(
+                                outcome.tool_kind,
+                                &outcome.collection_id,
+                                &outcome.collection_label,
+                                execution,
+                            ),
+                            Err(err) => {
+                                format!(
+                                    "collection_id: {collection_id}\nstatus: failed\nerror: {err}"
                                 )
-                                .await;
-                            let rendered = render_summary_collection_loop_result(&summary_outcomes);
-                            outcomes.append(&mut summary_outcomes);
-                            rendered
-                        } else {
-                            let collection = paged_search_collection(
-                                &collection,
-                                offset,
-                                COLLECTION_SEARCH_PAGE_SIZE,
-                            );
-                            let mut collection_outcomes = self
-                                .run_collection_tools(
-                                    tool_kind,
-                                    &[collection],
-                                    &prompt,
-                                    requested_summary_scope,
-                                    llm_client,
-                                    observer.clone(),
-                                )
-                                .await;
-                            let outcome = collection_outcomes
-                                .pop()
-                                .ok_or("missing collection tool outcome")?;
-                            let rendered = match outcome.execution.as_ref() {
-                                Ok(execution) => render_collection_outcome_result(
-                                    outcome.tool_kind,
-                                    &outcome.collection_id,
-                                    &outcome.collection_label,
-                                    execution,
-                                ),
-                                Err(err) => {
-                                    format!(
-                                        "collection_id: {collection_id}\nstatus: failed\nerror: {err}"
-                                    )
-                                }
-                            };
-                            outcomes.push(outcome);
-                            rendered
-                        }
+                            }
+                        };
+                        outcomes.push(outcome);
+                        rendered
                     }
                 }
                 "search_global_posts" => {
@@ -1043,7 +1340,7 @@ impl BlueskyTools {
                     .await?
                 }
                 other => {
-                    format!("Tool execution failed: unknown internal llm_search tool `{other}`")
+                    format!("Tool execution failed: unknown internal search tool `{other}`")
                 }
             };
 
@@ -1078,48 +1375,19 @@ impl BlueskyTools {
                     selected_notification,
                 )
                 .await?;
-            let requested_summary_scope = detect_requested_summary_scope(query);
-            if should_prefer_summary_fallback(query, requested_summary_scope) {
-                if let Some(summary_collection) =
-                    pick_summary_fallback_collection(&collections, query)
-                {
-                    outcomes = self
-                        .run_collection_tools(
-                            CollectionLeafToolKind::Summary,
-                            &[summary_collection],
-                            query,
-                            requested_summary_scope,
-                            llm_client,
-                            observer.clone(),
-                        )
-                        .await;
-                } else {
-                    outcomes = self
-                        .run_collection_tools(
-                            CollectionLeafToolKind::Search,
-                            &collections,
-                            query,
-                            RequestedSummaryScope::CurrentWindow,
-                            llm_client,
-                            observer.clone(),
-                        )
-                        .await;
-                }
-            } else {
-                outcomes = self
-                    .run_collection_tools(
-                        CollectionLeafToolKind::Search,
-                        &collections,
-                        query,
-                        RequestedSummaryScope::CurrentWindow,
-                        llm_client,
-                        observer.clone(),
-                    )
-                    .await;
-            }
+            outcomes = self
+                .run_collection_tools(
+                    CollectionLeafToolKind::Search,
+                    &collections,
+                    query,
+                    RequestedSummaryScope::CurrentWindow,
+                    llm_client,
+                    observer.clone(),
+                )
+                .await;
         }
 
-        let rendered = render_combined_llm_search_results_with_summary(
+        let rendered = render_combined_search_results_with_summary(
             &outcomes,
             final_summary.as_deref(),
             &diagnostics,
@@ -1127,7 +1395,194 @@ impl BlueskyTools {
         Ok((rendered, outcomes))
     }
 
-    async fn repair_invalid_internal_llm_search_tool_call(
+    async fn execute_public_summary(
+        &self,
+        prepared_input: &PreparedSummaryInput,
+        agent: &BskyAgent,
+        store: &mut NotificationStore,
+        llm_client: &LlmApiClient,
+        observer: Option<UnboundedSender<ToolProgressEvent>>,
+    ) -> Result<(String, Vec<CollectionToolOutcome>), Box<dyn std::error::Error>> {
+        let query = prepared_input.original_query.as_str();
+        let actor_anchor = &prepared_input.actor_anchor;
+        append_summary_trace(format!(
+            "[execute_public_summary]\nstatus: start\nquery: {query}\nactor_anchor_did: {}\nactor_anchor_source: {}",
+            actor_anchor.actor_did.as_str(),
+            actor_anchor.source.as_str()
+        ));
+        if let Some(observer) = observer.as_ref() {
+            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                label: "summary_scope_resolution".to_string(),
+                depth: 2,
+                content: format!(
+                    "status: running\nquery: {query}\nactor_anchor_did: {}\nactor_anchor_source: {}",
+                    actor_anchor.actor_did.as_str(),
+                    actor_anchor.source.as_str()
+                ),
+            });
+        }
+        append_summary_trace(format!(
+            "[execute_public_summary]\nstatus: actor_resolved\nactor_handle: {}\nactor_did: {}",
+            actor_anchor
+                .actor_handle
+                .as_deref()
+                .unwrap_or(actor_anchor.actor_did.as_str()),
+            actor_anchor.actor_did.as_str()
+        ));
+        if let Some(observer) = observer.as_ref() {
+            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                label: "resolve_actor_refs".to_string(),
+                depth: 2,
+                content: format!(
+                    "status: completed\n\nsummary:\n{}",
+                    summarize_progress_text(&format!(
+                        "actor_ref: {}\nhandle: {}\ndid: {}",
+                        actor_anchor
+                            .actor_ref
+                            .as_deref()
+                            .unwrap_or(actor_anchor.actor_did.as_str()),
+                        actor_anchor
+                            .actor_handle
+                            .as_deref()
+                            .unwrap_or(actor_anchor.actor_did.as_str()),
+                        actor_anchor.actor_did.as_str()
+                    ))
+                ),
+            });
+            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                label: "summary_scope_resolution".to_string(),
+                depth: 2,
+                content: format!(
+                    "status: resolved\nactor_handle: {}\nactor_did: {}",
+                    actor_anchor
+                        .actor_handle
+                        .as_deref()
+                        .unwrap_or(actor_anchor.actor_did.as_str()),
+                    actor_anchor.actor_did.as_str()
+                ),
+            });
+        }
+
+        let hydrate_args = summary_hydration_args_for_hint(&prepared_input.collection_target_hint);
+        append_summary_trace(format!(
+            "[execute_public_summary]\nstatus: hydrate_start\nactor_did: {}\nhydrate_args: {}",
+            actor_anchor.actor_did.as_str(),
+            serde_json::to_string_pretty(&hydrate_args)
+                .unwrap_or_else(|_| hydrate_args.to_string())
+        ));
+        if let Some(observer) = observer.as_ref() {
+            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                label: "summary_scope_hydration".to_string(),
+                depth: 2,
+                content: format!(
+                    "status: running\nactor_did: {}\nhydrate_args: {}",
+                    actor_anchor.actor_did.as_str(),
+                    serde_json::to_string_pretty(&hydrate_args)
+                        .unwrap_or_else(|_| hydrate_args.to_string())
+                ),
+            });
+        }
+        let _ = self
+            .execute_internal_hydrate_actor_scope(
+                &actor_anchor.actor_did,
+                agent,
+                store,
+                &hydrate_args,
+                observer.clone(),
+            )
+            .await?;
+        let actor_collections = self.collections_for_actor(store, &actor_anchor.actor_did);
+        append_summary_trace(format!(
+            "[execute_public_summary]\nstatus: hydrate_complete\nactor_did: {}\ncollection_count: {}\ncollections:\n{}",
+            actor_anchor.actor_did.as_str(),
+            actor_collections.len(),
+            if actor_collections.is_empty() {
+                "<none>".to_string()
+            } else {
+                actor_collections
+                    .iter()
+                    .map(|collection| format!(
+                        "{} | kind={} | posts={}",
+                        collection.id, collection.collection_kind, collection.posts.len()
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        ));
+        if let Some(observer) = observer.as_ref() {
+            let collection_summary = if actor_collections.is_empty() {
+                "<none>".to_string()
+            } else {
+                actor_collections
+                    .iter()
+                    .map(|collection| {
+                        format!(
+                            "{} | kind={} | posts={}",
+                            collection.id,
+                            collection.collection_kind,
+                            collection.posts.len()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                label: "summary_scope_hydration".to_string(),
+                depth: 2,
+                content: format!(
+                    "status: completed\nactor_did: {}\ncollection_count: {}\ncollections:\n{}",
+                    actor_anchor.actor_did.as_str(),
+                    actor_collections.len(),
+                    collection_summary
+                ),
+            });
+        }
+
+        let collection = self
+            .resolve_collection_by_id(store, &prepared_input.collection_id)
+            .ok_or("summary could not find a hydrated actor-backed collection to summarize")?;
+        let requested_summary_scope = prepared_input.requested_summary_scope;
+        append_summary_trace(format!(
+            "[execute_public_summary]\nstatus: collection_selected\ncollection_id: {}\ncollection_label: {}\ncollection_kind: {}\npost_count: {}\nrequested_scope: {:?}",
+            collection.id,
+            collection.label,
+            collection.collection_kind,
+            collection.posts.len(),
+            requested_summary_scope
+        ));
+        if let Some(observer) = observer.as_ref() {
+            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                label: "summary_collection_selection".to_string(),
+                depth: 2,
+                content: format!(
+                    "status: selected\ncollection_id: {}\ncollection_label: {}\ncollection_kind: {}\npost_count: {}\nrequested_scope: {:?}",
+                    collection.id,
+                    collection.label,
+                    collection.collection_kind,
+                    collection.posts.len(),
+                    requested_summary_scope
+                ),
+            });
+        }
+        let outcomes = self
+            .run_collection_summary_loop(
+                &collection,
+                query,
+                requested_summary_scope,
+                llm_client,
+                observer,
+            )
+            .await;
+        append_summary_trace(format!(
+            "[execute_public_summary]\nstatus: loop_finished\noutcome_count: {}\nrendered:\n{}",
+            outcomes.len(),
+            render_summary_collection_loop_result(&outcomes)
+        ));
+        let rendered = render_summary_collection_loop_result(&outcomes);
+        Ok((rendered, outcomes))
+    }
+
+    async fn repair_invalid_internal_search_tool_call(
         &self,
         query: &str,
         search_intent: SearchIntent,
@@ -1166,7 +1621,7 @@ impl BlueskyTools {
 
         let repaired = match repaired {
             Ok(Some(repaired_tool_call)) => {
-                match validate_internal_llm_search_tool_call(&repaired_tool_call.tool_call) {
+                match validate_internal_search_tool_call(&repaired_tool_call.tool_call) {
                     Ok(_) => {
                         if let Some(observer) = observer.as_ref() {
                             let _ = observer.send(ToolProgressEvent::AgentUpdate {
@@ -1263,7 +1718,7 @@ impl BlueskyTools {
             .find(|post| post.uri == item_uri)
             .ok_or_else(|| {
                 let hint = if collection.collection_kind == "clearsky_lists" {
-                    " `clearsky_lists` items are keyed by their exact stored list URL, not by inferred AT URIs. Use `llm_search` for moderation-list questions, or reuse an exact `search_result_*_uri` from a prior tool result."
+                    " `clearsky_lists` items are keyed by their exact stored list URL, not by inferred AT URIs. Use `search` for moderation-list questions, or reuse an exact `search_result_*_uri` from a prior tool result."
                 } else {
                     " Reuse an exact `search_result_*_uri` or `selected_result_uri` from a prior tool result; do not invent an item URI."
                 };
@@ -1505,6 +1960,26 @@ impl BlueskyTools {
         }
         collections.sort_by(|left, right| left.id.cmp(&right.id));
         collections
+    }
+
+    fn select_summary_collection(
+        &self,
+        store: &NotificationStore,
+        actor_did: &Did,
+        query: &str,
+    ) -> Option<LabeledPostCollection> {
+        let collections = self.collections_for_actor(store, actor_did);
+        pick_summary_fallback_collection(&collections, query)
+    }
+
+    fn select_summary_collection_for_hint(
+        &self,
+        store: &NotificationStore,
+        actor_did: &Did,
+        hint: &SummaryCollectionTargetHint,
+    ) -> Option<LabeledPostCollection> {
+        let collections = self.collections_for_actor(store, actor_did);
+        pick_summary_collection_for_hint(&collections, hint)
     }
 
     async fn collections_for_actor_refs(
@@ -1890,6 +2365,7 @@ impl BlueskyTools {
         let mut lines = vec![format!("actor_did: {}", actor_did.as_str())];
 
         if include_profile {
+            let _ = ensure_actor_profile_cached(agent, store, actor_did.as_str()).await?;
             let collection_id = format!("actor_profile:{}", actor_did.as_str());
             let collection = self
                 .resolve_collection_by_id(store, &collection_id)
@@ -2109,6 +2585,31 @@ fn detect_actor_refs(query: &str) -> Option<Vec<String>> {
     }
 }
 
+fn resolve_prepared_actor_anchor(
+    query: &str,
+    selected_actor_did: Option<&Did>,
+    store: &NotificationStore,
+) -> Option<PreparedActorAnchor> {
+    if let Some(actor_ref) = detect_actor_refs(query).and_then(|refs| refs.into_iter().next()) {
+        return store
+            .find_did(&actor_ref)
+            .or_else(|| actor_ref.parse().ok())
+            .map(|actor_did| PreparedActorAnchor {
+                actor_ref: Some(actor_ref),
+                actor_handle: store.get_handle(&actor_did).map(str::to_string),
+                actor_did,
+                source: ActorAnchorSource::ExplicitQueryRef,
+            });
+    }
+
+    selected_actor_did.map(|actor_did| PreparedActorAnchor {
+        actor_ref: store.get_handle(actor_did).map(str::to_string),
+        actor_handle: store.get_handle(actor_did).map(str::to_string),
+        actor_did: actor_did.clone(),
+        source: ActorAnchorSource::SelectedActorFallback,
+    })
+}
+
 fn detect_post_uri(query: &str) -> Option<String> {
     query.split_whitespace().find_map(|raw| {
         let trimmed = raw.trim_matches(|ch: char| {
@@ -2201,17 +2702,44 @@ fn pick_summary_fallback_collection(
     collections: &[LabeledPostCollection],
     query: &str,
 ) -> Option<LabeledPostCollection> {
+    let hint = detect_summary_collection_target_hint(query);
+    pick_summary_collection_for_hint(collections, &hint).or_else(|| collections.first().cloned())
+}
+
+fn summary_hydration_args(query: &str) -> Value {
+    let hint = detect_summary_collection_target_hint(query);
+    summary_hydration_args_for_hint(&hint)
+}
+
+fn detect_summary_collection_target_hint(query: &str) -> SummaryCollectionTargetHint {
     let lower = query.to_ascii_lowercase();
-    let preferred_kinds = if lower.contains("repl") {
-        [
-            "recent_replies_sent",
-            "recent_posts",
-            "recent_replies_received",
-            "replies_to_actor",
-        ]
-        .as_slice()
+    if lower.contains("repl") {
+        SummaryCollectionTargetHint::Replies
+    } else if lower.contains("pinned") {
+        SummaryCollectionTargetHint::PinnedPosts
+    } else if lower.contains("profile") || lower.contains("bio") || lower.contains("who is") {
+        SummaryCollectionTargetHint::Profile
     } else {
-        ["recent_posts", "recent_posts_unaddressed", "pinned_posts"].as_slice()
+        SummaryCollectionTargetHint::RecentPosts
+    }
+}
+
+fn pick_summary_collection_for_hint(
+    collections: &[LabeledPostCollection],
+    hint: &SummaryCollectionTargetHint,
+) -> Option<LabeledPostCollection> {
+    let preferred_kinds: &[&str] = match hint {
+        SummaryCollectionTargetHint::Replies => &[
+            "recent_replies_received",
+            "recent_replies_sent",
+            "replies_to_actor",
+            "recent_posts",
+        ],
+        SummaryCollectionTargetHint::PinnedPosts => &["pinned_posts", "recent_posts"],
+        SummaryCollectionTargetHint::Profile => &["actor_profile", "recent_posts"],
+        SummaryCollectionTargetHint::RecentPosts => {
+            &["recent_posts", "recent_posts_unaddressed", "pinned_posts"]
+        }
     };
 
     preferred_kinds
@@ -2219,10 +2747,33 @@ fn pick_summary_fallback_collection(
         .find_map(|kind| {
             collections
                 .iter()
-                .find(|collection| collection.id.starts_with(kind))
+                .find(|collection| collection.collection_kind == *kind || collection.id.starts_with(kind))
         })
         .cloned()
-        .or_else(|| collections.first().cloned())
+}
+
+fn summary_hydration_args_for_hint(hint: &SummaryCollectionTargetHint) -> Value {
+    match hint {
+        SummaryCollectionTargetHint::Replies => serde_json::json!({
+            "include_recent_replies_received": true,
+            "include_recent_posts": true,
+            "include_profile": true
+        }),
+        SummaryCollectionTargetHint::PinnedPosts => serde_json::json!({
+            "include_recent_posts": true,
+            "include_pinned_posts": true,
+            "include_profile": true
+        }),
+        SummaryCollectionTargetHint::Profile => serde_json::json!({
+            "include_profile": true,
+            "include_recent_posts": true
+        }),
+        SummaryCollectionTargetHint::RecentPosts => serde_json::json!({
+            "include_recent_posts": true,
+            "include_pinned_posts": true,
+            "include_profile": true
+        }),
+    }
 }
 
 fn preferred_collection_order_hint(intent: SearchIntent) -> &'static str {
@@ -2257,7 +2808,7 @@ fn validate_internal_tool_response(response: &str) -> InternalToolResponse {
     })
 }
 
-fn validate_internal_llm_search_tool_call(
+fn validate_internal_search_tool_call(
     tool_call: &PromptToolCall,
 ) -> Result<PromptToolCall, String> {
     match tool_call.name.as_str() {
@@ -2267,18 +2818,12 @@ fn validate_internal_llm_search_tool_call(
         "hydrate_actor_scope" => {
             parse_did_arg(&tool_call.args, "actor_did").map_err(|err| err.to_string())?;
         }
-        "search" => {
+        "collection_search" => {
             let collection_id = require_string_arg(&tool_call.args, "collection_id")
                 .map_err(|err| err.to_string())?;
             require_string_arg(&tool_call.args, "prompt").map_err(|err| err.to_string())?;
             optional_usize_arg(&tool_call.args, "page").map_err(|err| err.to_string())?;
             optional_usize_arg(&tool_call.args, "offset").map_err(|err| err.to_string())?;
-            validate_collection_id(&collection_id)?;
-        }
-        "summary" => {
-            let collection_id = require_string_arg(&tool_call.args, "collection_id")
-                .map_err(|err| err.to_string())?;
-            require_string_arg(&tool_call.args, "prompt").map_err(|err| err.to_string())?;
             validate_collection_id(&collection_id)?;
         }
         "search_global_posts" => {
@@ -2300,7 +2845,7 @@ async fn complete_internal_tool_call_repair(
     validation_error: &str,
     llm_client: &LlmApiClient,
 ) -> Result<Option<AcceptedInternalToolCall>, Box<dyn std::error::Error>> {
-    let rendered_tool_inventory = render_internal_llm_search_tool_protocol();
+    let rendered_tool_inventory = render_internal_search_tool_protocol();
     let rendered_collections = render_repair_collection_inventory(available_collections);
     let rendered_actors = render_resolved_actor_refs(resolved_actor_refs);
     let parsed_args = serde_json::to_string_pretty(&invalid_tool_call.tool_call.args)?;
@@ -2309,7 +2854,7 @@ async fn complete_internal_tool_call_repair(
             vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: "You repair one invalid internal `llm_search` tool call. Use the supplied runtime context to either return exactly one corrected TOOL_CALL block or the exact token `CANNOT_REPAIR`. Do not add prose. Do not invent actors, collection ids, tool names, or paging semantics. Only use exact collection ids from the provided inventory.".to_string(),
+                    content: "You repair one invalid internal `search` tool call. Use the supplied runtime context to either return exactly one corrected TOOL_CALL block or the exact token `CANNOT_REPAIR`. Do not add prose. Do not invent actors, collection ids, tool names, or paging semantics. Only use exact collection ids from the provided inventory.".to_string(),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -2399,13 +2944,13 @@ fn render_repair_collection_inventory(collections: &[LabeledPostCollection]) -> 
         .join("\n\n")
 }
 
-fn deterministic_repair_internal_llm_search_tool_call(
+fn deterministic_repair_internal_search_tool_call(
     tool_call: &PromptToolCall,
     query: &str,
     search_intent: SearchIntent,
     available_collections: &[LabeledPostCollection],
 ) -> Option<PromptToolCall> {
-    if !matches!(tool_call.name.as_str(), "search" | "summary") {
+    if tool_call.name != "collection_search" {
         return None;
     }
 
@@ -2422,7 +2967,7 @@ fn deterministic_repair_internal_llm_search_tool_call(
     )?;
     let mut repaired_tool_call = tool_call.clone();
     repaired_tool_call.args["collection_id"] = Value::String(repaired_collection_id);
-    validate_internal_llm_search_tool_call(&repaired_tool_call).ok()
+    validate_internal_search_tool_call(&repaired_tool_call).ok()
 }
 
 fn choose_deterministic_collection_id_for_actor(
@@ -3665,7 +4210,7 @@ fn render_review_summary(
     lines.join("\n")
 }
 
-fn render_internal_llm_search_tool_protocol() -> String {
+fn render_internal_search_tool_protocol() -> String {
     let tools = [
         InternalLlmSearchToolSpec {
             name: "resolve_actor_refs",
@@ -3687,21 +4232,13 @@ fn render_internal_llm_search_tool_protocol() -> String {
             ],
         },
         InternalLlmSearchToolSpec {
-            name: "search",
+            name: "collection_search",
             description: "Use when you need the strongest supporting records from one exact validated cached collection window rather than full coverage.",
             arguments: &[
                 "collection_id (string, required): exact cached collection ID",
                 "prompt (string, required): what to look for in that collection",
                 "page (integer, optional): zero-based 25-item page of the collection to search",
                 "offset (integer, optional): zero-based item offset into the collection; takes precedence over `page`",
-            ],
-        },
-        InternalLlmSearchToolSpec {
-            name: "summary",
-            description: "Use when the user asks to summarize or analyze a whole collection window. The harness owns summary paging for that collection automatically.",
-            arguments: &[
-                "collection_id (string, required): exact cached collection ID",
-                "prompt (string, required): what to summarize about that collection window",
             ],
         },
         InternalLlmSearchToolSpec {
@@ -3729,7 +4266,7 @@ fn render_internal_llm_search_tool_protocol() -> String {
         .join("\n\n");
 
     format!(
-        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts` when needed for contrast or missing evidence\n- prefer `recent_posts` over `recent_posts_unaddressed` unless the task explicitly needs top-level-only posts\n- use `summary` for explicit whole-window coverage requests like \"last 50 posts\", \"summarize page 1\", or \"summarize pages 1-2\"\n- do not try to manage summary paging manually; the harness owns summary scope and page traversal for each collection\n- use `search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
+        "If one internal tool would help, emit exactly one tool request block in this format and nothing else:\n\nTOOL_CALL\nname: <tool_name>\nargs: {{...}}\n\nStrict mode rules:\n- emit exactly one TOOL_CALL block and no surrounding prose\n- use exact valid DIDs\n- use exact valid cached collection IDs only\n- for reputation, sentiment, or list questions, prefer `clearsky_lists` first and only expand to `recent_replies_received`, `actor_profile`, or `recent_posts` when needed for contrast or missing evidence\n- prefer `recent_posts` over `recent_posts_unaddressed` unless the task explicitly needs top-level-only posts\n- use `collection_search` when you need only the strongest evidence from a window\n\nAvailable internal tools:\n\n{inventory}"
     )
 }
 
@@ -5061,9 +5598,6 @@ pub(crate) fn apply_summary_sufficiency_gates(
         verdict.required_total_items = reviewed.required_total_items;
         verdict.reason = reviewed.reason;
     }
-    if !reviewed.sufficient {
-        execution.result = None;
-    }
 }
 
 fn render_llm_result_compact(result: Option<&CollectionLeafResult>) -> String {
@@ -5121,25 +5655,25 @@ fn render_llm_result_compact(result: Option<&CollectionLeafResult>) -> String {
     }
 }
 
-async fn synthesize_llm_search_results(
+async fn synthesize_search_results(
     prompt: &str,
     outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
     observer: Option<UnboundedSender<ToolProgressEvent>>,
 ) -> String {
     if outcomes.len() <= 1 {
-        return render_combined_llm_search_results(outcomes);
+        return render_combined_search_results(outcomes);
     }
 
     if let Some(observer) = observer.as_ref() {
         let _ = observer.send(ToolProgressEvent::AgentUpdate {
-            label: "llm_search synthesis".to_string(),
+            label: "search synthesis".to_string(),
             depth: 2,
             content: "status: running".to_string(),
         });
     }
 
-    let context = build_llm_search_parent_context(prompt, outcomes);
+    let context = build_search_parent_context(prompt, outcomes);
     let context_window = build_context_window_report(&context, &llm_client.context_limits());
     let rendered_context = context_window.rendered.clone();
     let rendered = match llm_client
@@ -5159,13 +5693,13 @@ async fn synthesize_llm_search_results(
         .await
     {
         Ok(summary) => {
-            render_combined_llm_search_results_with_summary(outcomes, Some(summary.trim()), &[])
+            render_combined_search_results_with_summary(outcomes, Some(summary.trim()), &[])
         }
-        Err(_) => render_combined_llm_search_results_with_summary(outcomes, None, &[]),
+        Err(_) => render_combined_search_results_with_summary(outcomes, None, &[]),
     };
     if let Some(observer) = observer.as_ref() {
         let _ = observer.send(ToolProgressEvent::AgentUpdate {
-            label: "llm_search synthesis".to_string(),
+            label: "search synthesis".to_string(),
             depth: 2,
             content: format!(
                 "status: completed\n\nsummary:\n{}",
@@ -5176,15 +5710,15 @@ async fn synthesize_llm_search_results(
     rendered
 }
 
-fn build_llm_search_agent_node(
+fn build_search_agent_node(
     prompt: &str,
     outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
 ) -> AgentNodeTemplate {
     AgentNodeTemplate {
         agent_type: AgentNodeKind::ToolAgent,
-        agent_kind: Some(AgentKind::LlmSearch),
-        label: "llm_search tool agent".to_string(),
+        agent_kind: Some(AgentKind::Search),
+        label: "search tool agent".to_string(),
         status: if outcomes.iter().any(|outcome| {
             outcome
                 .execution
@@ -5204,12 +5738,50 @@ fn build_llm_search_agent_node(
         } else {
             AgentNodeStatus::Completed
         },
-        tool_name: Some("llm_search".to_string()),
+        tool_name: Some("search".to_string()),
         collection_id: None,
-        context_window_report: Some(build_llm_search_tool_context_window(
+        context_window_report: Some(build_search_tool_context_window(
             prompt, outcomes, llm_client,
         )),
-        result_summary: Some(render_combined_llm_search_results(outcomes)),
+        result_summary: Some(render_combined_search_results(outcomes)),
+        children: outcomes.iter().map(build_collection_tool_node).collect(),
+    }
+}
+
+fn build_summary_agent_node(
+    prompt: &str,
+    outcomes: &[CollectionToolOutcome],
+    llm_client: &LlmApiClient,
+) -> AgentNodeTemplate {
+    AgentNodeTemplate {
+        agent_type: AgentNodeKind::ToolAgent,
+        agent_kind: Some(AgentKind::Summary),
+        label: "summary tool agent".to_string(),
+        status: if outcomes.iter().any(|outcome| {
+            outcome
+                .execution
+                .as_ref()
+                .map(|execution| !execution.is_usable())
+                .unwrap_or(true)
+        }) {
+            AgentNodeStatus::Failed
+        } else if outcomes.iter().any(|outcome| {
+            outcome
+                .execution
+                .as_ref()
+                .map(|execution| execution.has_warnings())
+                .unwrap_or(false)
+        }) {
+            AgentNodeStatus::CompletedWithWarnings
+        } else {
+            AgentNodeStatus::Completed
+        },
+        tool_name: Some("summary".to_string()),
+        collection_id: None,
+        context_window_report: Some(build_summary_tool_context_window(
+            prompt, outcomes, llm_client,
+        )),
+        result_summary: Some(render_summary_collection_loop_result(outcomes)),
         children: outcomes.iter().map(build_collection_tool_node).collect(),
     }
 }
@@ -5283,17 +5855,36 @@ fn build_collection_review_agent_node(
     })
 }
 
-fn build_llm_search_tool_context_window(
+fn build_search_tool_context_window(
     prompt: &str,
     outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
 ) -> BuiltContextWindow {
-    let context = build_llm_search_parent_context(prompt, outcomes);
+    let context = build_search_parent_context(prompt, outcomes);
     build_context_window_report(&context, &llm_client.context_limits())
 }
 
-fn build_llm_search_parent_context(prompt: &str, outcomes: &[CollectionToolOutcome]) -> LLMContext {
-    let mut context = LLMContext::new(AgentKind::LlmSearch.system_prompt());
+fn build_summary_tool_context_window(
+    prompt: &str,
+    outcomes: &[CollectionToolOutcome],
+    llm_client: &LlmApiClient,
+) -> BuiltContextWindow {
+    let mut context = LLMContext::new(AgentKind::Summary.system_prompt());
+    context.push_section_with_kind(
+        "Original Summary Query",
+        ContextSectionKind::CurrentTask,
+        prompt,
+    );
+    context.push_section_with_kind(
+        "Summary Result",
+        ContextSectionKind::ParentSearchResults,
+        render_summary_collection_loop_result(outcomes),
+    );
+    build_context_window_report(&context, &llm_client.context_limits())
+}
+
+fn build_search_parent_context(prompt: &str, outcomes: &[CollectionToolOutcome]) -> LLMContext {
+    let mut context = LLMContext::new(AgentKind::Search.system_prompt());
     context.push_section_with_kind(
         "Original Search Query",
         ContextSectionKind::CurrentTask,
@@ -5349,11 +5940,11 @@ fn build_llm_search_parent_context(prompt: &str, outcomes: &[CollectionToolOutco
     context
 }
 
-fn render_combined_llm_search_results(outcomes: &[CollectionToolOutcome]) -> String {
-    render_combined_llm_search_results_with_summary(outcomes, None, &[])
+fn render_combined_search_results(outcomes: &[CollectionToolOutcome]) -> String {
+    render_combined_search_results_with_summary(outcomes, None, &[])
 }
 
-fn render_combined_llm_search_results_with_summary(
+fn render_combined_search_results_with_summary(
     outcomes: &[CollectionToolOutcome],
     parent_summary: Option<&str>,
     diagnostics: &[String],
@@ -5377,7 +5968,7 @@ fn render_combined_llm_search_results_with_summary(
     }
 
     let mut lines = vec![
-        "llm_search searched collections independently and combined the grounded results below."
+        "search searched collections independently and combined the grounded results below."
             .to_string(),
     ];
     for diagnostic in diagnostics {
@@ -5939,16 +6530,17 @@ fn optional_string_array_arg(
 #[cfg(test)]
 mod tests {
     use super::{
-        BlueskyTools, CollectionLeafResult, CollectionLeafToolKind, CollectionReviewStatus,
-        LlmSearchExecution, LlmSearchResult, LlmSearchResultItem, LlmSummaryResult, PromptToolCall,
-        RequestedSummaryScope, SearchIntent, ToolRegistry,
+        ActorAnchorSource, BlueskyTools, CollectionLeafResult, CollectionLeafToolKind,
+        CollectionReviewStatus, LlmSearchExecution, LlmSearchResult, LlmSearchResultItem,
+        LlmSummaryResult, PreparedPromptToolInput, PromptToolCall, RequestedSummaryScope,
+        SearchIntent, ToolPrepMissingPrerequisite, ToolRegistry,
         choose_deterministic_collection_id_for_actor, collection_search_offset, detect_actor_refs,
-        detect_post_uri, deterministic_repair_internal_llm_search_tool_call,
+        detect_post_uri, deterministic_repair_internal_search_tool_call,
         deterministic_repair_summary, fallback_llm_search_summary, heuristic_collection_review,
         merged_collection_from_refs, paged_search_collection, parse_collection_review_verdict,
         parse_collection_tool_result, parse_internal_tool_repair_response, parse_llm_search_result,
         parse_prompt_tool_call, parse_requested_summary_scope_args, reduced_search_collection,
-        render_internal_llm_search_tool_protocol, render_llm_result, render_post_details,
+        render_internal_search_tool_protocol, render_llm_result, render_post_details,
         serialize_collection, source_collection_id_from_post, validate_collection_id,
         validate_internal_tool_response,
     };
@@ -5961,6 +6553,7 @@ mod tests {
         ensure_recent_posts_cached,
     };
     use bsky_sdk::BskyAgent;
+    use bsky_sdk::api::types::string::Did;
     use std::env;
     use std::time::Duration;
     use tokio::time::timeout;
@@ -6221,7 +6814,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires live Bluesky credentials and live LLM API access"]
-    async fn execute_internal_llm_search_summarizes_last_50_posts_end_to_end() {
+    async fn execute_internal_search_summarizes_last_50_posts_end_to_end() {
         let (agent, handle) = start_live_bsky_agent()
             .await
             .expect("live Bluesky login from .env");
@@ -6241,8 +6834,9 @@ mod tests {
         let query = format!("summarize the last 50 posts by {handle}");
         let (rendered, outcomes) = timeout(
             Duration::from_secs(180),
-            tools.execute_internal_llm_search(
+            tools.execute_internal_search(
                 &query,
+                None,
                 None,
                 &agent,
                 &mut store,
@@ -6659,17 +7253,18 @@ mod tests {
     #[test]
     fn renders_tool_inventory_from_registry() {
         let rendered = ToolRegistry::harness_defaults().render_for_prompt();
-        assert!(rendered.contains("Tool: llm_search"));
+        assert!(rendered.contains("Tool: search"));
+        assert!(rendered.contains("Tool: summary"));
     }
 
     #[test]
     fn parses_prompt_tool_call_block() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: llm_search\nargs: {\"query\":\"who is rei-cast.xyz?\"}",
+            "TOOL_CALL\nname: search\nargs: {\"query\":\"who is rei-cast.xyz?\"}",
         )
         .expect("expected tool call");
 
-        assert_eq!(tool_call.name, "llm_search");
+        assert_eq!(tool_call.name, "search");
         assert_eq!(tool_call.args["query"], "who is rei-cast.xyz?");
     }
 
@@ -6687,11 +7282,11 @@ mod tests {
     #[test]
     fn parses_prompt_tool_call_block_with_repaired_args_json() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: llm_search\nargs:\n{query:<|\"|>what are people on Bluesky saying about topic x<|\"|>}",
+            "TOOL_CALL\nname: search\nargs:\n{query:<|\"|>what are people on Bluesky saying about topic x<|\"|>}",
         )
         .expect("expected tool call");
 
-        assert_eq!(tool_call.name, "llm_search");
+        assert_eq!(tool_call.name, "search");
         assert_eq!(
             tool_call.args["query"],
             "what are people on Bluesky saying about topic x"
@@ -6701,7 +7296,7 @@ mod tests {
     #[test]
     fn parses_first_tool_call_when_trailing_thought_continues() {
         let tool_call = parse_prompt_tool_call(
-            "TOOL_CALL\nname: list_collections\nargs: {actor_did: \"did:plc:testactor\"}\n\n<|channel>thought\nextra commentary\n<channel|>TOOL_CALL\nname: llm_search\nargs: {query:\"who is rei-cast.xyz?\"}",
+            "TOOL_CALL\nname: list_collections\nargs: {actor_did: \"did:plc:testactor\"}\n\n<|channel>thought\nextra commentary\n<channel|>TOOL_CALL\nname: search\nargs: {query:\"who is rei-cast.xyz?\"}",
         )
         .expect("expected first tool call");
 
@@ -6808,6 +7403,122 @@ mod tests {
     }
 
     #[test]
+    fn prepared_summary_uses_selected_actor_fallback_when_query_is_relative() {
+        let tools = BlueskyTools::new();
+        let selected_did: Did = "did:plc:selectedactor".parse().expect("invalid did");
+        let mut store = NotificationStore::new();
+        store.cache_actor(&selected_did, "selected.test", None);
+        store.cache_post_collection(
+            LabeledPostCollection::new(
+                "recent_posts:did:plc:selectedactor",
+                "Recent posts",
+                vec![],
+            )
+            .with_collection_kind("recent_posts")
+            .with_actor_did(selected_did.as_str()),
+        );
+        let tool_call = PromptToolCall {
+            name: "summary".to_string(),
+            args: serde_json::json!({"query":"summarize the last 50 things this actor has posted"}),
+        };
+
+        let prepared = tools
+            .prepare_root_tool_input(&tool_call, Some(&selected_did), &store)
+            .expect("expected prepared summary input");
+
+        match prepared {
+            PreparedPromptToolInput::Summary(summary) => {
+                assert_eq!(summary.actor_anchor.actor_did, selected_did);
+                assert_eq!(
+                    summary.actor_anchor.source,
+                    ActorAnchorSource::SelectedActorFallback
+                );
+                assert_eq!(summary.collection_id, "recent_posts:did:plc:selectedactor");
+            }
+            other => panic!("expected summary prep, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn prepared_summary_fails_without_explicit_or_selected_actor() {
+        let tools = BlueskyTools::new();
+        let store = NotificationStore::new();
+        let tool_call = PromptToolCall {
+            name: "summary".to_string(),
+            args: serde_json::json!({"query":"summarize the last 50 things this actor has posted"}),
+        };
+
+        let failure = tools
+            .prepare_root_tool_input(&tool_call, None, &store)
+            .expect_err("expected prep failure");
+
+        assert_eq!(failure.missing, vec![ToolPrepMissingPrerequisite::ActorAnchor]);
+    }
+
+    #[test]
+    fn prepared_search_uses_selected_actor_fallback_for_relative_query() {
+        let tools = BlueskyTools::new();
+        let selected_did: Did = "did:plc:selectedactor".parse().expect("invalid did");
+        let mut store = NotificationStore::new();
+        store.cache_actor(&selected_did, "selected.test", None);
+        let tool_call = PromptToolCall {
+            name: "search".to_string(),
+            args: serde_json::json!({"query":"what have they been posting about lately?"}),
+        };
+
+        let prepared = tools
+            .prepare_root_tool_input(&tool_call, Some(&selected_did), &store)
+            .expect("expected prepared search input");
+
+        match prepared {
+            PreparedPromptToolInput::Search(search) => {
+                let anchor = search.actor_anchor.expect("expected actor anchor");
+                assert_eq!(anchor.actor_did, selected_did);
+                assert_eq!(anchor.source, ActorAnchorSource::SelectedActorFallback);
+            }
+            other => panic!("expected search prep, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn prepared_summary_prefers_explicit_query_actor_over_selected_actor() {
+        let tools = BlueskyTools::new();
+        let explicit_did: Did = "did:plc:explicitactor".parse().expect("invalid did");
+        let selected_did: Did = "did:plc:selectedactor".parse().expect("invalid did");
+        let mut store = NotificationStore::new();
+        store.cache_actor(&explicit_did, "explicit.test", None);
+        store.cache_actor(&selected_did, "selected.test", None);
+        store.cache_post_collection(
+            LabeledPostCollection::new(
+                "recent_posts:did:plc:explicitactor",
+                "Recent posts",
+                vec![],
+            )
+            .with_collection_kind("recent_posts")
+            .with_actor_did(explicit_did.as_str()),
+        );
+        let tool_call = PromptToolCall {
+            name: "summary".to_string(),
+            args: serde_json::json!({"query":"summarize the last 50 posts by explicit.test"}),
+        };
+
+        let prepared = tools
+            .prepare_root_tool_input(&tool_call, Some(&selected_did), &store)
+            .expect("expected prepared summary input");
+
+        match prepared {
+            PreparedPromptToolInput::Summary(summary) => {
+                assert_eq!(summary.actor_anchor.actor_did, explicit_did);
+                assert_eq!(
+                    summary.actor_anchor.source,
+                    ActorAnchorSource::ExplicitQueryRef
+                );
+            }
+            other => panic!("expected summary prep, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn validates_collection_id_rejects_truncated_actor_profile_did() {
         let err = validate_collection_id("actor_profile:did:3de...")
             .expect_err("expected invalid collection id");
@@ -6906,10 +7617,10 @@ mod tests {
     #[test]
     fn deterministic_tool_call_repair_rewrites_bare_did_collection_id() {
         let tool_call = PromptToolCall {
-            name: "summary".to_string(),
+            name: "collection_search".to_string(),
             args: serde_json::json!({
                 "collection_id": "did:plc:testactor",
-                "prompt": "summarize the latest posts",
+                "prompt": "inspect the latest posts",
                 "page": 0
             }),
         };
@@ -6919,15 +7630,15 @@ mod tests {
                 .with_actor_did("did:plc:testactor"),
         ];
 
-        let repaired = deterministic_repair_internal_llm_search_tool_call(
+        let repaired = deterministic_repair_internal_search_tool_call(
             &tool_call,
-            "summarize the 25 most recent posts by rei-cast.xyz",
+            "inspect the 25 most recent posts by rei-cast.xyz",
             SearchIntent::General,
             &collections,
         )
         .expect("expected repaired tool call");
 
-        assert_eq!(repaired.name, "summary");
+        assert_eq!(repaired.name, "collection_search");
         assert_eq!(
             repaired.args["collection_id"],
             serde_json::json!("recent_posts:did:plc:testactor")
@@ -7352,6 +8063,72 @@ mod tests {
     }
 
     #[test]
+    fn apply_summary_sufficiency_gates_preserves_grounded_page_result_while_more_pages_are_needed() {
+        let original_result = LlmSummaryResult {
+            title: "page 0".to_string(),
+            summary: "grounded page 0".to_string(),
+            covered_item_uris: vec!["at://0".to_string()],
+            omitted_item_uris: Vec::new(),
+            concatenated_window_summaries: None,
+            window_offset: Some(0),
+            window_size: Some(25),
+            page_index: Some(0),
+            page_size: Some(25),
+            collection_total_items: Some(50),
+            has_more: Some(true),
+            source_exhausted: None,
+            window_start: Some(0),
+            window_total_items: Some(25),
+        };
+        let mut execution = LlmSearchExecution {
+            result: Some(summary_leaf_result(original_result.clone())),
+            original_result: None,
+            context_window: empty_test_window(),
+            diagnostic: None,
+            raw_response: None,
+            review_verdict: Some(super::CollectionReviewVerdict {
+                status: CollectionReviewStatus::Fail,
+                grounded: true,
+                sufficient: false,
+                reason: "need more pages".to_string(),
+                repair_needed: false,
+                repair_instructions: None,
+                additional_pages_needed: true,
+                next_page: Some(1),
+                next_offset: Some(25),
+                required_total_items: Some(50),
+            }),
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+
+        super::apply_summary_sufficiency_gates(
+            RequestedSummaryScope::Count {
+                requested_items: 50,
+            },
+            "recent:test",
+            &[],
+            &mut execution,
+        );
+
+        let verdict = execution.review_verdict.as_ref().expect("verdict");
+        assert_eq!(verdict.status, CollectionReviewStatus::Fail);
+        assert!(verdict.grounded);
+        assert!(!verdict.sufficient);
+        assert!(verdict.additional_pages_needed);
+        assert_eq!(verdict.next_offset, Some(25));
+
+        let preserved = execution
+            .result
+            .as_ref()
+            .and_then(CollectionLeafResult::as_summary)
+            .expect("preserved grounded page result");
+        assert_eq!(preserved.summary, original_result.summary);
+        assert_eq!(preserved.window_offset, Some(0));
+        assert_eq!(preserved.window_size, Some(25));
+    }
+
+    #[test]
     fn apply_summary_sufficiency_gates_treats_short_final_window_as_exhausted_available_scope() {
         let mut execution = LlmSearchExecution {
             result: Some(summary_leaf_result(LlmSummaryResult {
@@ -7535,13 +8312,13 @@ mod tests {
     }
 
     #[test]
-    fn internal_llm_search_tool_protocol_lists_planner_tools() {
-        let rendered = render_internal_llm_search_tool_protocol();
+    fn internal_search_tool_protocol_lists_planner_tools() {
+        let rendered = render_internal_search_tool_protocol();
 
         assert!(rendered.contains("resolve_actor_refs"));
         assert!(rendered.contains("hydrate_actor_scope"));
-        assert!(rendered.contains("Tool: search"));
-        assert!(rendered.contains("Tool: summary"));
+        assert!(rendered.contains("Tool: collection_search"));
+        assert!(!rendered.contains("Tool: summary"));
         assert!(rendered.contains("search_global_posts"));
         assert!(!rendered.contains("set_summary_scope"));
     }
