@@ -5954,8 +5954,25 @@ mod tests {
     };
     use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
     use crate::harness::llm_api::ChatCompletionResponseFormat;
+    use crate::app::EvilGemmaConfig;
     use crate::model::{LabeledPostCollection, PostRecord};
-    use crate::net_backend::{NotificationStore, PostDetails, PostFacet};
+    use crate::net_backend::{
+        NotificationStore, PostDetails, PostFacet, ensure_actor_profile_cached,
+        ensure_recent_posts_cached,
+    };
+    use bsky_sdk::BskyAgent;
+    use std::env;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    async fn start_live_bsky_agent() -> Result<(BskyAgent, String), Box<dyn std::error::Error>> {
+        let _ = dotenvy::dotenv();
+        let handle = env::var("BSKY_HANDLE")?;
+        let password = env::var("BSKY_APP_PASSWORD")?;
+        let agent = BskyAgent::builder().build().await?;
+        agent.login(&handle, &password).await?;
+        Ok((agent, handle))
+    }
 
     fn search_leaf_result(result: LlmSearchResult) -> CollectionLeafResult {
         CollectionLeafResult::Search(result)
@@ -6200,6 +6217,82 @@ mod tests {
         assert_eq!(result.omitted_item_uris.len(), 0);
         assert_eq!(result.window_start, Some(0));
         assert_eq!(result.window_total_items, Some(2));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live Bluesky credentials and live LLM API access"]
+    async fn execute_internal_llm_search_summarizes_last_50_posts_end_to_end() {
+        let (agent, handle) = start_live_bsky_agent()
+            .await
+            .expect("live Bluesky login from .env");
+        let evil_gemma = EvilGemmaConfig::from_env()
+            .await
+            .expect("live llm client from .env");
+        let tools = BlueskyTools::new();
+        let mut store = NotificationStore::new();
+
+        let profile = ensure_actor_profile_cached(&agent, &mut store, &handle)
+            .await
+            .expect("actor profile should hydrate");
+        ensure_recent_posts_cached(&agent, &mut store, &profile.did, 75, 50)
+            .await
+            .expect("recent posts should hydrate");
+
+        let query = format!("summarize the last 50 posts by {handle}");
+        let (rendered, outcomes) = timeout(
+            Duration::from_secs(180),
+            tools.execute_internal_llm_search(
+                &query,
+                None,
+                &agent,
+                &mut store,
+                &evil_gemma.client,
+                None,
+            ),
+        )
+        .await
+        .expect("llm_search live test timed out after 180 seconds")
+        .expect("llm_search should complete");
+
+        let outcome = outcomes
+            .iter()
+            .find(|outcome| outcome.tool_kind == CollectionLeafToolKind::Summary)
+            .expect(&format!("expected summary outcome\nrendered:\n{rendered}"));
+        let execution = outcome.execution.as_ref().expect("successful summary execution");
+        let result = execution
+            .result
+            .as_ref()
+            .and_then(CollectionLeafResult::as_summary)
+            .expect("summary result");
+
+        assert!(
+            result.window_size.unwrap_or_default() >= 50,
+            "expected at least 50 covered posts\nrendered:\n{rendered}\ndiagnostic: {:?}",
+            execution.diagnostic
+        );
+        assert!(
+            result
+                .concatenated_window_summaries()
+                .map(str::trim)
+                .map(|text| !text.is_empty())
+                .unwrap_or(false),
+            "expected concatenated window summaries\nrendered:\n{rendered}"
+        );
+        assert!(
+            !result.summary.trim().is_empty(),
+            "expected non-empty final summary\nrendered:\n{rendered}"
+        );
+        let paragraph_count = result
+            .summary
+            .split("\n\n")
+            .map(str::trim)
+            .filter(|paragraph| !paragraph.is_empty())
+            .count();
+        assert!(
+            (1..=3).contains(&paragraph_count),
+            "expected 1-3 summary paragraphs, got {paragraph_count}\nsummary:\n{}",
+            result.summary
+        );
     }
 
     #[test]
