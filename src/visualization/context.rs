@@ -254,7 +254,7 @@ fn category_label(index: usize) -> &'static str {
         6 => "Tool Output",
         7 => "Collection Evidence",
         8 => "Review Evidence",
-        9 => "Parent Search Results",
+        9 => "Upstream Results",
         _ => "Unknown",
     }
 }
@@ -357,7 +357,7 @@ fn legend_line() -> Line<'static> {
         ("  ", Color::Rgb(242, 186, 92), " tool output "),
         ("  ", Color::Rgb(226, 128, 168), " collected data "),
         ("  ", Color::Rgb(244, 176, 205), " review "),
-        ("  ", Color::Rgb(215, 170, 120), " parent results "),
+        ("  ", Color::Rgb(215, 170, 120), " upstream results "),
         ("  ", Color::Rgb(80, 80, 80), " final 25% "),
         ("  ", Color::DarkGray, " unused "),
     ];

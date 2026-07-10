@@ -43,6 +43,7 @@ const UI_TICK: StdDuration = StdDuration::from_millis(200);
 const DEFAULT_EVIL_GEMMA_BASE_URL: &str = "http://127.0.0.1:5000";
 const DEFAULT_EVIL_GEMMA_MODEL: &str = "qwen-3.5-local";
 const DEFAULT_SYSTEM_PROMPT_PATH: &str = "system_prompt.md";
+const DEFAULT_APP_CONFIG_PATH: &str = "shock_absorber.config.json";
 
 #[derive(Clone)]
 pub enum DetailView {
@@ -112,16 +113,24 @@ pub struct EvilGemmaConfig {
     pub system_prompt: String,
 }
 
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
+struct PersistedAppConfig {
+    #[serde(default)]
+    evil_gemma_model: Option<String>,
+}
+
 impl EvilGemmaConfig {
     pub async fn from_env() -> Result<Self, Box<dyn Error>> {
         let base_url = env::var("EVIL_GEMMA_BASE_URL")
             .unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_BASE_URL.to_string());
-        let model_name =
+        let env_model_name =
             env::var("EVIL_GEMMA_MODEL").unwrap_or_else(|_| DEFAULT_EVIL_GEMMA_MODEL.to_string());
         let system_prompt_path = env::var("SYSTEM_PROMPT_PATH")
             .unwrap_or_else(|_| DEFAULT_SYSTEM_PROMPT_PATH.to_string());
+        let app_config = read_app_config(&current_app_config_path())?;
+        let preferred_model = app_config.evil_gemma_model.unwrap_or(env_model_name);
 
-        let mut config = OpenAiRestConfig::llama_cpp(base_url, model_name);
+        let mut config = OpenAiRestConfig::llama_cpp(base_url.clone(), preferred_model.clone());
         match LlmApiClient::fetch_capabilities(&config.base_url).await {
             Ok(capabilities) => config.apply_capabilities(&capabilities),
             Err(err) => eprintln!(
@@ -129,10 +138,27 @@ impl EvilGemmaConfig {
                 config.base_url
             ),
         }
+        config.model_name = preferred_model.clone();
+        let client = LlmApiClient::new(config);
+        match client.fetch_available_models().await {
+            Ok(models) => {
+                if !models.is_empty() && !models.iter().any(|model| model == &preferred_model) {
+                    if let Some(first_model) = models.first() {
+                        eprintln!(
+                            "warning: persisted evil_gemma model `{preferred_model}` was not returned by the inference server; using `{first_model}` instead"
+                        );
+                        client.set_model_name(first_model.clone());
+                    }
+                }
+            }
+            Err(err) => eprintln!(
+                "warning: failed to fetch available evil_gemma models from {base_url}: {err}; keeping `{preferred_model}`"
+            ),
+        }
         let system_prompt = fs::read_to_string(resolve_system_prompt_path(system_prompt_path))?;
 
         Ok(Self {
-            client: LlmApiClient::new(config),
+            client,
             system_prompt,
         })
     }
@@ -741,12 +767,17 @@ impl App {
                 }
 
                 evil_gemma.client.set_model_name(model_name.to_string());
+                let config_path = current_app_config_path();
+                let mut persisted = read_app_config(&config_path)?;
+                persisted.evil_gemma_model = Some(model_name.to_string());
+                write_app_config(&config_path, &persisted)?;
                 self.status = format!("model switched to {model_name}");
                 self.set_command_output(
                     format!("/model {model_name}"),
                     vec![
                         format!("Active model set to `{model_name}`."),
                         "Future root and tool requests will use this model.".to_string(),
+                        format!("Persisted in `{}`.", config_path.display()),
                     ],
                 );
             }
@@ -1614,6 +1645,36 @@ fn resolve_system_prompt_path(path: String) -> PathBuf {
     }
 }
 
+fn current_app_config_path() -> PathBuf {
+    let path = env::var("SHOCK_ABSORBER_CONFIG_PATH")
+        .unwrap_or_else(|_| DEFAULT_APP_CONFIG_PATH.to_string());
+    resolve_app_config_path(path)
+}
+
+fn resolve_app_config_path(path: String) -> PathBuf {
+    let candidate = PathBuf::from(&path);
+    if candidate.is_absolute() {
+        candidate
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(candidate)
+    }
+}
+
+fn read_app_config(path: &PathBuf) -> Result<PersistedAppConfig, Box<dyn Error>> {
+    if !path.exists() {
+        return Ok(PersistedAppConfig::default());
+    }
+
+    let content = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&content)?)
+}
+
+fn write_app_config(path: &PathBuf, config: &PersistedAppConfig) -> Result<(), Box<dyn Error>> {
+    let serialized = serde_json::to_string_pretty(config)?;
+    fs::write(path, format!("{serialized}\n"))?;
+    Ok(())
+}
+
 fn line_to_string(line: ratatui::text::Line<'_>) -> String {
     line.spans
         .iter()
@@ -1684,6 +1745,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 
     let cursor_x = input_area
         .x
+        .saturating_add(1)
         .saturating_add(app.input.chars().count() as u16)
         .min(input_area.x + input_area.width.saturating_sub(2));
     let cursor_y = input_area.y + 1;
@@ -1693,6 +1755,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn tab_toggle_restores_last_non_chat_detail() {
@@ -1723,5 +1786,23 @@ mod tests {
             app.deferred_detail,
             Some(DetailView::Notification)
         ));
+    }
+
+    #[test]
+    fn app_config_round_trips_model_choice() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("shock_absorber_config_{nonce}.json"));
+        let config = PersistedAppConfig {
+            evil_gemma_model: Some("test-model".to_string()),
+        };
+
+        write_app_config(&path, &config).expect("config write should succeed");
+        let loaded = read_app_config(&path).expect("config read should succeed");
+
+        assert_eq!(loaded.evil_gemma_model.as_deref(), Some("test-model"));
+        let _ = fs::remove_file(path);
     }
 }

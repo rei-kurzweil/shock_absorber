@@ -475,6 +475,7 @@ pub(crate) enum SummaryCollectionTargetHint {
     Replies,
     PinnedPosts,
     Profile,
+    Lists,
 }
 
 impl SummaryCollectionTargetHint {
@@ -484,6 +485,7 @@ impl SummaryCollectionTargetHint {
             Self::Replies => "recent_replies_received",
             Self::PinnedPosts => "pinned_posts",
             Self::Profile => "actor_profile",
+            Self::Lists => "clearsky_lists",
         }
     }
 }
@@ -584,6 +586,7 @@ enum SummaryPrepCollectionTargetPayload {
     Replies,
     PinnedPosts,
     Profile,
+    Lists,
 }
 
 impl RequestedSummaryScope {
@@ -2052,7 +2055,7 @@ impl BlueskyTools {
                 vec![
                     ChatMessage {
                         role: "system".to_string(),
-                        content: "You convert a natural-language public `summary(query)` request into a structured harness prep object. Return only JSON. Preserve user intent. Use `requested_summary_scope.kind` as one of: `current_window`, `count`, `page`, `page_range`. Use `collection_target_hint` as one of: `recent_posts`, `replies`, `pinned_posts`, `profile`. For count requests like 'last 50 posts' or '50 most recent posts', return `kind: count` with `requested_items: 50`. Do not invent actors.".to_string(),
+                        content: "You convert a natural-language public `summary(query)` request into a structured harness prep object. Return only JSON. Preserve user intent. Use `requested_summary_scope.kind` as one of: `current_window`, `count`, `page`, `page_range`. Use `collection_target_hint` as one of: `recent_posts`, `replies`, `pinned_posts`, `profile`, `lists`. For count requests like 'last 50 posts' or '50 most recent posts', return `kind: count` with `requested_items: 50`. For requests about moderation lists, reputation based on lists, or list membership, return `collection_target_hint: \"lists\"`. Do not invent actors.".to_string(),
                     },
                     ChatMessage {
                         role: "user".to_string(),
@@ -2855,6 +2858,7 @@ fn summary_collection_target_hint_from_payload(
         SummaryPrepCollectionTargetPayload::Replies => SummaryCollectionTargetHint::Replies,
         SummaryPrepCollectionTargetPayload::PinnedPosts => SummaryCollectionTargetHint::PinnedPosts,
         SummaryPrepCollectionTargetPayload::Profile => SummaryCollectionTargetHint::Profile,
+        SummaryPrepCollectionTargetPayload::Lists => SummaryCollectionTargetHint::Lists,
     }
 }
 
@@ -2862,6 +2866,20 @@ fn detect_summary_collection_target_hint(query: &str) -> SummaryCollectionTarget
     let lower = query.to_ascii_lowercase();
     if lower.contains("repl") {
         SummaryCollectionTargetHint::Replies
+    } else if [
+        " list",
+        "lists",
+        "listed",
+        "placed on",
+        "reputation",
+        "sentiment",
+        "known for",
+        "known on",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+    {
+        SummaryCollectionTargetHint::Lists
     } else if lower.contains("pinned") {
         SummaryCollectionTargetHint::PinnedPosts
     } else if lower.contains("profile") || lower.contains("bio") || lower.contains("who is") {
@@ -2884,6 +2902,12 @@ fn pick_summary_collection_for_hint(
         ],
         SummaryCollectionTargetHint::PinnedPosts => &["pinned_posts", "recent_posts"],
         SummaryCollectionTargetHint::Profile => &["actor_profile", "recent_posts"],
+        SummaryCollectionTargetHint::Lists => &[
+            "clearsky_lists",
+            "recent_replies_received",
+            "actor_profile",
+            "recent_posts",
+        ],
         SummaryCollectionTargetHint::RecentPosts => {
             &["recent_posts", "recent_posts_unaddressed", "pinned_posts"]
         }
@@ -2921,6 +2945,13 @@ fn summary_hydration_args_for_hint(
             "recent_posts_min_top_level_posts": recent_posts_min_top_level_posts
         }),
         SummaryCollectionTargetHint::Profile => serde_json::json!({
+            "include_profile": true,
+            "include_recent_posts": true,
+            "recent_posts_feed_fetch_limit": recent_posts_feed_fetch_limit,
+            "recent_posts_min_top_level_posts": recent_posts_min_top_level_posts
+        }),
+        SummaryCollectionTargetHint::Lists => serde_json::json!({
+            "include_clearsky_lists": true,
             "include_profile": true,
             "include_recent_posts": true,
             "recent_posts_feed_fetch_limit": recent_posts_feed_fetch_limit,
@@ -6739,16 +6770,17 @@ mod tests {
         ActorAnchorSource, BlueskyTools, CollectionLeafResult, CollectionLeafToolKind,
         CollectionReviewStatus, LlmSearchExecution, LlmSearchResult, LlmSearchResultItem,
         LlmSummaryResult, PreparedPromptToolInput, PromptToolCall, RequestedSummaryScope,
-        SearchIntent, ToolPrepMissingPrerequisite, ToolRegistry,
+        SearchIntent, SummaryCollectionTargetHint, ToolPrepMissingPrerequisite, ToolRegistry,
         choose_deterministic_collection_id_for_actor, collection_search_offset, detect_actor_refs,
-        detect_post_uri, deterministic_repair_internal_search_tool_call,
-        deterministic_repair_summary, fallback_llm_search_summary, heuristic_collection_review,
-        merged_collection_from_refs, paged_search_collection, parse_collection_review_verdict,
-        parse_collection_tool_result, parse_internal_tool_repair_response, parse_llm_search_result,
-        parse_prompt_tool_call, parse_requested_summary_scope_args, reduced_search_collection,
-        render_internal_search_tool_protocol, render_llm_result, render_post_details,
-        serialize_collection, source_collection_id_from_post, validate_collection_id,
-        validate_internal_tool_response,
+        detect_post_uri, detect_summary_collection_target_hint,
+        deterministic_repair_internal_search_tool_call, deterministic_repair_summary,
+        fallback_llm_search_summary, heuristic_collection_review, merged_collection_from_refs,
+        paged_search_collection, parse_collection_review_verdict, parse_collection_tool_result,
+        parse_internal_tool_repair_response, parse_llm_search_result, parse_prompt_tool_call,
+        parse_requested_summary_scope_args, pick_summary_collection_for_hint,
+        reduced_search_collection, render_internal_search_tool_protocol, render_llm_result,
+        render_post_details, serialize_collection, source_collection_id_from_post,
+        summary_hydration_args_for_hint, validate_collection_id, validate_internal_tool_response,
     };
     use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
     use crate::harness::llm_api::{
@@ -8597,6 +8629,63 @@ mod tests {
                 end_page: 2,
             }
         );
+    }
+
+    #[test]
+    fn detect_summary_collection_target_hint_prefers_lists_for_list_queries() {
+        assert_eq!(
+            detect_summary_collection_target_hint(
+                "summarize the most recent 50 lists that destiny.gg has been placed on"
+            ),
+            SummaryCollectionTargetHint::Lists
+        );
+        assert_eq!(
+            detect_summary_collection_target_hint(
+                "what can we infer about his reputation based on the lists he's on?"
+            ),
+            SummaryCollectionTargetHint::Lists
+        );
+    }
+
+    #[test]
+    fn pick_summary_collection_for_hint_prefers_clearsky_lists() {
+        let collections = vec![
+            LabeledPostCollection::new(
+                "recent_posts:did:plc:test",
+                "Recent posts",
+                Vec::new(),
+            )
+            .with_collection_kind("recent_posts")
+            .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new(
+                "clearsky_lists:did:plc:test",
+                "Clearsky moderation lists",
+                Vec::new(),
+            )
+            .with_collection_kind("clearsky_lists")
+            .with_actor_did("did:plc:test"),
+        ];
+
+        let selected = pick_summary_collection_for_hint(
+            &collections,
+            &SummaryCollectionTargetHint::Lists,
+        )
+        .expect("expected lists collection");
+
+        assert_eq!(selected.collection_kind, "clearsky_lists");
+        assert_eq!(selected.id, "clearsky_lists:did:plc:test");
+    }
+
+    #[test]
+    fn summary_hydration_args_include_clearsky_lists_for_lists_hint() {
+        let args = summary_hydration_args_for_hint(
+            &SummaryCollectionTargetHint::Lists,
+            RequestedSummaryScope::Count { requested_items: 50 },
+        );
+
+        assert_eq!(args["include_clearsky_lists"], serde_json::json!(true));
+        assert_eq!(args["include_profile"], serde_json::json!(true));
+        assert_eq!(args["include_recent_posts"], serde_json::json!(true));
     }
 
     #[test]

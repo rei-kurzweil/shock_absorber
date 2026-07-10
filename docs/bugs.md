@@ -199,3 +199,52 @@ Current mitigation:
 
 - none beyond manual inspection of `/context` and `.debug`
 - this should remain documented until child agent context windows are explicitly scoped and rendered with categories that reflect their real inputs
+
+## Coverage-oriented `summary` can collapse back to the first 25-post window
+
+Current behavior:
+
+- a public summary request can ask for a larger count scope such as `last 200 posts`
+- hydration can correctly fetch and cache a larger recent-posts collection
+- the `collection_summary` loop can start multiple 25-item page windows
+- but the final accumulator can still retain only the first accepted page summary
+
+Observed effect:
+
+- the final summary says it covered only the initial 25 posts even when the loop already touched later offsets
+- `.debug/summary_trace.md` can show:
+  - hydrated `recent_posts` with `posts=200`
+  - page 0 at `offset: 0`
+  - page 1 at `offset: 25`
+  - final rendered result with `covered_post_count: 25`
+- `.debug/agents/agent_002_collection_summary_tool_collection_summary_recent_posts_by_did_plc_6lwfv.md`
+  and `.debug/agents/agent_001_tool_agent_summary_tool_agent.md`
+  show the same mismatch for the schizanon run on July 10, 2026
+
+Concrete observed case:
+
+- query: `summarize the last 200 posts by schizanon.bsky.social and note if 'gemma' is mentioned`
+- hydrated collection:
+  - `recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5 | kind=recent_posts | posts=200`
+- loop trace:
+  - page 0 ran at `offset: 0`
+  - page 1 ran at `offset: 25`
+- final rendered child result:
+  - `covered_post_count: 25`
+  - `review_reason: collection_summary_notes produced a partial scope summary after considering 25 posts before exhaustion.`
+
+Expected behavior:
+
+- every grounded accepted window should remain available to the accumulator even when the overall requested scope is not yet sufficient
+- if the loop has already accepted pages at offsets `0` and `25`, final planner/notes synthesis should see both windows
+- the final rendered result should not regress to first-page-only accounting
+
+Likely cause:
+
+- the current `collection_summary` accumulator path appears to lose later grounded page results when per-page review remains `sufficient: false`
+- this is separate from hydration and collection sizing; the observed run had already hydrated 200 recent posts successfully
+
+Current mitigation:
+
+- inspect `.debug/summary_trace.md` and the per-agent debug files to confirm whether later offsets ran
+- treat first-page-only final summaries on larger count requests as incorrect until the accumulator bug is fixed

@@ -250,7 +250,7 @@ fn render_prompt_context_snapshot(snapshot: &PromptContextSnapshot) -> String {
     out.push_str(&format!("- tool_output: {}\n", totals[6]));
     out.push_str(&format!("- collection_evidence: {}\n", totals[7]));
     out.push_str(&format!("- review_evidence: {}\n", totals[8]));
-    out.push_str(&format!("- parent_search_results: {}\n\n", totals[9]));
+    out.push_str(&format!("- upstream_results: {}\n\n", totals[9]));
 
     out.push_str("## Segments\n\n");
     for segment in &snapshot.segments {
@@ -296,7 +296,7 @@ fn section_kind_label(kind: crate::harness::context_window::ContextSectionKind) 
         }
         crate::harness::context_window::ContextSectionKind::ReviewEvidence => "review_evidence",
         crate::harness::context_window::ContextSectionKind::ParentSearchResults => {
-            "parent_search_results"
+            "upstream_results"
         }
     }
 }

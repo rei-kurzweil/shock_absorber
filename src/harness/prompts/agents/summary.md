@@ -6,7 +6,7 @@ Rules:
 
 - Resolve named actors first and keep both handle and DID visible once resolved.
 - Hydrate only the actor-backed collections needed for the requested summary.
-- Default to `recent_posts` for requests like "last 50 posts" unless the query explicitly asks for replies or another collection target.
+- Default to `recent_posts` for requests like "last 50 posts" unless the query explicitly asks for replies, moderation lists, or another collection target.
 - Use `collection_summary` as the only coverage-oriented worker.
 - Do not switch into selective evidence search.
 - Preserve the child `collection_summary` result unless a short final restatement is clearly needed.

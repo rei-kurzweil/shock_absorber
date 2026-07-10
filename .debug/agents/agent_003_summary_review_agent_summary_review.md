@@ -4,19 +4,19 @@
 - agent_type: SummaryReviewAgent
 - agent_kind: SummaryReview
 - label: summary review
-- status: completed
+- status: failed
 - parent_agent_id: 2
 - child_agent_ids: <none>
 
 ## Result Summary
 
-status: pass
+status: fail
 grounded: true
-sufficient: true
-reason: collection_summary_notes produced a final scope summary after considering 100 posts.
+sufficient: false
+reason: collection_summary_notes produced a partial scope summary after considering 25 posts before exhaustion.
 repair_needed: false
-additional_pages_needed: false
-required_total_items: 100
+additional_pages_needed: true
+required_total_items: 200
 
 ## Context Window Stats
 
@@ -24,16 +24,16 @@ required_total_items: 100
 - model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
-- used_input_tokens: 1079
+- used_input_tokens: 646
 - truncated: false
 
 ## Included Sections
 
-- Task [generic]: used 11 / estimated 11
+- Task [generic]: used 24 / estimated 24
 - Collection [generic]: used 51 / estimated 51
 - Requested Scope [generic]: used 14 / estimated 14
-- Coverage State [generic]: used 33 / estimated 33
-- Accepted Window Summaries [collection_evidence]: used 770 / estimated 770
+- Coverage State [generic]: used 30 / estimated 30
+- Accepted Window Summaries [collection_evidence]: used 327 / estimated 327
 
 ## Rendered Context Window
 
@@ -58,30 +58,24 @@ Rules:
 
 
 ## Task
-summarize 100 posts by destiny.gg
+summarize the last 200 posts by schizanon.bsky.social and note if 'gemma' is mentioned
 
 ## Collection
-collection_id: recent_posts:did:plc:zdkax6bg6xowo4yqsp5thweh
-collection_label: Recent posts by did:plc:zdkax6bg6xowo4yqsp5thweh
-item_count: 100
-actor_did: did:plc:zdkax6bg6xowo4yqsp5thweh
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+collection_label: Recent posts by did:plc:6lwfvmss45d7j7fot34v2kw5
+item_count: 200
+actor_did: did:plc:6lwfvmss45d7j7fot34v2kw5
 
 ## Requested Scope
 kind: count
-requested_items: 100
+requested_items: 200
 
 ## Coverage State
-covered_window_offsets: 0, 25, 50, 75
-covered_post_count: 100
-collection_total_items: 100
-source_exhausted: true
+covered_window_offsets: 0
+covered_post_count: 25
+collection_total_items: 200
+source_exhausted: false
 
 ## Accepted Window Summaries
-This collection of recent posts by destiny.gg covers a wide range of observations, heavily focused on debates, political commentary, and social dynamics. A recurring theme involves critiques of others' intellectual capacity, such as noting that someone is "too stupid to realize it" or that two "scholars, zero arguments." The author frequently comments on public interactions, whether it's watching someone "debate a literal cartoon character" or observing a reaction where "His smug little smile disappeared pretty quickly." There is significant commentary on political figures, including mentions of Biden, and critiques of conservative viewpoints, suggesting that "It's getting harder and harder to treat conservatives any different than this." Furthermore, the posts touch upon the nature of argumentation, noting that "'He's lying' isn't really a great defense," and that people often ask "why" without doing "any actual research." Other notable topics include the shifting priorities of certain groups, the self-defeating nature of those worried about male masculinity, and the necessity of trusting experts, even when those experts are politicized.
-
-This collection of recent posts by destiny.gg heavily focuses on commentary surrounding debates, political figures, and societal discussions. A recurring theme is the perceived low quality of discourse, with posts noting that
-
-This collection of recent posts by destiny.gg covers a wide range of topics, heavily focused on political commentary, debates, and cultural observations. A recurring theme is the critique of political allegiances, particularly regarding Trump supporters, where the author notes that many 'spent a decade pretending to care about government corruption and then immediately folded the second it was their guy.' There is significant commentary on political maneuvering, such as the observation that 'Conservatives will spend years telling you to respect law enforcement until law enforcement investigates Trump,' and the dismissal of certain groups, like labeling 'Just another MAGAt pretending to care about immigration.' The posts frequently reference confrontations, noting instances where someone 'got absolutely ragdolled' or where a person 'can see him start to shut down in real time lmao.' Beyond politics, the author touches on broader societal issues, including the 'absurd' scale of AI infrastructure and the tendency of those who 'started ahead always seem to have the strongest opinions about everyone behind them.' Finally, the collection includes observations on debate dynamics, such as the idea that one must be prepared for a 'battle of wits completely unarmed,' and the general sentiment that one must 'stop blaming bad luck and admit you picked the wrong guy.'
-
-This collection of recent posts by destiny.gg heavily focuses on commentary regarding political discourse, relationship dynamics, and general observations about online behavior. A recurring theme is the critique of political certainty, noting that many people build their worldviews
+This collection of recent posts by schizanon.bsky.social covers a diverse range of topics, heavily featuring cryptocurrency, artificial intelligence, and philosophical musings on existence and technology. In the crypto sphere, the value proposition is highlighted as the 'ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee,' which drives volatility, mirroring stock market behavior. Several posts touch on AI advancements, including discussions on Alibaba banning Claude internally in favor of Qwen, and reports on performance gains, such as Intel’s Arc Pro B70 beating NVIDIA’s RTX 5090D in DeepSeek R1 LLM benchmarks. Philosophical themes explore personhood, suggesting it should be proportional to the resources required, noting that an AI might be more 'energy and space efficient' than a person in a wheelchair. Other recurring themes include the nature of technology as the core asset, skepticism regarding social mores shaped by convenience (like the shift from piracy), and commentary on media, such as the Matrix being an 'Aeon Flux ripoff.' While the search prompt specifically asked about 'gemma,' the term itself is not explicitly mentioned in these 25 visible posts, though related AI topics are abundant.
 ```

@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Text;
-use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, List, ListItem, ListState, Padding, Paragraph, Wrap};
 
 use crate::visualization::context::ContextVisualizationData;
 
@@ -84,6 +84,7 @@ pub(crate) fn render_input(frame: &mut Frame, area: Rect, input: &str) {
         .block(
             Block::default()
                 .title("Command")
+                .padding(Padding::symmetric(1, 0))
                 .style(
                     Style::default()
                         .bg(Color::Rgb(220, 220, 220))
