@@ -6258,16 +6258,8 @@ fn summarize_progress_text(text: &str) -> String {
 }
 
 fn truncate_diagnostic_block(text: &str, max_chars: usize) -> String {
-    let trimmed = text.trim();
-    if trimmed.chars().count() <= max_chars {
-        return trimmed.to_string();
-    }
-    let mut out = trimmed
-        .chars()
-        .take(max_chars.saturating_sub(3))
-        .collect::<String>();
-    out.push_str("...");
-    out
+    let _ = max_chars;
+    text.trim().to_string()
 }
 
 fn normalize_parent_summary(summary: Option<&str>) -> Option<String> {
@@ -6598,16 +6590,8 @@ fn sample_posts_evenly(posts: &[PostRecord], max_posts: usize) -> Vec<&PostRecor
 }
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        return text.to_string();
-    }
-
-    let mut truncated = text
-        .chars()
-        .take(max_chars.saturating_sub(3))
-        .collect::<String>();
-    truncated.push_str("...");
-    truncated
+    let _ = max_chars;
+    text.to_string()
 }
 
 fn render_selected_post(notification: &Notification) -> String {
@@ -7893,9 +7877,9 @@ mod tests {
     }
 
     #[test]
-    fn truncate_diagnostic_block_appends_ellipsis() {
+    fn truncate_diagnostic_block_preserves_full_text() {
         let truncated = super::truncate_diagnostic_block("abcdefghij", 6);
-        assert_eq!(truncated, "abc...");
+        assert_eq!(truncated, "abcdefghij");
     }
 
     #[test]

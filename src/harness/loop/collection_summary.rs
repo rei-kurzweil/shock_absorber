@@ -464,19 +464,9 @@ fn next_node(current: &'static str, port: &str) -> Option<&'static str> {
 }
 
 fn summarize_progress_excerpt(text: &str, limit: usize) -> String {
+    let _ = limit;
     let trimmed = text.trim();
-    if trimmed.chars().count() <= limit {
-        return trimmed.to_string();
-    }
-    let mut cutoff = 0usize;
-    for (idx, ch) in trimmed.char_indices() {
-        let next = idx + ch.len_utf8();
-        if next > limit {
-            break;
-        }
-        cutoff = next;
-    }
-    format!("{}...", trimmed[..cutoff].trim_end())
+    trimmed.to_string()
 }
 
 fn normalize_synthesis_response(text: String) -> String {

@@ -488,7 +488,9 @@ fn agent_panel_style() -> Style {
     Style::default().bg(AGENT_PANEL_BG).fg(AGENT_PANEL_FG)
 }
 
-fn compact_transcript_entries(entries: &[TranscriptEntry]) -> Vec<Cow<'_, TranscriptEntry>> {
+pub(crate) fn compact_transcript_entries(
+    entries: &[TranscriptEntry],
+) -> Vec<Cow<'_, TranscriptEntry>> {
     let mut compacted: Vec<Cow<'_, TranscriptEntry>> = Vec::with_capacity(entries.len());
     for entry in entries {
         if let Some(previous) = compacted.last_mut()

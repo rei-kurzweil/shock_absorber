@@ -41,7 +41,7 @@ use tokio::task::JoinHandle;
 const POLL_INTERVAL: StdDuration = StdDuration::from_secs(30);
 const UI_TICK: StdDuration = StdDuration::from_millis(200);
 const DEFAULT_EVIL_GEMMA_BASE_URL: &str = "http://127.0.0.1:5000";
-const DEFAULT_EVIL_GEMMA_MODEL: &str = "gemma-4-local";
+const DEFAULT_EVIL_GEMMA_MODEL: &str = "qwen-3.5-local";
 const DEFAULT_SYSTEM_PROMPT_PATH: &str = "system_prompt.md";
 
 #[derive(Clone)]

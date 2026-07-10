@@ -491,16 +491,8 @@ fn compact_search_like_result_for_root_context(tool_output: &str) -> String {
 }
 
 fn truncate_line_for_root_context(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        return text.to_string();
-    }
-
-    let mut truncated = text
-        .chars()
-        .take(max_chars.saturating_sub(3))
-        .collect::<String>();
-    truncated.push_str("...");
-    truncated
+    let _ = max_chars;
+    text.to_string()
 }
 
 async fn prepare_root_tool_input_loop(
@@ -743,15 +735,8 @@ fn render_tool_prep_failure(failure: &ToolPrepFailure) -> String {
 }
 
 fn truncate_for_root_context(text: &str, max_lines: usize) -> String {
-    let mut lines = text
-        .lines()
-        .take(max_lines)
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    if text.lines().count() > max_lines {
-        lines.push("...".to_string());
-    }
-    lines.join("\n")
+    let _ = max_lines;
+    text.to_string()
 }
 
 fn deterministic_tool_failure_answer(tool_name: &str, tool_output: &str) -> Option<String> {

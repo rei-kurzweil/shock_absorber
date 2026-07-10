@@ -1,5 +1,7 @@
 use crate::app::App;
-use crate::harness::runtime::{RootRunState, TranscriptEntry, TranscriptEntryKind};
+use crate::harness::runtime::{
+    RootRunState, TranscriptEntry, TranscriptEntryKind, compact_transcript_entries,
+};
 use crossterm::cursor::{MoveDown, MoveToColumn, MoveUp, Show};
 use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
@@ -11,6 +13,7 @@ pub struct StdoutChatRenderer {
     rendered_entry_count: usize,
     rendered_active_tool_entry: Option<String>,
     rendered_final_response: Option<String>,
+    rendered_editor_view: Option<EditorRenderView>,
     editor_line_count: u16,
     editor_cursor_row: u16,
 }
@@ -22,6 +25,7 @@ impl StdoutChatRenderer {
             rendered_entry_count: 0,
             rendered_active_tool_entry: None,
             rendered_final_response: None,
+            rendered_editor_view: None,
             editor_line_count: 0,
             editor_cursor_row: 0,
         }
@@ -40,6 +44,7 @@ impl StdoutChatRenderer {
         }
         self.editor_line_count = 0;
         self.editor_cursor_row = 0;
+        self.rendered_editor_view = None;
         Ok(())
     }
 
@@ -51,6 +56,30 @@ impl StdoutChatRenderer {
         let run = app.root_run();
         let run_id = run.map(RootRunState::run_id);
         let is_new_run = run_id != self.active_run_id;
+        let editor_view = render_editor(app);
+
+        let (compacted_entry_count, active_tool_entry, final_response) = if let Some(run) = run {
+            let compacted_entries = compact_transcript_entries(run.transcript_entries());
+            (
+                compacted_entries.len(),
+                run.active_tool_entry().map(str::to_owned),
+                run.final_response().map(str::to_owned),
+            )
+        } else {
+            (0, None, None)
+        };
+
+        let transcript_changed = force_header
+            || is_new_run
+            || compacted_entry_count != self.rendered_entry_count
+            || active_tool_entry != self.rendered_active_tool_entry
+            || final_response != self.rendered_final_response;
+        let editor_changed = self.rendered_editor_view.as_ref() != Some(&editor_view);
+
+        if !transcript_changed && !editor_changed {
+            self.active_run_id = run_id;
+            return Ok(());
+        }
 
         if self.editor_line_count > 0 {
             self.move_to_editor_top(writer)?;
@@ -69,11 +98,8 @@ impl StdoutChatRenderer {
         }
 
         if let Some(run) = run {
-            for entry in run
-                .transcript_entries()
-                .iter()
-                .skip(self.rendered_entry_count)
-            {
+            let compacted_entries = compact_transcript_entries(run.transcript_entries());
+            for entry in compacted_entries.iter().skip(self.rendered_entry_count) {
                 write_transcript_entry(writer, entry)?;
                 queue!(writer, Print("\r\n"))?;
             }
@@ -110,7 +136,7 @@ impl StdoutChatRenderer {
                 queue!(writer, Print("Waiting for evil_gemma...\r\n\r\n"))?;
             }
 
-            self.rendered_entry_count = run.transcript_entries().len();
+            self.rendered_entry_count = compacted_entries.len();
         } else {
             queue!(writer, Print("No active chat transcript.\r\n\r\n"))?;
             self.rendered_entry_count = 0;
@@ -118,24 +144,13 @@ impl StdoutChatRenderer {
             self.rendered_final_response = None;
         }
 
-        let editor_view = render_editor(app);
-        for line in &editor_view.lines {
-            queue!(writer, Print(line), Print("\r\n"))?;
-        }
-        let move_up = editor_view
-            .lines
-            .len()
-            .saturating_sub(editor_view.cursor_row as usize) as u16;
-        queue!(
-            writer,
-            MoveUp(move_up),
-            MoveToColumn(editor_view.cursor_column)
-        )?;
+        write_editor_view(writer, &editor_view)?;
         writer.flush()?;
 
         self.active_run_id = run_id;
         self.editor_line_count = editor_view.lines.len() as u16;
         self.editor_cursor_row = editor_view.cursor_row;
+        self.rendered_editor_view = Some(editor_view);
         Ok(())
     }
 
@@ -154,6 +169,7 @@ impl StdoutChatRenderer {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct EditorRenderView {
     lines: Vec<String>,
     cursor_row: u16,
@@ -220,6 +236,23 @@ fn render_editor(app: &App) -> EditorRenderView {
         cursor_row,
         cursor_column,
     }
+}
+
+fn write_editor_view<W: Write>(writer: &mut W, editor_view: &EditorRenderView) -> IoResult<()> {
+    for (index, line) in editor_view.lines.iter().enumerate() {
+        queue!(writer, Print(line))?;
+        if index + 1 < editor_view.lines.len() {
+            queue!(writer, Print("\r\n"))?;
+        }
+    }
+
+    let current_row = editor_view.lines.len().saturating_sub(1) as u16;
+    let move_up = current_row.saturating_sub(editor_view.cursor_row);
+    if move_up > 0 {
+        queue!(writer, MoveUp(move_up))?;
+    }
+    queue!(writer, MoveToColumn(editor_view.cursor_column))?;
+    Ok(())
 }
 
 fn wrap_line(line: &str, width: usize) -> Vec<String> {
