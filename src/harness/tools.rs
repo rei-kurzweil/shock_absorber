@@ -503,7 +503,6 @@ pub(crate) struct PreparedSummaryInput {
     pub(crate) actor_anchor: PreparedActorAnchor,
     pub(crate) requested_summary_scope: RequestedSummaryScope,
     pub(crate) collection_target_hint: SummaryCollectionTargetHint,
-    pub(crate) collection_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -849,34 +848,11 @@ impl BlueskyTools {
                         ],
                     });
                 };
-                let collection_id = self
-                    .select_summary_collection_for_hint(
-                        store,
-                        &actor_anchor.actor_did,
-                        &resolved_summary_request.collection_target_hint,
-                    )
-                    .map(|collection| collection.id);
-                let Some(collection_id) = collection_id else {
-                    return Err(ToolPrepFailure {
-                        tool_name: "summary".to_string(),
-                        attempt_count: 1,
-                        missing: vec![ToolPrepMissingPrerequisite::CollectionTarget],
-                        actor_anchor_source: Some(actor_anchor.source.clone()),
-                        tried: vec![
-                            format!("resolve_actor_anchor: {}", actor_anchor.actor_did.as_str()),
-                            format!(
-                                "select_collection_target_hint: {}",
-                                resolved_summary_request.collection_target_hint.as_str()
-                            ),
-                        ],
-                    });
-                };
                 Ok(PreparedPromptToolInput::Summary(PreparedSummaryInput {
                     original_query: query,
                     actor_anchor,
                     requested_summary_scope: resolved_summary_request.requested_summary_scope,
                     collection_target_hint: resolved_summary_request.collection_target_hint,
-                    collection_id,
                 }))
             }
             other => Err(ToolPrepFailure {
@@ -1601,9 +1577,11 @@ impl BlueskyTools {
             });
         }
 
-        let collection = self
-            .resolve_collection_by_id(store, &prepared_input.collection_id)
-            .ok_or("summary could not find a hydrated actor-backed collection to summarize")?;
+        let collection = pick_summary_collection_for_hint(
+            &actor_collections,
+            &prepared_input.collection_target_hint,
+        )
+        .ok_or("summary could not find a hydrated actor-backed collection to summarize")?;
         let requested_summary_scope = prepared_input.requested_summary_scope;
         append_summary_trace(format!(
             "[execute_public_summary]\nstatus: collection_selected\ncollection_id: {}\ncollection_label: {}\ncollection_kind: {}\npost_count: {}\nrequested_scope: {:?}",
@@ -7684,7 +7662,10 @@ mod tests {
                     summary.actor_anchor.source,
                     ActorAnchorSource::SelectedActorFallback
                 );
-                assert_eq!(summary.collection_id, "recent_posts:did:plc:selectedactor");
+                assert_eq!(
+                    summary.collection_target_hint,
+                    SummaryCollectionTargetHint::RecentPosts
+                );
             }
             other => panic!("expected summary prep, got {other:?}"),
         }
@@ -8674,6 +8655,35 @@ mod tests {
 
         assert_eq!(selected.collection_kind, "clearsky_lists");
         assert_eq!(selected.id, "clearsky_lists:did:plc:test");
+    }
+
+    #[test]
+    fn pick_summary_collection_for_hint_prefers_recent_posts_over_profile() {
+        let collections = vec![
+            LabeledPostCollection::new(
+                "actor_profile:did:plc:test",
+                "Profile",
+                Vec::new(),
+            )
+            .with_collection_kind("actor_profile")
+            .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new(
+                "recent_posts:did:plc:test",
+                "Recent posts",
+                Vec::new(),
+            )
+            .with_collection_kind("recent_posts")
+            .with_actor_did("did:plc:test"),
+        ];
+
+        let selected = pick_summary_collection_for_hint(
+            &collections,
+            &SummaryCollectionTargetHint::RecentPosts,
+        )
+        .expect("expected recent posts collection");
+
+        assert_eq!(selected.collection_kind, "recent_posts");
+        assert_eq!(selected.id, "recent_posts:did:plc:test");
     }
 
     #[test]

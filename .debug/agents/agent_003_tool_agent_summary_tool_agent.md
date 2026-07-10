@@ -1,6 +1,6 @@
 # Agent Debug
 
-- agent_id: 1
+- agent_id: 3
 - agent_type: ToolAgent
 - agent_kind: Summary
 - label: summary tool agent
@@ -20,12 +20,12 @@ reason: no summary pages were processed
 - model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
-- used_input_tokens: 232
+- used_input_tokens: 233
 - truncated: false
 
 ## Included Sections
 
-- Original Summary Query [local_task]: used 24 / estimated 24
+- Original Summary Query [local_task]: used 25 / estimated 25
 - Summary Result [upstream_results]: used 19 / estimated 19
 
 ## Rendered Context Window
@@ -47,7 +47,7 @@ Rules:
 - Do not invent collection IDs, item URIs, list names, or evidence.
 
 ## Original Summary Query
-summarize the most recent 400 posts by this actor into 4 paragraphs
+summarize the last 400 posts by schizanon.bsky.social into 4 paragraphs
 
 ## Summary Result
 status: failed
