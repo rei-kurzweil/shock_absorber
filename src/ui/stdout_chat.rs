@@ -395,12 +395,15 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
     }
 
     let blank_rows = INPUT_ROWS.saturating_sub(visible_rows.len());
-    let mut final_rows = vec![String::new(); blank_rows];
+    let top_blank_rows = blank_rows.saturating_sub(1);
+    let bottom_blank_rows = blank_rows - top_blank_rows;
+    let mut final_rows = vec![String::new(); top_blank_rows];
     final_rows.extend(visible_rows);
+    final_rows.extend(vec![String::new(); bottom_blank_rows]);
 
     (
         final_rows,
-        (blank_rows + visible_cursor_row) as u16,
+        (top_blank_rows + visible_cursor_row) as u16,
         cursor_column.min(width.saturating_sub(1) as u16),
     )
 }
