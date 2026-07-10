@@ -1146,7 +1146,7 @@ impl BlueskyTools {
                                             "collection_id: {}\nstatus: completed\ncovered_post_count: {}\nsummary:\n{}",
                                             collection.id,
                                             accumulator.covered_post_count,
-                                            summarize_progress_excerpt(&response, 500)
+                                            summarize_progress_excerpt(&response, 2000)
                                         ),
                                     });
                                 }
@@ -1306,7 +1306,7 @@ impl BlueskyTools {
                                         content: format!(
                                             "collection_id: {}\nstatus: completed\nsummary:\n{}",
                                             collection.id,
-                                            summarize_progress_excerpt(&response, 700)
+                                            summarize_progress_excerpt(&response, 2000)
                                         ),
                                     });
                                 }

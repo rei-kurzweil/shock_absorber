@@ -111,6 +111,7 @@ pub async fn run_root_query_task(
                     selected_actor_did.as_ref(),
                     &agent,
                     &mut store,
+                    &evil_gemma.client,
                     &mut prep_log,
                     &mut prep_warnings,
                     &mut root_run,
@@ -252,9 +253,15 @@ pub async fn run_root_query_task(
                     ),
                 );
             }
+            let transcript_tool_output = compact_tool_result_for_root_context(&tool_name, &tool_output);
             root_run.push_transcript_entry(
                 TranscriptEntryKind::ToolCall,
-                build_tool_entry(&tool_name, &tool_args, &prep_log, Some(&tool_output)),
+                build_tool_entry(
+                    &tool_name,
+                    &tool_args,
+                    &prep_log,
+                    Some(&transcript_tool_output),
+                ),
             );
             root_run.set_active_tool_entry(None);
             let tool_result_summary = compact_tool_result_for_root_context(&tool_name, &tool_output);
@@ -502,6 +509,7 @@ async fn prepare_root_tool_input_loop(
     selected_actor_did: Option<&bsky_sdk::api::types::string::Did>,
     agent: &BskyAgent,
     store: &mut NotificationStore,
+    llm_client: &crate::harness::llm_api::LlmApiClient,
     prep_log: &mut Vec<String>,
     prep_warnings: &mut Vec<String>,
     root_run: &mut RootRunState,
@@ -526,11 +534,30 @@ async fn prepare_root_tool_input_loop(
         )));
         let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
 
-        match tools.prepare_root_tool_input(tool_call, selected_actor_did, store) {
+        match tools
+            .prepare_root_tool_input(tool_call, selected_actor_did, store, llm_client)
+            .await
+        {
             Ok(prepared_input) => {
                 let actor_source = BlueskyTools::prepared_actor_anchor(&prepared_input)
                     .map(|anchor| anchor.source.as_str())
                     .unwrap_or("none");
+                if let Some(anchor_did) = BlueskyTools::prepared_actor_anchor(&prepared_input)
+                    .map(|anchor| anchor.actor_did.clone())
+                {
+                    run_initial_refresh_for_prepared_input(
+                        tool_call,
+                        &prepared_input,
+                        agent,
+                        store,
+                        &anchor_did,
+                        prep_log,
+                        prep_warnings,
+                        root_run,
+                        sender,
+                    )
+                    .await;
+                }
                 prep_log.push(format!(
                     "[tool_prep] attempt {attempt}/{MAX_TOOL_PREP_ATTEMPTS}\ntool: {}\nphase: verify\nverify_result: callable\nactor_anchor_source: {actor_source}",
                     tool_call.name
@@ -607,6 +634,40 @@ async fn run_initial_refresh_for_actor(
     root_run: &mut RootRunState,
     sender: &UnboundedSender<RootRunEvent>,
 ) {
+    run_initial_refresh_for_prepared_input(
+        tool_call,
+        &PreparedPromptToolInput::Search(crate::harness::tools::PreparedSearchInput {
+            original_query: tool_call
+                .args
+                .get("query")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            actor_anchor: None,
+            scope_hints: Vec::new(),
+        }),
+        agent,
+        store,
+        did,
+        prep_log,
+        prep_warnings,
+        root_run,
+        sender,
+    )
+    .await;
+}
+
+async fn run_initial_refresh_for_prepared_input(
+    tool_call: &PromptToolCall,
+    prepared_input: &PreparedPromptToolInput,
+    agent: &BskyAgent,
+    store: &mut NotificationStore,
+    did: &bsky_sdk::api::types::string::Did,
+    prep_log: &mut Vec<String>,
+    prep_warnings: &mut Vec<String>,
+    root_run: &mut RootRunState,
+    sender: &UnboundedSender<RootRunEvent>,
+) {
     prep_log.push(format!(
         "[tool_prep] side_effect: initial_refresh\nactor_did: {}",
         did.as_str()
@@ -621,7 +682,8 @@ async fn run_initial_refresh_for_actor(
     let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
 
     let (recent_post_fetch_limit, min_top_level_posts) =
-        planned_recent_post_refresh_requirements(tool_call);
+        BlueskyTools::prepared_recent_post_requirements(prepared_input)
+            .unwrap_or_else(|| planned_recent_post_refresh_requirements(tool_call));
     if let Err(message) = run_tool_prep_step(
         INITIAL_COLLECTION_REFRESH_TIMEOUT,
         ensure_recent_posts_cached(

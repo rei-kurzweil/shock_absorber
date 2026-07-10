@@ -1,4 +1,0 @@
-root_agent_id: 0
-status: completed
-result_summary: The recent posts from lostjared.bsky.social overwhelmingly center on a substantial, passion-driven software project involving GPU and game programming. The core achievement is a network-playable game, '3D Tetris,' which is built upon a custom graphics engine called MXVK, described as the "Vulkan evolution o...
-current_task: summarize this actor's 50 most recent posts and make a big summary😳⚠️👀

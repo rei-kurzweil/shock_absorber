@@ -513,7 +513,7 @@ pub async fn ensure_recent_posts_cached(
     feed_fetch_limit: usize,
     min_top_level_posts: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let (Some(all_posts), Some(posts), Some(replies)) = (
+    if let (Some(all_posts), Some(posts), Some(_replies)) = (
         store.get_recent_posts_collection(did),
         store.get_recent_posts_unaddressed_collection(did),
         store.get_recent_replies_sent_collection(did),
@@ -521,7 +521,6 @@ pub async fn ensure_recent_posts_cached(
         let cached_total = all_posts.posts.len();
         if posts.posts.len() >= min_top_level_posts
             || cached_total >= feed_fetch_limit
-            || cached_total >= posts.posts.len().saturating_add(replies.posts.len())
         {
             return Ok(());
         }
