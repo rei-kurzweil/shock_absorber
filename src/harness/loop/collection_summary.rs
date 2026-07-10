@@ -1428,23 +1428,23 @@ mod tests {
     async fn run_collection_summary_loop_returns_aggregated_summary_payload() {
         let llm_client = start_mock_llm_client(vec![
             "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
-            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 25 item(s), but 50 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 25\nrequired_total_items: 50".to_string(),
+            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 50 item(s), but 100 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 50\nrequired_total_items: 100".to_string(),
             "Across the covered windows so far, the posts repeatedly circle the \\\"alpha\\\" theme, with terse updates and quoted snippets showing a steady, narrow focus rather than abrupt topic changes.".to_string(),
-            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 25: theme beta\\\" and \\\"quote: \\\"snippet 39\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
-            "status: pass\ngrounded: true\nsufficient: true\nreason: Grounded summary coverage reaches 50 item(s), satisfying the requested 50 item scope.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 50".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 50: theme beta\\\" and \\\"quote: \\\"snippet 79\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
+            "status: pass\ngrounded: true\nsufficient: true\nreason: Grounded summary coverage reaches 100 item(s), satisfying the requested 100 item scope.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 100".to_string(),
             "Taken together, the covered windows move from a concentrated \\\"alpha\\\" run into a broader \\\"beta\\\" run, so the collection now shows both continuity and a visible topic shift across the requested scope.".to_string(),
-            "The first 50 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 25\\\" and \\\"snippet 39\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
+            "The first 100 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 50\\\" and \\\"snippet 79\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
         ]);
         let tools = BlueskyTools::new();
-        let collection = test_collection(50);
+        let collection = test_collection(100);
         let (observer, mut receiver) = unbounded_channel();
 
         let outcomes = tools
             .run_collection_summary_loop(
                 &collection,
-                "summarize the last 50 posts by alpha.test",
+                "summarize the last 100 posts by alpha.test",
                 RequestedSummaryScope::Count {
-                    requested_items: 50,
+                    requested_items: 100,
                 },
                 &llm_client,
                 Some(observer),
@@ -1472,14 +1472,14 @@ mod tests {
         assert_eq!(result.window_offset, Some(0));
         assert_eq!(
             result.window_size,
-            Some(50),
+            Some(100),
             "diagnostic: {:?}\nconcatenated: {:?}\nsummary: {:?}\nprogress:\n{}",
             execution.diagnostic,
             result.concatenated_window_summaries(),
             result.summary,
             progress.join("\n\n---\n\n")
         );
-        assert_eq!(result.collection_total_items, Some(50));
+        assert_eq!(result.collection_total_items, Some(100));
         assert_eq!(result.source_exhausted, Some(true));
 
         let concatenated = result
@@ -1489,7 +1489,7 @@ mod tests {
         assert!(concatenated.contains("The second window shifts toward \"theme beta\" posts"));
 
         assert!(
-            result.summary.contains("The first 50 posts split into two clear phases."),
+            result.summary.contains("The first 100 posts split into two clear phases."),
             "final summary: {:?}",
             result.summary
         );
@@ -1501,35 +1501,35 @@ mod tests {
         assert!(verdict.grounded);
         assert!(verdict.sufficient);
         assert!(!verdict.additional_pages_needed);
-        assert_eq!(verdict.required_total_items, Some(50));
+        assert_eq!(verdict.required_total_items, Some(100));
 
         let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
         assert!(diagnostic.contains("collection_summary_planner accepted 2 page summaries"));
-        assert!(diagnostic.contains("covered_post_count: 50"));
+        assert!(diagnostic.contains("covered_post_count: 100"));
     }
 
     #[tokio::test]
     async fn run_collection_summary_loop_repairs_invalid_planner_and_notes_synthesis() {
         let llm_client = start_mock_llm_client(vec![
             "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
-            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 25 item(s), but 50 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 25\nrequired_total_items: 50".to_string(),
+            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 50 item(s), but 100 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 50\nrequired_total_items: 100".to_string(),
             "status: completed\nsummary: invalid planner metadata".to_string(),
             "Across the covered windows so far, the posts repeatedly circle the \\\"alpha\\\" theme, with terse updates and quoted snippets showing a steady, narrow focus rather than abrupt topic changes.".to_string(),
-            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 25: theme beta\\\" and \\\"quote: \\\"snippet 39\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
-            "status: pass\ngrounded: true\nsufficient: true\nreason: Grounded summary coverage reaches 50 item(s), satisfying the requested 50 item scope.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 50".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 50: theme beta\\\" and \\\"quote: \\\"snippet 79\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
+            "status: pass\ngrounded: true\nsufficient: true\nreason: Grounded summary coverage reaches 100 item(s), satisfying the requested 100 item scope.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 100".to_string(),
             "Taken together, the covered windows move from a concentrated \\\"alpha\\\" run into a broader \\\"beta\\\" run, so the collection now shows both continuity and a visible topic shift across the requested scope.".to_string(),
-            "summary: The first 50 posts split into two clear phases, with \\\"snippet 0\\\" showing the early focus and \\\"invented quote\\\"".to_string(),
-            "The first 50 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 25\\\" and \\\"snippet 39\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
+            "summary: The first 100 posts split into two clear phases, with \\\"snippet 0\\\" showing the early focus and \\\"invented quote\\\"".to_string(),
+            "The first 100 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 50\\\" and \\\"snippet 79\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
         ]);
         let tools = BlueskyTools::new();
-        let collection = test_collection(50);
+        let collection = test_collection(100);
 
         let outcomes = tools
             .run_collection_summary_loop(
                 &collection,
-                "summarize the last 50 posts by alpha.test",
+                "summarize the last 100 posts by alpha.test",
                 RequestedSummaryScope::Count {
-                    requested_items: 50,
+                    requested_items: 100,
                 },
                 &llm_client,
                 None,
@@ -1545,8 +1545,8 @@ mod tests {
             .and_then(CollectionLeafResult::as_summary)
             .expect("summary result");
 
-        assert!(result.summary.contains("The first 50 posts split into two clear phases."));
-        assert!(result.summary.contains("\"snippet 39\""));
+        assert!(result.summary.contains("The first 100 posts split into two clear phases."));
+        assert!(result.summary.contains("\"snippet 79\""));
         assert!(!result.summary.contains("invented quote"));
     }
 
@@ -1555,22 +1555,22 @@ mod tests {
     ) {
         let llm_client = start_mock_llm_client(vec![
             "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
-            "status: fail\nsufficient: false\nreason: need more pages\nrepair_needed: false\nadditional_pages_needed: true\nrequired_total_items: 50".to_string(),
+            "status: fail\nsufficient: false\nreason: need more pages\nrepair_needed: false\nadditional_pages_needed: true\nrequired_total_items: 100".to_string(),
             "Across the covered windows so far, the posts repeatedly circle the \\\"alpha\\\" theme, with terse updates and quoted snippets showing a steady, narrow focus rather than abrupt topic changes.".to_string(),
-            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 25: theme beta\\\" and \\\"quote: \\\"snippet 39\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
-            "status: pass\ngrounded: true\nsufficient: true\nreason: scope complete\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 50".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 50: theme beta\\\" and \\\"quote: \\\"snippet 79\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
+            "status: pass\ngrounded: true\nsufficient: true\nreason: scope complete\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 100".to_string(),
             "Taken together, the covered windows move from a concentrated \\\"alpha\\\" run into a broader \\\"beta\\\" run, so the collection now shows both continuity and a visible topic shift across the requested scope.".to_string(),
-            "The first 50 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 25\\\" and \\\"snippet 39\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
+            "The first 100 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 50\\\" and \\\"snippet 79\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
         ]);
         let tools = BlueskyTools::new();
-        let collection = test_collection(50);
+        let collection = test_collection(100);
 
         let outcomes = tools
             .run_collection_summary_loop(
                 &collection,
-                "summarize the last 50 posts by alpha.test",
+                "summarize the last 100 posts by alpha.test",
                 RequestedSummaryScope::Count {
-                    requested_items: 50,
+                    requested_items: 100,
                 },
                 &llm_client,
                 None,
@@ -1586,8 +1586,8 @@ mod tests {
             .and_then(CollectionLeafResult::as_summary)
             .expect("summary result");
 
-        assert_eq!(result.window_size, Some(50));
-        assert!(result.summary.contains("The first 50 posts split into two clear phases."));
+        assert_eq!(result.window_size, Some(100));
+        assert!(result.summary.contains("The first 100 posts split into two clear phases."));
 
         let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
         assert!(diagnostic.contains("collection_summary_planner accepted 2 page summaries"));

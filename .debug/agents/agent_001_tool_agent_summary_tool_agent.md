@@ -4,7 +4,7 @@
 - agent_type: ToolAgent
 - agent_kind: Summary
 - label: summary tool agent
-- status: failed
+- status: completed
 - parent_agent_id: 0
 - child_agent_ids: 2
 - tool_name: summary
@@ -12,33 +12,33 @@
 ## Result Summary
 
 tool_name: collection_summary
-collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
-collection_label: Recent posts by did:plc:6lwfvmss45d7j7fot34v2kw5
-status: failed
+collection_id: actor_profile:did:plc:6lwfvmss45d7j7fot34v2kw5
+collection_label: Profile for schizanon.bsky.social
+status: ok
 diagnostic: collection_summary_planner accepted 1 page summaries; collection_summary_notes produced final scope summary
 covered_window_offsets: 0
-covered_post_count: 25
+covered_post_count: 1
 planner_updates: 1
 raw_response:
-The initial 25 posts from schizanon.bsky.social reveal a rich tapestry of discussions centered on cryptocurrency, artificial intelligence, and existential philosophy. A major recurring theme is the utility of crypto, described as the "ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee." AI is heavily featured, with specific examples like Alibaba favoring Qwen over Claude and Intel's Arc Pro B70 outperforming the RTX 5090D in LLM benchmarks. Philosophically, the author questions personhood, suggesting it should align with resource efficiency, noting an AI could be more "'energy and space efficient' than a person in a wheelchair." While the term 'gemma' is not explicitly present in these summaries, the focus on AI is so strong that it suggests related models are frequently discussed.
-review_status: fail
+The initial coverage for schizanon.bsky.social has successfully retrieved the foundational actor profile, establishing the context for the requested 200 posts. The profile itself is characterized by a quirky biography, noting the user was "Raised by a pack of feral barn cats." Key interests are clearly defined, centering on "Bitcoin, and Generative AI," indicating a strong focus on current technological and financial trends. This single window summary provides the essential metadata, including the DID did:plc:6lwfvmss45d7j7fot34v2kw5. While the scope requested 200 posts, this first item serves as the anchor, confirming the user's identity and thematic leanings before the actual post content is synthesized.
+review_status: pass
 review_grounded: true
-review_sufficient: false
-review_reason: collection_summary_notes produced a partial scope summary after considering 25 posts before exhaustion.
+review_sufficient: true
+review_reason: collection_summary_notes produced a partial scope summary after considering 1 posts before exhaustion.
 review_repair_needed: false
-review_additional_pages_needed: true
+review_additional_pages_needed: false
 review_required_total_items: 200
-post: Summary of Recent posts by did:plc:6lwfvmss45d7j7fot34v2kw5
-summary: The initial 25 posts from schizanon.bsky.social reveal a rich tapestry of discussions centered on cryptocurrency, artificial intelligence, and existential philosophy. A major recurring theme is the utility of crypto, described as the "ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee." AI is heavily featured, with specific examples like Alibaba favoring Qwen over Claude and Intel's Arc Pro B70 outperforming the RTX 5090D in LLM benchmarks. Philosophically, the author questions personhood, suggesting it should align with resource efficiency, noting an AI could be more "'energy and space efficient' than a person in a wheelchair." While the term 'gemma' is not explicitly present in these summaries, the focus on AI is so strong that it suggests related models are frequently discussed.
+post: Summary of Profile for schizanon.bsky.social
+summary: The initial coverage for schizanon.bsky.social has successfully retrieved the foundational actor profile, establishing the context for the requested 200 posts. The profile itself is characterized by a quirky biography, noting the user was "Raised by a pack of feral barn cats." Key interests are clearly defined, centering on "Bitcoin, and Generative AI," indicating a strong focus on current technological and financial trends. This single window summary provides the essential metadata, including the DID did:plc:6lwfvmss45d7j7fot34v2kw5. While the scope requested 200 posts, this first item serves as the anchor, confirming the user's identity and thematic leanings before the actual post content is synthesized.
 window_offset: 0
-window_size: 25
+window_size: 1
 page_index: 0
-page_size: 25
-collection_total_items: 200
-has_more: true
-source_exhausted: false
+page_size: 50
+collection_total_items: 1
+has_more: false
+source_exhausted: true
 concatenated_window_summaries:
-This collection of recent posts by schizanon.bsky.social covers a diverse range of topics, heavily featuring cryptocurrency, artificial intelligence, and philosophical musings on existence and technology. In the crypto sphere, the value proposition is highlighted as the 'ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee,' which drives volatility, mirroring stock market behavior. Several posts touch on AI advancements, including discussions on Alibaba banning Claude internally in favor of Qwen, and reports on performance gains, such as Intel’s Arc Pro B70 beating NVIDIA’s RTX 5090D in DeepSeek R1 LLM benchmarks. Philosophical themes explore personhood, suggesting it should be proportional to the resources required, noting that an AI might be more 'energy and space efficient' than a person in a wheelchair. Other recurring themes include the nature of technology as the core asset, skepticism regarding social mores shaped by convenience (like the shift from piracy), and commentary on media, such as the Matrix being an 'Aeon Flux ripoff.' While the search prompt specifically asked about 'gemma,' the term itself is not explicitly mentioned in these 25 visible posts, though related AI topics are abundant.
+This collection window provides the profile details for the actor schizanon.bsky.social. The profile itself is concise, stating the handle as "schizanon.bsky.social" and offering a brief biography that paints a quirky picture of the user's life, noting they were "Raised by a pack of feral barn cats." The user's interests are explicitly stated in the bio, highlighting a strong affinity for two major technological and financial trends: "Bitcoin, and Generative AI." The profile is identified by the Decentralized Identifier (DID) did:plc:6lwfvmss45d7j7fot34v2kw5 and is sourced from the actor profile endpoint. Although the search prompt requested a summary of 200 posts, this specific window only contains the single profile item, which serves as the foundational context for the user's activity on the platform.
 
 ## Context Window Stats
 
@@ -46,13 +46,13 @@ This collection of recent posts by schizanon.bsky.social covers a diverse range 
 - model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
-- used_input_tokens: 1191
+- used_input_tokens: 988
 - truncated: false
 
 ## Included Sections
 
-- Original Summary Query [local_task]: used 29 / estimated 29
-- Summary Result [upstream_results]: used 973 / estimated 973
+- Original Summary Query [local_task]: used 18 / estimated 18
+- Summary Result [upstream_results]: used 781 / estimated 781
 
 ## Rendered Context Window
 
@@ -73,35 +73,35 @@ Rules:
 - Do not invent collection IDs, item URIs, list names, or evidence.
 
 ## Original Summary Query
-summarize the last 200 posts by schizanon.bsky.social and note if 'gemma' is mentioned
+summarize 200 posts by schizanon.bsky.social
 
 ## Summary Result
 tool_name: collection_summary
-collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
-collection_label: Recent posts by did:plc:6lwfvmss45d7j7fot34v2kw5
-status: failed
+collection_id: actor_profile:did:plc:6lwfvmss45d7j7fot34v2kw5
+collection_label: Profile for schizanon.bsky.social
+status: ok
 diagnostic: collection_summary_planner accepted 1 page summaries; collection_summary_notes produced final scope summary
 covered_window_offsets: 0
-covered_post_count: 25
+covered_post_count: 1
 planner_updates: 1
 raw_response:
-The initial 25 posts from schizanon.bsky.social reveal a rich tapestry of discussions centered on cryptocurrency, artificial intelligence, and existential philosophy. A major recurring theme is the utility of crypto, described as the "ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee." AI is heavily featured, with specific examples like Alibaba favoring Qwen over Claude and Intel's Arc Pro B70 outperforming the RTX 5090D in LLM benchmarks. Philosophically, the author questions personhood, suggesting it should align with resource efficiency, noting an AI could be more "'energy and space efficient' than a person in a wheelchair." While the term 'gemma' is not explicitly present in these summaries, the focus on AI is so strong that it suggests related models are frequently discussed.
-review_status: fail
+The initial coverage for schizanon.bsky.social has successfully retrieved the foundational actor profile, establishing the context for the requested 200 posts. The profile itself is characterized by a quirky biography, noting the user was "Raised by a pack of feral barn cats." Key interests are clearly defined, centering on "Bitcoin, and Generative AI," indicating a strong focus on current technological and financial trends. This single window summary provides the essential metadata, including the DID did:plc:6lwfvmss45d7j7fot34v2kw5. While the scope requested 200 posts, this first item serves as the anchor, confirming the user's identity and thematic leanings before the actual post content is synthesized.
+review_status: pass
 review_grounded: true
-review_sufficient: false
-review_reason: collection_summary_notes produced a partial scope summary after considering 25 posts before exhaustion.
+review_sufficient: true
+review_reason: collection_summary_notes produced a partial scope summary after considering 1 posts before exhaustion.
 review_repair_needed: false
-review_additional_pages_needed: true
+review_additional_pages_needed: false
 review_required_total_items: 200
-post: Summary of Recent posts by did:plc:6lwfvmss45d7j7fot34v2kw5
-summary: The initial 25 posts from schizanon.bsky.social reveal a rich tapestry of discussions centered on cryptocurrency, artificial intelligence, and existential philosophy. A major recurring theme is the utility of crypto, described as the "ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee." AI is heavily featured, with specific examples like Alibaba favoring Qwen over Claude and Intel's Arc Pro B70 outperforming the RTX 5090D in LLM benchmarks. Philosophically, the author questions personhood, suggesting it should align with resource efficiency, noting an AI could be more "'energy and space efficient' than a person in a wheelchair." While the term 'gemma' is not explicitly present in these summaries, the focus on AI is so strong that it suggests related models are frequently discussed.
+post: Summary of Profile for schizanon.bsky.social
+summary: The initial coverage for schizanon.bsky.social has successfully retrieved the foundational actor profile, establishing the context for the requested 200 posts. The profile itself is characterized by a quirky biography, noting the user was "Raised by a pack of feral barn cats." Key interests are clearly defined, centering on "Bitcoin, and Generative AI," indicating a strong focus on current technological and financial trends. This single window summary provides the essential metadata, including the DID did:plc:6lwfvmss45d7j7fot34v2kw5. While the scope requested 200 posts, this first item serves as the anchor, confirming the user's identity and thematic leanings before the actual post content is synthesized.
 window_offset: 0
-window_size: 25
+window_size: 1
 page_index: 0
-page_size: 25
-collection_total_items: 200
-has_more: true
-source_exhausted: false
+page_size: 50
+collection_total_items: 1
+has_more: false
+source_exhausted: true
 concatenated_window_summaries:
-This collection of recent posts by schizanon.bsky.social covers a diverse range of topics, heavily featuring cryptocurrency, artificial intelligence, and philosophical musings on existence and technology. In the crypto sphere, the value proposition is highlighted as the 'ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee,' which drives volatility, mirroring stock market behavior. Several posts touch on AI advancements, including discussions on Alibaba banning Claude internally in favor of Qwen, and reports on performance gains, such as Intel’s Arc Pro B70 beating NVIDIA’s RTX 5090D in DeepSeek R1 LLM benchmarks. Philosophical themes explore personhood, suggesting it should be proportional to the resources required, noting that an AI might be more 'energy and space efficient' than a person in a wheelchair. Other recurring themes include the nature of technology as the core asset, skepticism regarding social mores shaped by convenience (like the shift from piracy), and commentary on media, such as the Matrix being an 'Aeon Flux ripoff.' While the search prompt specifically asked about 'gemma,' the term itself is not explicitly mentioned in these 25 visible posts, though related AI topics are abundant.
+This collection window provides the profile details for the actor schizanon.bsky.social. The profile itself is concise, stating the handle as "schizanon.bsky.social" and offering a brief biography that paints a quirky picture of the user's life, noting they were "Raised by a pack of feral barn cats." The user's interests are explicitly stated in the bio, highlighting a strong affinity for two major technological and financial trends: "Bitcoin, and Generative AI." The profile is identified by the Decentralized Identifier (DID) did:plc:6lwfvmss45d7j7fot34v2kw5 and is sourced from the actor profile endpoint. Although the search prompt requested a summary of 200 posts, this specific window only contains the single profile item, which serves as the foundational context for the user's activity on the platform.
 ```

@@ -707,7 +707,7 @@ impl<'a> LlmSearchComparator<'a> {
 
 pub struct BlueskyTools;
 
-pub(crate) const COLLECTION_SEARCH_PAGE_SIZE: usize = 25;
+pub(crate) const COLLECTION_SEARCH_PAGE_SIZE: usize = 50;
 const MAX_COLLECTION_SEARCH_RESULTS: usize = 10;
 const ACTOR_SEARCH_POST_TARGET: usize = 25;
 const ACTOR_SCOPE_AUTHOR_FEED_FETCH_LIMIT: usize = 100;
@@ -2982,7 +2982,7 @@ fn summary_recent_post_requirements(
     }
     .max(COLLECTION_SEARCH_PAGE_SIZE);
 
-    let feed_fetch_limit = requested_posts.saturating_mul(2).max(100).min(200);
+    let feed_fetch_limit = requested_posts.saturating_mul(2).max(100).min(400);
     (feed_fetch_limit, requested_posts)
 }
 
@@ -6938,7 +6938,7 @@ mod tests {
         let args =
             serde_json::json!({"collection_id": "recent:test", "prompt": "check", "page": 2});
         let offset = collection_search_offset(&args).expect("expected offset");
-        assert_eq!(offset, 50);
+        assert_eq!(offset, 100);
     }
 
     #[test]
@@ -7180,7 +7180,7 @@ mod tests {
         assert_eq!(result.window_offset, Some(0));
         assert_eq!(result.window_size, Some(2));
         assert_eq!(result.page_index, Some(0));
-        assert_eq!(result.page_size, Some(25));
+        assert_eq!(result.page_size, Some(50));
         assert_eq!(result.collection_total_items, Some(2));
         assert_eq!(result.has_more, Some(false));
     }
@@ -7251,7 +7251,7 @@ mod tests {
             25,
         );
 
-        let response = "SUMMARY_RESULT_START\nsummary: Both posts stay grounded in direct text, including \"post one\" and \"post two\", so the paragraph accounts for the whole window without JSON escaping problems.\ncovered_item_uri: at://one\ncovered_item_uri: at://two\nwindow_offset: 0\nwindow_size: 2\npage_index: 0\npage_size: 25\ncollection_total_items: 2\nhas_more: false\nSUMMARY_RESULT_END";
+        let response = "SUMMARY_RESULT_START\nsummary: Both posts stay grounded in direct text, including \"post one\" and \"post two\", so the paragraph accounts for the whole window without JSON escaping problems.\ncovered_item_uri: at://one\ncovered_item_uri: at://two\nwindow_offset: 0\nwindow_size: 2\npage_index: 0\npage_size: 50\ncollection_total_items: 2\nhas_more: false\nSUMMARY_RESULT_END";
         let result = parse_collection_tool_result(
             &collection,
             response,
@@ -7267,7 +7267,7 @@ mod tests {
         assert_eq!(result.window_offset, Some(0));
         assert_eq!(result.window_size, Some(2));
         assert_eq!(result.page_index, Some(0));
-        assert_eq!(result.page_size, Some(25));
+        assert_eq!(result.page_size, Some(50));
         assert_eq!(result.collection_total_items, Some(2));
         assert_eq!(result.has_more, Some(false));
         assert_eq!(result.title, "LLM-selected post in Recent test posts");
@@ -7421,7 +7421,7 @@ mod tests {
         assert_eq!(result.covered_item_uris, vec!["at://one"]);
         assert_eq!(result.omitted_item_uris, vec!["at://two"]);
         assert_eq!(result.page_index, Some(0));
-        assert_eq!(result.page_size, Some(25));
+        assert_eq!(result.page_size, Some(50));
         assert_eq!(result.collection_total_items, Some(2));
         assert_eq!(result.has_more, Some(false));
     }
