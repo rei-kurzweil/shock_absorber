@@ -170,10 +170,23 @@ impl StdoutChatRenderer {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+struct EditorRenderLine {
+    text: String,
+    style: EditorLineStyle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EditorLineStyle {
+    InputBox,
+    Plain,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct EditorRenderView {
-    lines: Vec<String>,
+    lines: Vec<EditorRenderLine>,
     cursor_row: u16,
     cursor_column: u16,
+    terminal_width: u16,
 }
 
 fn render_editor(app: &App) -> EditorRenderView {
@@ -181,36 +194,47 @@ fn render_editor(app: &App) -> EditorRenderView {
         .map(|(width, _)| width.max(20) as usize)
         .unwrap_or(80);
     let mut lines = Vec::new();
-    lines.push(
-        "Prompt: Enter submits | Shift+Enter or Ctrl+J inserts newline | Tab toggles views"
+    lines.push(EditorRenderLine {
+        text: String::new(),
+        style: EditorLineStyle::InputBox,
+    });
+    lines.push(EditorRenderLine {
+        text: "  Prompt: Enter submits | Shift+Enter or Ctrl+J inserts newline | Tab toggles views"
             .to_string(),
-    );
+        style: EditorLineStyle::InputBox,
+    });
 
-    let mut cursor_row = 1_u16;
-    let mut cursor_column = 2_u16;
-    let prompt_width = width.saturating_sub(2).max(1);
+    let mut cursor_row = 2_u16;
+    let mut cursor_column = 4_u16;
+    let prompt_width = width.saturating_sub(4).max(1);
     let editor_lines = app.chat_editor().lines();
     let (cursor_line, cursor_column_in_line) = app.chat_editor().cursor_line_and_column();
 
     for (line_index, line) in editor_lines.iter().enumerate() {
         let wrapped = wrap_line(line, prompt_width);
         if wrapped.is_empty() {
-            lines.push("> ".to_string());
+            lines.push(EditorRenderLine {
+                text: "  > ".to_string(),
+                style: EditorLineStyle::InputBox,
+            });
             if line_index == cursor_line {
                 cursor_row = (lines.len() - 1) as u16;
-                cursor_column = 2;
+                cursor_column = 4;
             }
             continue;
         }
         let mut consumed = 0;
         for (segment_index, segment) in wrapped.iter().enumerate() {
-            lines.push(format!("> {segment}"));
+            lines.push(EditorRenderLine {
+                text: format!("  > {segment}"),
+                style: EditorLineStyle::InputBox,
+            });
             if line_index == cursor_line
                 && cursor_column_in_line >= consumed
                 && cursor_column_in_line <= consumed + segment.chars().count()
             {
                 cursor_row = (lines.len() - 1) as u16;
-                cursor_column = 2 + (cursor_column_in_line - consumed) as u16;
+                cursor_column = 4 + (cursor_column_in_line - consumed) as u16;
             }
             consumed += segment.chars().count();
             if segment_index + 1 == wrapped.len()
@@ -218,29 +242,58 @@ fn render_editor(app: &App) -> EditorRenderView {
                 && cursor_column_in_line == consumed
             {
                 cursor_row = (lines.len() - 1) as u16;
-                cursor_column = 2 + segment.chars().count() as u16;
+                cursor_column = 4 + segment.chars().count() as u16;
             }
         }
     }
 
     if app.chat_editor().text().is_empty() {
-        cursor_row = 1;
-        cursor_column = 2;
+        cursor_row = 2;
+        cursor_column = 4;
     }
 
-    lines.push(String::new());
-    lines.push(format!("Status: {}", app.status()));
+    lines.push(EditorRenderLine {
+        text: String::new(),
+        style: EditorLineStyle::InputBox,
+    });
+    lines.push(EditorRenderLine {
+        text: String::new(),
+        style: EditorLineStyle::Plain,
+    });
+    lines.push(EditorRenderLine {
+        text: format!("Status: {}", app.status()),
+        style: EditorLineStyle::Plain,
+    });
 
     EditorRenderView {
         lines,
         cursor_row,
         cursor_column,
+        terminal_width: width as u16,
     }
 }
 
 fn write_editor_view<W: Write>(writer: &mut W, editor_view: &EditorRenderView) -> IoResult<()> {
     for (index, line) in editor_view.lines.iter().enumerate() {
-        queue!(writer, Print(line))?;
+        queue!(writer, MoveToColumn(0), Clear(ClearType::CurrentLine))?;
+        match line.style {
+            EditorLineStyle::InputBox => {
+                queue!(
+                    writer,
+                    SetForegroundColor(Color::Black),
+                    SetBackgroundColor(Color::Rgb {
+                        r: 220,
+                        g: 220,
+                        b: 220
+                    }),
+                    Print(pad_line_to_width(&line.text, editor_view.terminal_width as usize)),
+                    ResetColor
+                )?;
+            }
+            EditorLineStyle::Plain => {
+                queue!(writer, ResetColor, Print(&line.text))?;
+            }
+        }
         if index + 1 < editor_view.lines.len() {
             queue!(writer, Print("\r\n"))?;
         }
@@ -253,6 +306,15 @@ fn write_editor_view<W: Write>(writer: &mut W, editor_view: &EditorRenderView) -
     }
     queue!(writer, MoveToColumn(editor_view.cursor_column))?;
     Ok(())
+}
+
+fn pad_line_to_width(text: &str, width: usize) -> String {
+    let mut out = text.chars().take(width).collect::<String>();
+    let visible_width = out.chars().count();
+    if visible_width < width {
+        out.push_str(&" ".repeat(width - visible_width));
+    }
+    out
 }
 
 fn wrap_line(line: &str, width: usize) -> Vec<String> {
