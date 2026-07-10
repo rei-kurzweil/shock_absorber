@@ -198,13 +198,8 @@ fn render_editor(app: &App) -> EditorRenderView {
         text: String::new(),
         style: EditorLineStyle::InputBox,
     });
-    lines.push(EditorRenderLine {
-        text: "  Prompt: Enter submits | Shift+Enter or Ctrl+J inserts newline | Tab toggles views"
-            .to_string(),
-        style: EditorLineStyle::InputBox,
-    });
 
-    let mut cursor_row = 2_u16;
+    let mut cursor_row = 1_u16;
     let mut cursor_column = 4_u16;
     let prompt_width = width.saturating_sub(4).max(1);
     let editor_lines = app.chat_editor().lines();
@@ -248,7 +243,7 @@ fn render_editor(app: &App) -> EditorRenderView {
     }
 
     if app.chat_editor().text().is_empty() {
-        cursor_row = 2;
+        cursor_row = 1;
         cursor_column = 4;
     }
 
@@ -257,11 +252,7 @@ fn render_editor(app: &App) -> EditorRenderView {
         style: EditorLineStyle::InputBox,
     });
     lines.push(EditorRenderLine {
-        text: String::new(),
-        style: EditorLineStyle::Plain,
-    });
-    lines.push(EditorRenderLine {
-        text: format!("Status: {}", app.status()),
+        text: build_status_line(app, width),
         style: EditorLineStyle::Plain,
     });
 
@@ -271,6 +262,55 @@ fn render_editor(app: &App) -> EditorRenderView {
         cursor_column,
         terminal_width: width as u16,
     }
+}
+
+fn build_status_line(app: &App, width: usize) -> String {
+    let right = "press tab to toggle modes";
+    let left = if let Some(run) = app.root_run() {
+        let window = run.root_context_window();
+        let max_context_tokens = window.limits.max_context_tokens.max(1);
+        let used_percent = ((window.used_input_tokens * 100) / max_context_tokens).min(999);
+        format!(
+            "{} · context {}% used · {} window",
+            window.limits.model_name,
+            used_percent,
+            format_window_size(window.limits.max_context_tokens)
+        )
+    } else {
+        app.status().to_string()
+    };
+
+    if width <= 2 {
+        return String::new();
+    }
+
+    let inner_width = width - 2;
+    let left_width = left.chars().count();
+    let right_width = right.chars().count();
+    let inner = if inner_width <= right_width + 1 || left_width + right_width + 1 > inner_width {
+        truncate_to_width(&left, inner_width)
+    } else {
+        format!(
+            "{left}{}{}",
+            " ".repeat(inner_width - left_width - right_width),
+            right
+        )
+    };
+
+    format!(" {inner} ")
+}
+
+fn format_window_size(tokens: usize) -> String {
+    let thousands = tokens / 1000;
+    if thousands == 0 {
+        format!("{tokens}")
+    } else {
+        format!("{thousands}K")
+    }
+}
+
+fn truncate_to_width(text: &str, width: usize) -> String {
+    text.chars().take(width).collect()
 }
 
 fn write_editor_view<W: Write>(writer: &mut W, editor_view: &EditorRenderView) -> IoResult<()> {
