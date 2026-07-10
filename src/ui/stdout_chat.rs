@@ -2,7 +2,7 @@ use crate::app::App;
 use crate::harness::runtime::{RootRunState, TranscriptEntry, TranscriptEntryKind};
 use crossterm::cursor::{MoveDown, MoveToColumn, MoveUp, Show};
 use crossterm::queue;
-use crossterm::style::Print;
+use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{self, Clear, ClearType};
 use std::io::{Result as IoResult, Write};
 
@@ -165,13 +165,12 @@ fn render_editor(app: &App) -> EditorRenderView {
         .map(|(width, _)| width.max(20) as usize)
         .unwrap_or(80);
     let mut lines = Vec::new();
-    lines.push(format!("Status: {}", app.status()));
     lines.push(
         "Prompt: Enter submits | Shift+Enter or Ctrl+J inserts newline | Tab toggles views"
             .to_string(),
     );
 
-    let mut cursor_row = 2_u16;
+    let mut cursor_row = 1_u16;
     let mut cursor_column = 2_u16;
     let prompt_width = width.saturating_sub(2).max(1);
     let editor_lines = app.chat_editor().lines();
@@ -209,9 +208,12 @@ fn render_editor(app: &App) -> EditorRenderView {
     }
 
     if app.chat_editor().text().is_empty() {
-        cursor_row = 2;
+        cursor_row = 1;
         cursor_column = 2;
     }
+
+    lines.push(String::new());
+    lines.push(format!("Status: {}", app.status()));
 
     EditorRenderView {
         lines,
@@ -241,7 +243,7 @@ fn wrap_line(line: &str, width: usize) -> Vec<String> {
 fn write_transcript_entry<W: Write>(writer: &mut W, entry: &TranscriptEntry) -> IoResult<()> {
     let indent = "    ".repeat(entry.depth);
     match entry.kind {
-        TranscriptEntryKind::ToolCall | TranscriptEntryKind::AgentEvent => {
+        TranscriptEntryKind::ToolCall => {
             if let Some(agent_label) = entry.agent_label.as_deref() {
                 queue!(writer, Print(format!("{indent}[agent] {agent_label}\r\n")))?;
             }
@@ -257,6 +259,37 @@ fn write_transcript_entry<W: Write>(writer: &mut W, entry: &TranscriptEntry) -> 
                     queue!(writer, Print(format!("{body_indent}{line}\r\n")))?;
                 }
             }
+        }
+        TranscriptEntryKind::AgentEvent => {
+            queue!(
+                writer,
+                SetForegroundColor(Color::Rgb {
+                    r: 210,
+                    g: 210,
+                    b: 210
+                }),
+                SetBackgroundColor(Color::Rgb {
+                    r: 70,
+                    g: 70,
+                    b: 70
+                })
+            )?;
+            if let Some(agent_label) = entry.agent_label.as_deref() {
+                queue!(writer, Print(format!("{indent}[agent] {agent_label}\r\n")))?;
+            }
+            let body_indent = if entry.agent_label.is_some() {
+                format!("{indent}    ")
+            } else {
+                indent.clone()
+            };
+            for line in entry.content.lines() {
+                if line.is_empty() {
+                    queue!(writer, Print("\r\n"))?;
+                } else {
+                    queue!(writer, Print(format!("{body_indent}{line}\r\n")))?;
+                }
+            }
+            queue!(writer, ResetColor)?;
         }
         TranscriptEntryKind::Notice => {
             for line in entry.content.lines() {

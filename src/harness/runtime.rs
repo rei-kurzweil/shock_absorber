@@ -13,6 +13,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT_ROOT_RUN_ID: AtomicU64 = AtomicU64::new(1);
 const TOOL_PANEL_BG: Color = Color::Rgb(230, 230, 230);
 const TOOL_PANEL_FG: Color = Color::Black;
+const AGENT_PANEL_BG: Color = Color::Rgb(70, 70, 70);
+const AGENT_PANEL_FG: Color = Color::Rgb(210, 210, 210);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RootRunStatus {
@@ -369,9 +371,23 @@ impl RootRunState {
             lines.push(Line::from(""));
             for entry in compact_transcript_entries(&self.transcript_entries) {
                 match entry.kind {
-                    TranscriptEntryKind::ToolCall | TranscriptEntryKind::AgentEvent => {
+                    TranscriptEntryKind::ToolCall => {
                         let agent_label = entry.agent_label.as_deref();
-                        lines.extend(render_panel_entry(agent_label, entry.depth, &entry.content));
+                        lines.extend(render_panel_entry(
+                            agent_label,
+                            entry.depth,
+                            &entry.content,
+                            tool_panel_style(),
+                        ));
+                    }
+                    TranscriptEntryKind::AgentEvent => {
+                        let agent_label = entry.agent_label.as_deref();
+                        lines.extend(render_panel_entry(
+                            agent_label,
+                            entry.depth,
+                            &entry.content,
+                            agent_panel_style(),
+                        ));
                     }
                     TranscriptEntryKind::Notice => {
                         for line in entry.content.lines() {
@@ -379,20 +395,27 @@ impl RootRunState {
                         }
                     }
                 }
-                if matches!(
-                    entry.kind,
-                    TranscriptEntryKind::ToolCall | TranscriptEntryKind::AgentEvent
-                ) {
+                if matches!(entry.kind, TranscriptEntryKind::ToolCall) {
                     lines.push(Line::from(vec![Span::styled(
                         String::new(),
                         tool_panel_style(),
+                    )]));
+                } else if matches!(entry.kind, TranscriptEntryKind::AgentEvent) {
+                    lines.push(Line::from(vec![Span::styled(
+                        String::new(),
+                        agent_panel_style(),
                     )]));
                 } else {
                     lines.push(Line::from(""));
                 }
             }
             if let Some(active_entry) = self.active_tool_entry.as_deref() {
-                lines.extend(render_panel_entry(None, 0, active_entry));
+                lines.extend(render_panel_entry(
+                    None,
+                    0,
+                    active_entry,
+                    tool_panel_style(),
+                ));
                 lines.push(Line::from(vec![Span::styled(
                     String::new(),
                     tool_panel_style(),
@@ -426,10 +449,10 @@ fn render_panel_entry(
     agent_label: Option<&str>,
     depth: usize,
     content: &str,
+    style: Style,
 ) -> Vec<Line<'static>> {
     let indent = "    ".repeat(depth);
     let inner_indent = format!("{indent}    ");
-    let style = tool_panel_style();
     let mut lines = Vec::new();
     if let Some(agent_label) = agent_label {
         lines.push(Line::from(vec![Span::styled(
@@ -459,6 +482,10 @@ fn render_panel_entry(
 
 fn tool_panel_style() -> Style {
     Style::default().bg(TOOL_PANEL_BG).fg(TOOL_PANEL_FG)
+}
+
+fn agent_panel_style() -> Style {
+    Style::default().bg(AGENT_PANEL_BG).fg(AGENT_PANEL_FG)
 }
 
 fn compact_transcript_entries(entries: &[TranscriptEntry]) -> Vec<Cow<'_, TranscriptEntry>> {

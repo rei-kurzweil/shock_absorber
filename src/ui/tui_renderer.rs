@@ -6,13 +6,18 @@ use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::visualization::context::ContextVisualizationData;
 
-pub(crate) fn layout(frame: &mut Frame) -> (Vec<Rect>, Rect) {
+pub(crate) fn layout(frame: &mut Frame) -> (Vec<Rect>, Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3)])
+        .constraints([
+            Constraint::Min(0),
+            Constraint::Length(3),
+            Constraint::Length(1),
+        ])
         .split(frame.area());
     let input_area = chunks[1];
-    (chunks.to_vec(), input_area)
+    let status_area = chunks[2];
+    (chunks.to_vec(), input_area, status_area)
 }
 
 pub(crate) fn render_fullscreen_text(
@@ -74,11 +79,11 @@ pub(crate) fn render_list_detail_split(
     frame.render_widget(detail, body[1]);
 }
 
-pub(crate) fn render_input(frame: &mut Frame, area: Rect, input: &str, status: &str) {
+pub(crate) fn render_input(frame: &mut Frame, area: Rect, input: &str) {
     let input = Paragraph::new(input)
         .block(
             Block::default()
-                .title(format!("Command | {} ", status))
+                .title("Command")
                 .style(
                     Style::default()
                         .bg(Color::Rgb(220, 220, 220))
@@ -92,4 +97,9 @@ pub(crate) fn render_input(frame: &mut Frame, area: Rect, input: &str, status: &
         )
         .wrap(Wrap { trim: false });
     frame.render_widget(input, area);
+}
+
+pub(crate) fn render_status(frame: &mut Frame, area: Rect, status: &str) {
+    let status = Paragraph::new(status.to_string()).style(Style::default());
+    frame.render_widget(status, area);
 }

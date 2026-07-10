@@ -1551,7 +1551,7 @@ fn line_to_string(line: ratatui::text::Line<'_>) -> String {
 }
 
 fn draw_ui(frame: &mut Frame, app: &App) {
-    let (chunks, input_area) = ui::tui_renderer::layout(frame);
+    let (chunks, input_area, status_area) = ui::tui_renderer::layout(frame);
 
     if app.is_fullscreen_overlay() {
         match &app.detail {
@@ -1608,7 +1608,8 @@ fn draw_ui(frame: &mut Frame, app: &App) {
         }
     }
 
-    ui::tui_renderer::render_input(frame, input_area, app.input.as_str(), &app.status);
+    ui::tui_renderer::render_input(frame, input_area, app.input.as_str());
+    ui::tui_renderer::render_status(frame, status_area, &app.status);
 
     let cursor_x = input_area
         .x
