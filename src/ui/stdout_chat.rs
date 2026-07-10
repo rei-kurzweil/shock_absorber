@@ -2,20 +2,25 @@ use crate::app::App;
 use crate::harness::runtime::{
     RootRunState, TranscriptEntry, TranscriptEntryKind, compact_transcript_entries,
 };
-use crossterm::cursor::{MoveDown, MoveToColumn, MoveUp, Show};
+use crossterm::cursor::{MoveTo, Show};
 use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{self, Clear, ClearType};
+use crossterm::Command;
+use std::fmt;
 use std::io::{Result as IoResult, Write};
+
+const FOOTER_HEIGHT: u16 = 5;
+const INPUT_ROWS: usize = 3;
+const MIN_TERMINAL_WIDTH: u16 = 20;
 
 pub struct StdoutChatRenderer {
     active_run_id: Option<u64>,
     rendered_entry_count: usize,
     rendered_active_tool_entry: Option<String>,
     rendered_final_response: Option<String>,
-    rendered_editor_view: Option<EditorRenderView>,
-    editor_line_count: u16,
-    editor_cursor_row: u16,
+    rendered_footer_view: Option<FooterRenderView>,
+    terminal_layout: Option<TerminalLayout>,
 }
 
 impl StdoutChatRenderer {
@@ -25,9 +30,8 @@ impl StdoutChatRenderer {
             rendered_entry_count: 0,
             rendered_active_tool_entry: None,
             rendered_final_response: None,
-            rendered_editor_view: None,
-            editor_line_count: 0,
-            editor_cursor_row: 0,
+            rendered_footer_view: None,
+            terminal_layout: None,
         }
     }
 
@@ -37,14 +41,27 @@ impl StdoutChatRenderer {
     }
 
     pub fn leave<W: Write>(&mut self, writer: &mut W) -> IoResult<()> {
-        if self.editor_line_count > 0 {
-            self.move_to_editor_top(writer)?;
-            queue!(writer, Clear(ClearType::FromCursorDown))?;
+        if let Some(layout) = self.terminal_layout {
+            if !layout.fallback {
+                queue!(writer, ResetScrollRegion)?;
+            }
+            clear_footer_area(writer, layout)?;
+            queue!(
+                writer,
+                ResetColor,
+                MoveTo(0, layout.height.saturating_sub(1)),
+                Clear(ClearType::CurrentLine),
+                Show
+            )?;
             writer.flush()?;
         }
-        self.editor_line_count = 0;
-        self.editor_cursor_row = 0;
-        self.rendered_editor_view = None;
+
+        self.active_run_id = None;
+        self.rendered_entry_count = 0;
+        self.rendered_active_tool_entry = None;
+        self.rendered_final_response = None;
+        self.rendered_footer_view = None;
+        self.terminal_layout = None;
         Ok(())
     }
 
@@ -56,7 +73,8 @@ impl StdoutChatRenderer {
         let run = app.root_run();
         let run_id = run.map(RootRunState::run_id);
         let is_new_run = run_id != self.active_run_id;
-        let editor_view = render_editor(app);
+        let layout = TerminalLayout::capture();
+        let footer_view = render_footer(app, layout.width as usize, layout.fallback);
 
         let (compacted_entry_count, active_tool_entry, final_response) = if let Some(run) = run {
             let compacted_entries = compact_transcript_entries(run.transcript_entries());
@@ -69,32 +87,87 @@ impl StdoutChatRenderer {
             (0, None, None)
         };
 
+        let layout_changed = self.terminal_layout != Some(layout);
         let transcript_changed = force_header
             || is_new_run
             || compacted_entry_count != self.rendered_entry_count
             || active_tool_entry != self.rendered_active_tool_entry
             || final_response != self.rendered_final_response;
-        let editor_changed = self.rendered_editor_view.as_ref() != Some(&editor_view);
+        let footer_changed = force_header
+            || layout_changed
+            || transcript_changed
+            || self.rendered_footer_view.as_ref() != Some(&footer_view);
 
-        if !transcript_changed && !editor_changed {
+        if !layout_changed && !transcript_changed && !footer_changed {
             self.active_run_id = run_id;
             return Ok(());
         }
 
-        if self.editor_line_count > 0 {
-            self.move_to_editor_top(writer)?;
-            queue!(writer, Clear(ClearType::FromCursorDown))?;
+        if layout_changed {
+            self.apply_layout_change(writer, layout)?;
         }
 
         if force_header || is_new_run {
+            self.rendered_entry_count = 0;
+            self.rendered_active_tool_entry = None;
+            self.rendered_final_response = None;
+        }
+
+        if transcript_changed {
+            self.write_transcript_updates(writer, app, run, layout, force_header || is_new_run)?;
+            self.rendered_entry_count = compacted_entry_count;
+            self.rendered_active_tool_entry = active_tool_entry;
+            self.rendered_final_response = final_response;
+        }
+
+        if footer_changed {
+            write_footer_view(writer, layout, &footer_view)?;
+        }
+
+        writer.flush()?;
+
+        self.active_run_id = run_id;
+        self.rendered_footer_view = Some(footer_view);
+        self.terminal_layout = Some(layout);
+        Ok(())
+    }
+
+    fn apply_layout_change<W: Write>(&mut self, writer: &mut W, layout: TerminalLayout) -> IoResult<()> {
+        if let Some(previous) = self.terminal_layout {
+            if !previous.fallback {
+                queue!(writer, ResetScrollRegion)?;
+            }
+            clear_footer_area(writer, previous)?;
+        }
+
+        if !layout.fallback {
+            queue!(
+                writer,
+                SetScrollRegion::new(1, layout.scroll_bottom),
+                MoveTo(0, layout.scroll_bottom.saturating_sub(1))
+            )?;
+        }
+
+        clear_footer_area(writer, layout)?;
+        Ok(())
+    }
+
+    fn write_transcript_updates<W: Write>(
+        &mut self,
+        writer: &mut W,
+        app: &App,
+        run: Option<&RootRunState>,
+        layout: TerminalLayout,
+        write_header: bool,
+    ) -> IoResult<()> {
+        self.move_to_transcript_cursor(writer, layout)?;
+
+        if write_header {
             if let Some(title) = app.chat_title() {
                 queue!(writer, Print(format!("\r\n=== {title} ===\r\n\r\n")))?;
             } else {
                 queue!(writer, Print("\r\n=== AI Chat ===\r\n\r\n"))?;
             }
-            self.rendered_entry_count = 0;
-            self.rendered_active_tool_entry = None;
-            self.rendered_final_response = None;
         }
 
         if let Some(run) = run {
@@ -109,7 +182,6 @@ impl StdoutChatRenderer {
                 if let Some(active_tool_entry) = active_tool_entry.as_deref() {
                     write_active_tool_entry(writer, active_tool_entry)?;
                 }
-                self.rendered_active_tool_entry = active_tool_entry;
             }
 
             let final_response = run.final_response().map(str::to_owned);
@@ -127,7 +199,6 @@ impl StdoutChatRenderer {
                 } else if run.transcript_entries().is_empty() {
                     queue!(writer, Print("Waiting for evil_gemma...\r\n\r\n"))?;
                 }
-                self.rendered_final_response = final_response;
             } else if self.rendered_entry_count == 0
                 && run.transcript_entries().is_empty()
                 && run.final_response().is_none()
@@ -135,133 +206,203 @@ impl StdoutChatRenderer {
             {
                 queue!(writer, Print("Waiting for evil_gemma...\r\n\r\n"))?;
             }
-
-            self.rendered_entry_count = compacted_entries.len();
         } else {
             queue!(writer, Print("No active chat transcript.\r\n\r\n"))?;
-            self.rendered_entry_count = 0;
-            self.rendered_active_tool_entry = None;
-            self.rendered_final_response = None;
         }
 
-        write_editor_view(writer, &editor_view)?;
-        writer.flush()?;
-
-        self.active_run_id = run_id;
-        self.editor_line_count = editor_view.lines.len() as u16;
-        self.editor_cursor_row = editor_view.cursor_row;
-        self.rendered_editor_view = Some(editor_view);
         Ok(())
     }
 
-    fn move_to_editor_top<W: Write>(&self, writer: &mut W) -> IoResult<()> {
-        let lines_below_cursor = self
-            .editor_line_count
-            .saturating_sub(self.editor_cursor_row + 1);
-        if lines_below_cursor > 0 {
-            queue!(writer, MoveDown(lines_below_cursor))?;
-        }
-        queue!(writer, MoveToColumn(0))?;
-        if self.editor_cursor_row > 0 {
-            queue!(writer, MoveUp(self.editor_cursor_row))?;
+    fn move_to_transcript_cursor<W: Write>(
+        &self,
+        writer: &mut W,
+        layout: TerminalLayout,
+    ) -> IoResult<()> {
+        if layout.fallback {
+            queue!(
+                writer,
+                MoveTo(0, layout.height.saturating_sub(1)),
+                Clear(ClearType::CurrentLine)
+            )?;
+        } else {
+            queue!(writer, MoveTo(0, layout.scroll_bottom.saturating_sub(1)))?;
         }
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TerminalLayout {
+    width: u16,
+    height: u16,
+    scroll_bottom: u16,
+    footer_top: u16,
+    fallback: bool,
+}
+
+impl TerminalLayout {
+    fn capture() -> Self {
+        let (width, height) = terminal::size().unwrap_or((80, 24));
+        let width = width.max(MIN_TERMINAL_WIDTH);
+        let fallback = height <= FOOTER_HEIGHT + 1;
+        let scroll_bottom = if fallback {
+            height.max(1)
+        } else {
+            height.saturating_sub(FOOTER_HEIGHT)
+        };
+        let footer_top = if fallback {
+            height.saturating_sub(1)
+        } else {
+            height.saturating_sub(FOOTER_HEIGHT)
+        };
+
+        Self {
+            width,
+            height: height.max(1),
+            scroll_bottom,
+            footer_top,
+            fallback,
+        }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct EditorRenderLine {
+struct FooterRenderLine {
     text: String,
-    style: EditorLineStyle,
+    style: FooterLineStyle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EditorLineStyle {
+enum FooterLineStyle {
+    Blank,
     InputBox,
     Plain,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct EditorRenderView {
-    lines: Vec<EditorRenderLine>,
+struct FooterRenderView {
+    lines: Vec<FooterRenderLine>,
     cursor_row: u16,
     cursor_column: u16,
     terminal_width: u16,
 }
 
-fn render_editor(app: &App) -> EditorRenderView {
-    let width = terminal::size()
-        .map(|(width, _)| width.max(20) as usize)
-        .unwrap_or(80);
-    let mut lines = Vec::new();
-    lines.push(EditorRenderLine {
+fn render_footer(app: &App, width: usize, fallback: bool) -> FooterRenderView {
+    if fallback {
+        return render_fallback_footer(app, width);
+    }
+
+    let (input_rows, cursor_row, cursor_column) = render_input_box(app, width);
+    let mut lines = Vec::with_capacity(FOOTER_HEIGHT as usize);
+    lines.push(FooterRenderLine {
         text: String::new(),
-        style: EditorLineStyle::InputBox,
+        style: FooterLineStyle::Blank,
     });
 
-    let mut cursor_row = 1_u16;
-    let mut cursor_column = 4_u16;
+    for line in input_rows {
+        lines.push(FooterRenderLine {
+            text: line,
+            style: FooterLineStyle::InputBox,
+        });
+    }
+
+    lines.push(FooterRenderLine {
+        text: build_status_line(app, width),
+        style: FooterLineStyle::Plain,
+    });
+
+    FooterRenderView {
+        lines,
+        cursor_row: cursor_row + 1,
+        cursor_column,
+        terminal_width: width as u16,
+    }
+}
+
+fn render_fallback_footer(app: &App, width: usize) -> FooterRenderView {
+    let prompt_width = width.saturating_sub(2).max(1);
+    let text = app.chat_editor().lines().last().copied().unwrap_or_default();
+    let wrapped = wrap_line(text, prompt_width);
+    let segment = wrapped.last().cloned().unwrap_or_default();
+    let display = format!("> {segment}");
+    let cursor_column = 2 + segment.chars().count() as u16;
+
+    FooterRenderView {
+        lines: vec![FooterRenderLine {
+            text: truncate_to_width(&display, width),
+            style: FooterLineStyle::Plain,
+        }],
+        cursor_row: 0,
+        cursor_column,
+        terminal_width: width as u16,
+    }
+}
+
+fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
     let prompt_width = width.saturating_sub(4).max(1);
     let editor_lines = app.chat_editor().lines();
     let (cursor_line, cursor_column_in_line) = app.chat_editor().cursor_line_and_column();
 
+    let mut wrapped_rows = Vec::new();
+    let mut cursor_row_index = 0usize;
+    let mut cursor_column = 4u16;
+
     for (line_index, line) in editor_lines.iter().enumerate() {
         let wrapped = wrap_line(line, prompt_width);
-        if wrapped.is_empty() {
-            lines.push(EditorRenderLine {
-                text: "  > ".to_string(),
-                style: EditorLineStyle::InputBox,
-            });
-            if line_index == cursor_line {
-                cursor_row = (lines.len() - 1) as u16;
-                cursor_column = 4;
-            }
-            continue;
-        }
-        let mut consumed = 0;
+        let mut consumed = 0usize;
         for (segment_index, segment) in wrapped.iter().enumerate() {
-            lines.push(EditorRenderLine {
-                text: format!("  > {segment}"),
-                style: EditorLineStyle::InputBox,
-            });
+            let segment_len = segment.chars().count();
+            let row_index = wrapped_rows.len();
+            wrapped_rows.push(format!("  > {segment}"));
+
             if line_index == cursor_line
                 && cursor_column_in_line >= consumed
-                && cursor_column_in_line <= consumed + segment.chars().count()
+                && cursor_column_in_line <= consumed + segment_len
             {
-                cursor_row = (lines.len() - 1) as u16;
+                cursor_row_index = row_index;
                 cursor_column = 4 + (cursor_column_in_line - consumed) as u16;
             }
-            consumed += segment.chars().count();
+
+            consumed += segment_len;
             if segment_index + 1 == wrapped.len()
                 && line_index == cursor_line
                 && cursor_column_in_line == consumed
             {
-                cursor_row = (lines.len() - 1) as u16;
-                cursor_column = 4 + segment.chars().count() as u16;
+                cursor_row_index = row_index;
+                cursor_column = 4 + segment_len as u16;
             }
         }
     }
 
-    if app.chat_editor().text().is_empty() {
-        cursor_row = 1;
+    if wrapped_rows.is_empty() {
+        wrapped_rows.push("  > ".to_string());
+        cursor_row_index = 0;
         cursor_column = 4;
     }
 
-    lines.push(EditorRenderLine {
-        text: String::new(),
-        style: EditorLineStyle::InputBox,
-    });
-    lines.push(EditorRenderLine {
-        text: build_status_line(app, width),
-        style: EditorLineStyle::Plain,
-    });
+    let visible_start = wrapped_rows.len().saturating_sub(INPUT_ROWS);
+    let visible_rows = wrapped_rows[visible_start..].to_vec();
+    let overflowed = wrapped_rows.len() > INPUT_ROWS;
+    let mut visible_cursor_row = cursor_row_index.saturating_sub(visible_start);
 
-    EditorRenderView {
-        lines,
-        cursor_row,
-        cursor_column,
-        terminal_width: width as u16,
+    if overflowed {
+        visible_cursor_row = visible_rows.len().saturating_sub(1);
+        cursor_column = visible_rows
+            .last()
+            .map(|line| line.chars().count() as u16)
+            .unwrap_or(4)
+            .min(width.saturating_sub(1) as u16);
     }
+
+    let blank_rows = INPUT_ROWS.saturating_sub(visible_rows.len());
+    let mut final_rows = vec![String::new(); blank_rows];
+    final_rows.extend(visible_rows);
+
+    (
+        final_rows,
+        (blank_rows + visible_cursor_row) as u16,
+        cursor_column.min(width.saturating_sub(1) as u16),
+    )
 }
 
 fn build_status_line(app: &App, width: usize) -> String {
@@ -313,11 +454,41 @@ fn truncate_to_width(text: &str, width: usize) -> String {
     text.chars().take(width).collect()
 }
 
-fn write_editor_view<W: Write>(writer: &mut W, editor_view: &EditorRenderView) -> IoResult<()> {
-    for (index, line) in editor_view.lines.iter().enumerate() {
-        queue!(writer, MoveToColumn(0), Clear(ClearType::CurrentLine))?;
+fn clear_footer_area<W: Write>(writer: &mut W, layout: TerminalLayout) -> IoResult<()> {
+    let start_row = if layout.fallback {
+        layout.height.saturating_sub(1)
+    } else {
+        layout.footer_top
+    };
+
+    for row in start_row..layout.height {
+        queue!(
+            writer,
+            ResetColor,
+            MoveTo(0, row),
+            Clear(ClearType::CurrentLine)
+        )?;
+    }
+    Ok(())
+}
+
+fn write_footer_view<W: Write>(
+    writer: &mut W,
+    layout: TerminalLayout,
+    footer_view: &FooterRenderView,
+) -> IoResult<()> {
+    let start_row = if layout.fallback {
+        layout.height.saturating_sub(1)
+    } else {
+        layout.footer_top
+    };
+
+    for (index, line) in footer_view.lines.iter().enumerate() {
+        let row = start_row + index as u16;
+        queue!(writer, MoveTo(0, row), Clear(ClearType::CurrentLine))?;
         match line.style {
-            EditorLineStyle::InputBox => {
+            FooterLineStyle::Blank => {}
+            FooterLineStyle::InputBox => {
                 queue!(
                     writer,
                     SetForegroundColor(Color::Black),
@@ -326,25 +497,21 @@ fn write_editor_view<W: Write>(writer: &mut W, editor_view: &EditorRenderView) -
                         g: 220,
                         b: 220
                     }),
-                    Print(pad_line_to_width(&line.text, editor_view.terminal_width as usize)),
+                    Print(pad_line_to_width(&line.text, footer_view.terminal_width as usize)),
                     ResetColor
                 )?;
             }
-            EditorLineStyle::Plain => {
-                queue!(writer, ResetColor, Print(&line.text))?;
+            FooterLineStyle::Plain => {
+                queue!(writer, ResetColor, Print(truncate_to_width(&line.text, footer_view.terminal_width as usize)))?;
             }
-        }
-        if index + 1 < editor_view.lines.len() {
-            queue!(writer, Print("\r\n"))?;
         }
     }
 
-    let current_row = editor_view.lines.len().saturating_sub(1) as u16;
-    let move_up = current_row.saturating_sub(editor_view.cursor_row);
-    if move_up > 0 {
-        queue!(writer, MoveUp(move_up))?;
-    }
-    queue!(writer, MoveToColumn(editor_view.cursor_column))?;
+    let cursor_row = start_row + footer_view.cursor_row;
+    let cursor_column = footer_view
+        .cursor_column
+        .min(footer_view.terminal_width.saturating_sub(1));
+    queue!(writer, MoveTo(cursor_column, cursor_row), Show)?;
     Ok(())
 }
 
@@ -441,4 +608,77 @@ fn write_active_tool_entry<W: Write>(writer: &mut W, entry: &str) -> IoResult<()
     }
     queue!(writer, Print("\r\n"))?;
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SetScrollRegion {
+    top: u16,
+    bottom: u16,
+}
+
+impl SetScrollRegion {
+    fn new(top: u16, bottom: u16) -> Self {
+        Self { top, bottom }
+    }
+}
+
+impl Command for SetScrollRegion {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        write!(f, "\u{1b}[{};{}r", self.top, self.bottom)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResetScrollRegion;
+
+impl Command for ResetScrollRegion {
+    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        f.write_str("\u{1b}[r")
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{INPUT_ROWS, TerminalLayout, wrap_line};
+
+    #[test]
+    fn wrap_line_preserves_empty_line() {
+        assert_eq!(wrap_line("", 8), vec![String::new()]);
+    }
+
+    #[test]
+    fn wrap_line_wraps_at_exact_width() {
+        assert_eq!(
+            wrap_line("abcdef", 3),
+            vec!["abc".to_string(), "def".to_string()]
+        );
+    }
+
+    #[test]
+    fn short_terminal_uses_fallback_layout() {
+        let layout = TerminalLayout {
+            width: 80,
+            height: 5,
+            scroll_bottom: 5,
+            footer_top: 4,
+            fallback: true,
+        };
+        assert!(layout.fallback);
+        assert_eq!(layout.footer_top, 4);
+    }
+
+    #[test]
+    fn fixed_input_row_count_stays_at_three() {
+        assert_eq!(INPUT_ROWS, 3);
+    }
 }
