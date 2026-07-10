@@ -685,6 +685,71 @@ impl App {
             "stop" | "/stop" => {
                 self.stop_active_root_run();
             }
+            "models" | "/models" => {
+                let current_model = evil_gemma.client.current_model_name();
+                let models = evil_gemma.client.fetch_available_models().await?;
+                let mut lines = Vec::new();
+                if models.is_empty() {
+                    lines.push("Inference server returned no models.".to_string());
+                } else {
+                    lines.push(format!("Current model: {current_model}"));
+                    lines.push(String::new());
+                    lines.push("Available models:".to_string());
+                    lines.push(String::new());
+                    for model in models {
+                        let marker = if model == current_model { "*" } else { " " };
+                        lines.push(format!("{marker} {model}"));
+                    }
+                }
+                self.set_command_output("/models", lines);
+                self.status = "models loaded".to_string();
+            }
+            "model" | "/model" => {
+                let Some(model_name) = parts.next() else {
+                    self.set_command_output(
+                        "/model",
+                        vec!["usage: /model model-name".to_string()],
+                    );
+                    return Ok(());
+                };
+                if self.active_root_run.is_some() {
+                    self.set_command_output(
+                        "/model",
+                        vec![
+                            "Cannot switch models while a root run is active.".to_string(),
+                            "Use `/stop` first, then run `/model model-name`.".to_string(),
+                        ],
+                    );
+                    self.status = "model switch blocked during active run".to_string();
+                    return Ok(());
+                }
+
+                let available_models = evil_gemma.client.fetch_available_models().await?;
+                if !available_models.iter().any(|model| model == model_name) {
+                    let mut lines = vec![format!("Model `{model_name}` was not returned by the inference server.")];
+                    if available_models.is_empty() {
+                        lines.push("The inference server reported no available models.".to_string());
+                    } else {
+                        lines.push(String::new());
+                        lines.push("Available models:".to_string());
+                        lines.push(String::new());
+                        lines.extend(available_models);
+                    }
+                    self.set_command_output("/model", lines);
+                    self.status = format!("model `{model_name}` not available");
+                    return Ok(());
+                }
+
+                evil_gemma.client.set_model_name(model_name.to_string());
+                self.status = format!("model switched to {model_name}");
+                self.set_command_output(
+                    format!("/model {model_name}"),
+                    vec![
+                        format!("Active model set to `{model_name}`."),
+                        "Future root and tool requests will use this model.".to_string(),
+                    ],
+                );
+            }
             "task" | "/task" => {
                 self.set_command_output("/task", self.task_lines());
                 self.status = "task loaded".to_string();
@@ -1489,6 +1554,8 @@ fn help_lines() -> Vec<String> {
         "  /notifications".to_string(),
         "  /context".to_string(),
         "  /stop".to_string(),
+        "  /models".to_string(),
+        "  /model model-name".to_string(),
         "  /task".to_string(),
         "  /clear".to_string(),
         "  /help".to_string(),
@@ -1512,6 +1579,8 @@ fn is_local_command(verb: &str) -> bool {
             | "/notifications"
             | "/context"
             | "/stop"
+            | "/models"
+            | "/model"
             | "/task"
             | "/clear"
             | "/help"
@@ -1525,6 +1594,8 @@ fn is_local_command(verb: &str) -> bool {
             | "notifications"
             | "context"
             | "stop"
+            | "models"
+            | "model"
             | "task"
             | "clear"
             | "help"

@@ -353,7 +353,7 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
         for (segment_index, segment) in wrapped.iter().enumerate() {
             let segment_len = segment.chars().count();
             let row_index = wrapped_rows.len();
-            wrapped_rows.push(format!("  > {segment}"));
+            wrapped_rows.push(format!("  ⮚ {segment}"));
 
             if line_index == cursor_line
                 && cursor_column_in_line >= consumed
@@ -375,7 +375,7 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
     }
 
     if wrapped_rows.is_empty() {
-        wrapped_rows.push("  > ".to_string());
+        wrapped_rows.push("  ⮚ ".to_string());
         cursor_row_index = 0;
         cursor_column = 4;
     }
@@ -395,7 +395,7 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
     }
 
     let blank_rows = INPUT_ROWS.saturating_sub(visible_rows.len());
-    let top_blank_rows = blank_rows.saturating_sub(1);
+    let top_blank_rows = blank_rows.min(1);
     let bottom_blank_rows = blank_rows - top_blank_rows;
     let mut final_rows = vec![String::new(); top_blank_rows];
     final_rows.extend(visible_rows);

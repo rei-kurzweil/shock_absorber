@@ -3,6 +3,7 @@ use reqwest::Client;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::RwLock;
 use std::time::Duration;
 #[cfg(test)]
 use std::{
@@ -73,7 +74,7 @@ impl OpenAiRestConfig {
 
 pub struct LlmApiClient {
     http: Client,
-    config: OpenAiRestConfig,
+    config: RwLock<OpenAiRestConfig>,
     #[cfg(test)]
     scripted_responses: Option<Arc<Mutex<VecDeque<String>>>>,
 }
@@ -104,7 +105,7 @@ impl LlmApiClient {
                 .timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
                 .build()
                 .expect("reqwest client should build"),
-            config,
+            config: RwLock::new(config),
             #[cfg(test)]
             scripted_responses: None,
         }
@@ -117,7 +118,7 @@ impl LlmApiClient {
                 .timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
                 .build()
                 .expect("reqwest client should build"),
-            config,
+            config: RwLock::new(config),
             scripted_responses: Some(Arc::new(Mutex::new(
                 responses.into_iter().collect::<VecDeque<_>>(),
             ))),
@@ -125,7 +126,16 @@ impl LlmApiClient {
     }
 
     pub fn context_limits(&self) -> ProviderContextLimits {
-        self.config.context_limits()
+        self.config_snapshot().context_limits()
+    }
+
+    pub fn current_model_name(&self) -> String {
+        self.config_snapshot().model_name
+    }
+
+    pub fn set_model_name(&self, model_name: impl Into<String>) {
+        let mut config = self.config.write().expect("llm config lock poisoned");
+        config.model_name = model_name.into();
     }
 
     pub async fn fetch_capabilities(
@@ -174,6 +184,54 @@ impl LlmApiClient {
         })
     }
 
+    pub async fn fetch_available_models(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let config = self.config_snapshot();
+        let response = self
+            .http
+            .get(format!("{}/v1/models", config.base_url))
+            .send()
+            .await
+            .map_err(|err| {
+                LlmApiError::message(format!(
+                    "request to {}/v1/models failed: {err}",
+                    config.base_url
+                ))
+            })?;
+
+        let status = response.status();
+        let response_text = response.text().await.map_err(|err| {
+            LlmApiError::message(format!(
+                "failed reading response body from {}/v1/models: {err}",
+                config.base_url
+            ))
+        })?;
+
+        if !status.is_success() {
+            return Err(LlmApiError::HttpStatus {
+                status,
+                body_snippet: truncate_body(&response_text, 800),
+            }
+            .into());
+        }
+
+        let payload = serde_json::from_str::<ModelsResponse>(&response_text).map_err(|err| {
+            LlmApiError::ResponseParse {
+                message: format!("failed to parse models response: {err}"),
+                body_snippet: truncate_body(&response_text, 800),
+            }
+        })?;
+
+        let mut models = payload
+            .data
+            .into_iter()
+            .map(|model| model.id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .collect::<Vec<_>>();
+        models.sort();
+        models.dedup();
+        Ok(models)
+    }
+
     pub async fn complete_chat(
         &self,
         messages: Vec<ChatMessage>,
@@ -202,8 +260,10 @@ impl LlmApiClient {
             return Ok(response);
         }
 
+        let config = self.config_snapshot();
         let request = ChatCompletionRequest {
-            model: self.config.model_name.clone(),
+            base_url: config.base_url,
+            model: config.model_name,
             messages,
             max_tokens,
             stream: false,
@@ -240,14 +300,14 @@ impl LlmApiClient {
     ) -> Result<String, LlmApiError> {
         let response = self
             .http
-            .post(format!("{}/v1/chat/completions", self.config.base_url))
+            .post(format!("{}/v1/chat/completions", request.base_url))
             .json(request)
             .send()
             .await
             .map_err(|err| LlmApiError::Transport {
                 message: format!(
                     "request to {}/v1/chat/completions failed: {err}",
-                    self.config.base_url
+                    request.base_url
                 ),
             })?;
 
@@ -258,7 +318,7 @@ impl LlmApiClient {
             .map_err(|err| LlmApiError::Transport {
                 message: format!(
                     "failed reading response body from {}/v1/chat/completions: {err}",
-                    self.config.base_url
+                    request.base_url
                 ),
             })?;
 
@@ -284,6 +344,10 @@ impl LlmApiClient {
             .map(|choice| choice.message.content)
             .unwrap_or_default())
     }
+
+    fn config_snapshot(&self) -> OpenAiRestConfig {
+        self.config.read().expect("llm config lock poisoned").clone()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -294,6 +358,8 @@ pub struct ChatMessage {
 
 #[derive(Debug, Serialize)]
 struct ChatCompletionRequest {
+    #[serde(skip_serializing)]
+    base_url: String,
     model: String,
     messages: Vec<ChatMessage>,
     max_tokens: usize,
@@ -310,6 +376,17 @@ struct ChatCompletionResponse {
 #[derive(Debug, Deserialize)]
 struct CapabilitiesResponse {
     capabilities: Option<LlmBackendCapabilities>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelsResponse {
+    #[serde(default)]
+    data: Vec<ModelDescriptor>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelDescriptor {
+    id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -404,7 +481,7 @@ fn truncate_body(body: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CapabilitiesResponse, LlmApiError, truncate_body};
+    use super::{CapabilitiesResponse, LlmApiError, ModelsResponse, truncate_body};
     use reqwest::StatusCode;
 
     #[test]
@@ -447,5 +524,21 @@ mod tests {
         let capabilities = response.capabilities.expect("capabilities should exist");
         assert_eq!(capabilities.max_context_tokens, Some(32768));
         assert_eq!(capabilities.default_max_tokens, Some(1024));
+    }
+
+    #[test]
+    fn parses_models_response() {
+        let response = serde_json::from_str::<ModelsResponse>(
+            r#"{
+                "data": [
+                    { "id": "gemma-4-local" },
+                    { "id": "qwen-3.5-local" }
+                ]
+            }"#,
+        )
+        .expect("models response should parse");
+
+        let ids = response.data.into_iter().map(|model| model.id).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["gemma-4-local", "qwen-3.5-local"]);
     }
 }
