@@ -2,11 +2,11 @@
 
 - title: Root Agent
 - provider: llama.cpp
-- model: qwen-3.5-local
+- model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
 - input_budget_tokens: 31744
-- used_input_tokens: 1941
+- used_input_tokens: 2246
 - truncated: false
 
 ## Category Totals
@@ -15,9 +15,9 @@
 - tool_protocol: 694
 - tool_definitions: 635
 - ui: 81
-- task: 10
-- chat: 341
-- tool_output: 99
+- task: 51
+- chat: 383
+- tool_output: 321
 - collection_evidence: 0
 - review_evidence: 0
 - parent_search_results: 0
@@ -30,8 +30,7 @@
 - Tools: 635 tokens
 - Search Hints: 64 tokens
 - Current UI Context: 17 tokens
-- Current Task: 10 tokens
-- Recent Chat: 251 tokens
-- Tool Request #1: 18 tokens
-- Tool Result #1: 81 tokens
-- Assistant Reply: 90 tokens
+- Current Task: 51 tokens
+- Tool Request #1: 19 tokens
+- Tool Result #1: 302 tokens
+- Assistant Reply: 383 tokens

@@ -1684,7 +1684,7 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 
     let cursor_x = input_area
         .x
-        .saturating_add(app.input.chars().count() as u16 + 1)
+        .saturating_add(app.input.chars().count() as u16)
         .min(input_area.x + input_area.width.saturating_sub(2));
     let cursor_y = input_area.y + 1;
     frame.set_cursor_position((cursor_x, cursor_y));

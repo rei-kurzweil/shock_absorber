@@ -324,7 +324,7 @@ fn render_fallback_footer(app: &App, width: usize) -> FooterRenderView {
     let text = app.chat_editor().lines().last().copied().unwrap_or_default();
     let wrapped = wrap_line(text, prompt_width);
     let segment = wrapped.last().cloned().unwrap_or_default();
-    let display = format!("> {segment}");
+    let display = format!("⟩ {segment}");
     let cursor_column = 2 + segment.chars().count() as u16;
 
     FooterRenderView {
@@ -353,7 +353,7 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
         for (segment_index, segment) in wrapped.iter().enumerate() {
             let segment_len = segment.chars().count();
             let row_index = wrapped_rows.len();
-            wrapped_rows.push(format!("  ⮚ {segment}"));
+            wrapped_rows.push(format!("    {segment}"));
 
             if line_index == cursor_line
                 && cursor_column_in_line >= consumed

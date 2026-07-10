@@ -21,19 +21,19 @@ required_total_items: 100
 ## Context Window Stats
 
 - provider: llama.cpp
-- model: qwen-3.5-local
+- model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
-- used_input_tokens: 1269
+- used_input_tokens: 1079
 - truncated: false
 
 ## Included Sections
 
-- Task [generic]: used 15 / estimated 15
+- Task [generic]: used 11 / estimated 11
 - Collection [generic]: used 51 / estimated 51
 - Requested Scope [generic]: used 14 / estimated 14
 - Coverage State [generic]: used 33 / estimated 33
-- Accepted Window Summaries [collection_evidence]: used 956 / estimated 956
+- Accepted Window Summaries [collection_evidence]: used 770 / estimated 770
 
 ## Rendered Context Window
 
@@ -58,7 +58,7 @@ Rules:
 
 
 ## Task
-summarize the most recent 100 posts by destiny.gg
+summarize 100 posts by destiny.gg
 
 ## Collection
 collection_id: recent_posts:did:plc:zdkax6bg6xowo4yqsp5thweh
@@ -77,11 +77,11 @@ collection_total_items: 100
 source_exhausted: true
 
 ## Accepted Window Summaries
-The collection contains 25 recent posts by destiny.gg, all authored by the same user and focusing on political commentary and personal observations. The posts frequently reference a specific debate or event, with the author noting that 'He wasn't expecting that at all' and observing that 'His smug little smile disappeared pretty quickly.' Themes of skepticism and ideological shifts are prevalent; for instance, one post states, 'It's incredibly easy to demand ideological purity from someone else's military when you're sitting thousands of miles away,' while another notes, 'These people are deeply unserious.' The author also reflects on the nature of truth and perception, mentioning that 'Watch me debate a literal cartoon character' and that 'The funny thing is that I still don't think he understood.' Additionally, the posts touch on the difficulty of maintaining focus, with one entry stating, 'When all else fails, say nothing and stare at the ground.' The collection captures a stream of consciousness regarding political figures and the author's personal reactions to them.
+This collection of recent posts by destiny.gg covers a wide range of observations, heavily focused on debates, political commentary, and social dynamics. A recurring theme involves critiques of others' intellectual capacity, such as noting that someone is "too stupid to realize it" or that two "scholars, zero arguments." The author frequently comments on public interactions, whether it's watching someone "debate a literal cartoon character" or observing a reaction where "His smug little smile disappeared pretty quickly." There is significant commentary on political figures, including mentions of Biden, and critiques of conservative viewpoints, suggesting that "It's getting harder and harder to treat conservatives any different than this." Furthermore, the posts touch upon the nature of argumentation, noting that "'He's lying' isn't really a great defense," and that people often ask "why" without doing "any actual research." Other notable topics include the shifting priorities of certain groups, the self-defeating nature of those worried about male masculinity, and the necessity of trusting experts, even when those experts are politicized.
 
-The collection contains 25 recent posts by destiny.gg, all authored by the same user, focusing on political commentary and social observations. The posts frequently reference specific political figures like Elon Musk, Biden, and Donald Trump, often using them as metaphors for broader societal trends. A recurring theme involves the nature of debate and public opinion, with the author noting that debates often feel like a 'debate' simply because it is one, and that people struggle to find good answers for simple questions. The author also reflects on gender dynamics, suggesting women have leverage but are often criticized for being emotional or uneducated. Other topics include international football, the difficulty of predicting outcomes, and the concept of trust being gained by taking risks. The posts are characterized by short, punchy sentences that express skepticism or surprise at common assumptions.
+This collection of recent posts by destiny.gg heavily focuses on commentary surrounding debates, political figures, and societal discussions. A recurring theme is the perceived low quality of discourse, with posts noting that
 
-The collection contains 25 recent posts by destiny.gg, focusing on political commentary and personal observations. The author frequently references specific political figures and events, often using phrases like 'bad luck' or 'wrong guy' to describe relationships and outcomes. There is a recurring theme of political fatigue and the struggle between different factions, with mentions of 'conservatives,' 'MAGAt,' and 'January 6th guys.' The posts also touch on broader societal issues such as AI infrastructure, immigration, and government corruption. Specific anecdotes include debates, career-ending clips, and the emotional toll of political battles. The author's tone is often reflective and slightly weary, suggesting a deep engagement with current events and personal experiences within the political landscape.
+This collection of recent posts by destiny.gg covers a wide range of topics, heavily focused on political commentary, debates, and cultural observations. A recurring theme is the critique of political allegiances, particularly regarding Trump supporters, where the author notes that many 'spent a decade pretending to care about government corruption and then immediately folded the second it was their guy.' There is significant commentary on political maneuvering, such as the observation that 'Conservatives will spend years telling you to respect law enforcement until law enforcement investigates Trump,' and the dismissal of certain groups, like labeling 'Just another MAGAt pretending to care about immigration.' The posts frequently reference confrontations, noting instances where someone 'got absolutely ragdolled' or where a person 'can see him start to shut down in real time lmao.' Beyond politics, the author touches on broader societal issues, including the 'absurd' scale of AI infrastructure and the tendency of those who 'started ahead always seem to have the strongest opinions about everyone behind them.' Finally, the collection includes observations on debate dynamics, such as the idea that one must be prepared for a 'battle of wits completely unarmed,' and the general sentiment that one must 'stop blaming bad luck and admit you picked the wrong guy.'
 
-The collection contains 25 recent posts from the author destiny.gg, all sharing a consistent voice and thematic focus on political commentary and social observation. The posts frequently reference specific political figures like Trump and Pearl, often using hyperbolic language to describe their impact or reputation. A recurring theme involves the contrast between idealism and reality, with the author noting that conservative principles often fade quickly once convenience takes over. Several entries highlight the author's personal experiences or reactions to events, such as being fact-checked or feeling out of their depth in certain situations. The tone is generally conversational and slightly critical, with phrases like 'lmao' and 'smh' indicating a casual, informal style. The content suggests a focus on current events and social dynamics rather than deep historical analysis, as the author often comments on immediate reactions or fleeting impressions.
+This collection of recent posts by destiny.gg heavily focuses on commentary regarding political discourse, relationship dynamics, and general observations about online behavior. A recurring theme is the critique of political certainty, noting that many people build their worldviews
 ```
