@@ -985,17 +985,26 @@ impl BlueskyTools {
                         });
                     }
 
-                    let next_offset = outcome
-                        .execution
-                        .as_ref()
-                        .ok()
-                        .and_then(|execution| execution.review_verdict.as_ref())
-                        .and_then(|verdict| {
+                    let next_offset = outcome.execution.as_ref().ok().and_then(|execution| {
+                        let fallback_next_offset = execution
+                            .result
+                            .as_ref()
+                            .or(execution.original_result.as_ref())
+                            .and_then(CollectionLeafResult::as_summary)
+                            .and_then(|result| {
+                                Some(
+                                    result
+                                        .processed_window_offset()?
+                                        .saturating_add(result.processed_window_size()?),
+                                )
+                            });
+                        execution.review_verdict.as_ref().and_then(|verdict| {
                             verdict
                                 .additional_pages_needed
-                                .then_some(verdict.next_offset)
+                                .then(|| verdict.next_offset.or(fallback_next_offset))
+                                .flatten()
                         })
-                        .flatten();
+                    });
                     pending_next_offset = next_offset;
                     accumulator.record_page_outcome(outcome);
                     pages_processed += 1;
@@ -1029,7 +1038,7 @@ impl BlueskyTools {
                         continue;
                     };
                     if grounded {
-                        if let Some((window_size, source_exhausted, page_summary)) = accumulator
+                        let accepted_summary = accumulator
                             .page_outcomes
                             .last()
                             .and_then(|outcome| outcome.execution.as_ref().ok())
@@ -1046,7 +1055,9 @@ impl BlueskyTools {
                                             result.summary.trim().to_string(),
                                         )
                                     })
-                            })
+                            });
+                        if let Some((window_size, source_exhausted, page_summary)) =
+                            accepted_summary
                         {
                             accumulator.covered_window_offsets.push(offset);
                             accumulator.covered_post_count += window_size;
@@ -1537,5 +1548,48 @@ mod tests {
         assert!(result.summary.contains("The first 50 posts split into two clear phases."));
         assert!(result.summary.contains("\"snippet 39\""));
         assert!(!result.summary.contains("invented quote"));
+    }
+
+    #[tokio::test]
+    async fn run_collection_summary_loop_continues_when_partial_review_omits_grounded_and_next_offset(
+    ) {
+        let llm_client = start_mock_llm_client(vec![
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
+            "status: fail\nsufficient: false\nreason: need more pages\nrepair_needed: false\nadditional_pages_needed: true\nrequired_total_items: 50".to_string(),
+            "Across the covered windows so far, the posts repeatedly circle the \\\"alpha\\\" theme, with terse updates and quoted snippets showing a steady, narrow focus rather than abrupt topic changes.".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 25: theme beta\\\" and \\\"quote: \\\"snippet 39\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
+            "status: pass\ngrounded: true\nsufficient: true\nreason: scope complete\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 50".to_string(),
+            "Taken together, the covered windows move from a concentrated \\\"alpha\\\" run into a broader \\\"beta\\\" run, so the collection now shows both continuity and a visible topic shift across the requested scope.".to_string(),
+            "The first 50 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 25\\\" and \\\"snippet 39\\\" marking a visible shift in emphasis. Across the whole requested scope, the dominant pattern is continuity in tone with a clear change in subject emphasis between the two windows.".to_string(),
+        ]);
+        let tools = BlueskyTools::new();
+        let collection = test_collection(50);
+
+        let outcomes = tools
+            .run_collection_summary_loop(
+                &collection,
+                "summarize the last 50 posts by alpha.test",
+                RequestedSummaryScope::Count {
+                    requested_items: 50,
+                },
+                &llm_client,
+                None,
+            )
+            .await;
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = outcomes.first().expect("aggregated outcome");
+        let execution = outcome.execution.as_ref().expect("successful execution");
+        let result = execution
+            .result
+            .as_ref()
+            .and_then(CollectionLeafResult::as_summary)
+            .expect("summary result");
+
+        assert_eq!(result.window_size, Some(50));
+        assert!(result.summary.contains("The first 50 posts split into two clear phases."));
+
+        let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
+        assert!(diagnostic.contains("collection_summary_planner accepted 2 page summaries"));
     }
 }

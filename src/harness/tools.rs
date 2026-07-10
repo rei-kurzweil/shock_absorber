@@ -3415,11 +3415,20 @@ fn parse_collection_review_verdict(response: &str) -> Option<CollectionReviewVer
         .filter(|value| !value.is_empty())
         .unwrap_or("No reason provided.")
         .to_string();
+    let additional_pages_needed = response
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("additional_pages_needed:")
+                .map(str::trim)
+        })
+        .map(|value| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
     let grounded = response
         .lines()
         .find_map(|line| line.trim().strip_prefix("grounded:").map(str::trim))
         .map(|value| value.eq_ignore_ascii_case("true"))
-        .unwrap_or(matches!(status, CollectionReviewStatus::Pass));
+        .unwrap_or(matches!(status, CollectionReviewStatus::Pass) || additional_pages_needed);
     let sufficient = response
         .lines()
         .find_map(|line| line.trim().strip_prefix("sufficient:").map(str::trim))
@@ -3439,15 +3448,6 @@ fn parse_collection_review_verdict(response: &str) -> Option<CollectionReviewVer
         })
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    let additional_pages_needed = response
-        .lines()
-        .find_map(|line| {
-            line.trim()
-                .strip_prefix("additional_pages_needed:")
-                .map(str::trim)
-        })
-        .map(|value| value.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
     let next_offset = response.lines().find_map(|line| {
         line.trim()
             .strip_prefix("next_offset:")
