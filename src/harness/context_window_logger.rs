@@ -65,7 +65,10 @@ pub fn log_current_task(
     let mut lines = Vec::new();
     if let Some(root) = graph.node(graph.root_agent_id()) {
         lines.push(format!("root_agent_id: {}", root.agent_id.0));
-        lines.push(format!("status: {}", root.status.as_str()));
+        lines.push(format!("lifecycle_status: {}", root.status.as_str()));
+        if let Some(result_status) = result_status_from_summary(root.result_summary.as_deref()) {
+            lines.push(format!("result_status: {result_status}"));
+        }
         if let Some(summary) = root.result_summary.as_deref() {
             lines.push(format!("result_summary: {}", summary));
         }
@@ -147,7 +150,10 @@ fn render_agent_node(node: &crate::harness::agents::AgentNode) -> String {
         out.push_str(&format!("- agent_kind: {:?}\n", agent_kind));
     }
     out.push_str(&format!("- label: {}\n", node.label));
-    out.push_str(&format!("- status: {}\n", node.status.as_str()));
+    out.push_str(&format!("- lifecycle_status: {}\n", node.status.as_str()));
+    if let Some(result_status) = result_status_from_summary(node.result_summary.as_deref()) {
+        out.push_str(&format!("- result_status: {}\n", result_status));
+    }
     out.push_str(&format!(
         "- parent_agent_id: {}\n",
         node.parent_agent_id
@@ -214,6 +220,33 @@ fn render_agent_node(node: &crate::harness::agents::AgentNode) -> String {
     }
 
     out
+}
+
+fn result_status_from_summary(summary: Option<&str>) -> Option<&str> {
+    let summary = summary?;
+    summary.lines().find_map(|line| {
+        let trimmed = line.trim();
+        trimmed.strip_prefix("status: ").map(str::trim)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::result_status_from_summary;
+
+    #[test]
+    fn result_status_from_summary_extracts_failed_status() {
+        let status = result_status_from_summary(Some(
+            "status: failed\nreason: no summary pages were processed",
+        ));
+        assert_eq!(status, Some("failed"));
+    }
+
+    #[test]
+    fn result_status_from_summary_returns_none_when_missing() {
+        let status = result_status_from_summary(Some("summary: grounded answer"));
+        assert_eq!(status, None);
+    }
 }
 
 fn render_prompt_context_snapshot(snapshot: &PromptContextSnapshot) -> String {

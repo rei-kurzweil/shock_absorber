@@ -36,6 +36,7 @@ fn summary_result_presence(result: Option<&CollectionLeafResult>) -> &'static st
     match result {
         Some(CollectionLeafResult::Summary(_)) => "summary",
         Some(CollectionLeafResult::Search(_)) => "search",
+        Some(CollectionLeafResult::RawWindow(_)) => "raw_window",
         None => "none",
     }
 }
@@ -220,9 +221,35 @@ impl LlmSummaryResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CollectionRawWindowResult {
+    pub title: String,
+    pub summary: String,
+    pub window_offset: usize,
+    pub window_size: usize,
+    pub page_index: usize,
+    pub page_size: usize,
+    pub collection_total_items: usize,
+    pub has_more: bool,
+    pub failure_reason: String,
+    pub raw_summary_response: Option<String>,
+    pub records: Vec<PostRecord>,
+}
+
+impl CollectionRawWindowResult {
+    pub(crate) fn processed_window_offset(&self) -> usize {
+        self.window_offset
+    }
+
+    pub(crate) fn processed_window_size(&self) -> usize {
+        self.window_size
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CollectionLeafResult {
     Search(LlmSearchResult),
     Summary(LlmSummaryResult),
+    RawWindow(CollectionRawWindowResult),
 }
 
 impl CollectionLeafResult {
@@ -230,6 +257,7 @@ impl CollectionLeafResult {
         match self {
             Self::Search(result) => &result.title,
             Self::Summary(result) => &result.title,
+            Self::RawWindow(result) => &result.title,
         }
     }
 
@@ -237,6 +265,7 @@ impl CollectionLeafResult {
         match self {
             Self::Search(result) => &result.summary,
             Self::Summary(result) => &result.summary,
+            Self::RawWindow(result) => &result.summary,
         }
     }
 
@@ -244,6 +273,7 @@ impl CollectionLeafResult {
         match self {
             Self::Search(result) => Some(result),
             Self::Summary(_) => None,
+            Self::RawWindow(_) => None,
         }
     }
 
@@ -251,6 +281,15 @@ impl CollectionLeafResult {
         match self {
             Self::Search(_) => None,
             Self::Summary(result) => Some(result),
+            Self::RawWindow(_) => None,
+        }
+    }
+
+    pub(crate) fn as_raw_window(&self) -> Option<&CollectionRawWindowResult> {
+        match self {
+            Self::Search(_) => None,
+            Self::Summary(_) => None,
+            Self::RawWindow(result) => Some(result),
         }
     }
 
@@ -266,6 +305,27 @@ impl CollectionLeafResult {
                 .iter()
                 .map(String::as_str)
                 .collect(),
+            Self::RawWindow(result) => result
+                .records
+                .iter()
+                .map(|post| post.uri.as_str())
+                .collect(),
+        }
+    }
+
+    pub(crate) fn processed_window_offset(&self) -> Option<usize> {
+        match self {
+            Self::Search(_) => None,
+            Self::Summary(result) => result.processed_window_offset(),
+            Self::RawWindow(result) => Some(result.processed_window_offset()),
+        }
+    }
+
+    pub(crate) fn processed_window_size(&self) -> Option<usize> {
+        match self {
+            Self::Search(_) => None,
+            Self::Summary(result) => result.processed_window_size(),
+            Self::RawWindow(result) => Some(result.processed_window_size()),
         }
     }
 }
@@ -777,12 +837,13 @@ impl<'a> LlmSearchComparator<'a> {
         );
         if self.tool_kind == CollectionLeafToolKind::Summary {
             append_summary_trace(format!(
-                "[summary_leaf_parse]\ncollection_id: {}\nwindow_offset: {}\nresult_present: {}\noriginal_result_kind: {}\ndiagnostic: {}",
+                "[summary_leaf_parse]\ncollection_id: {}\nwindow_offset: {}\nresult_present: {}\noriginal_result_kind: {}\ndiagnostic: {}\nraw_response:\n{}",
                 collection.id,
                 collection_window_offset(collection).unwrap_or(0),
                 parsed.result.is_some(),
                 summary_result_presence(parsed.result.as_ref()),
-                parsed.diagnostic.as_deref().unwrap_or("<none>")
+                parsed.diagnostic.as_deref().unwrap_or("<none>"),
+                truncate_diagnostic_block(&response, 4000)
             ));
         }
         Ok(LlmSearchExecution {
@@ -1860,7 +1921,7 @@ impl BlueskyTools {
             outcomes.len(),
             render_summary_collection_loop_result(&outcomes)
         ));
-        let rendered = render_summary_collection_loop_result(&outcomes);
+        let rendered = render_public_summary_outcomes(&outcomes);
         Ok((rendered, outcomes))
     }
 
@@ -2079,6 +2140,20 @@ impl BlueskyTools {
                 ];
                 for (index, uri) in result.covered_item_uris.iter().enumerate() {
                     lines.push(format!("covered_item_{}_uri: {}", index + 1, uri));
+                }
+                context.push_section(title, lines.join("\n"));
+            }
+            Some(CollectionLeafResult::RawWindow(result)) => {
+                let mut lines = vec![
+                    format!("post: {}", result.title),
+                    format!("summary: {}", result.summary),
+                    format!("window_offset: {}", result.window_offset),
+                    format!("window_size: {}", result.window_size),
+                    format!("page_index: {}", result.page_index),
+                ];
+                for (index, post) in result.records.iter().enumerate() {
+                    lines.push(format!("raw_window_item_{}_uri: {}", index + 1, post.uri));
+                    lines.push(format!("raw_window_item_{}_body: {}", index + 1, post.body));
                 }
                 context.push_section(title, lines.join("\n"));
             }
@@ -2571,7 +2646,7 @@ impl BlueskyTools {
 
         if tool_kind == CollectionLeafToolKind::Summary {
             append_summary_trace(format!(
-                "[summary_leaf_review]\ncollection_id: {}\nwindow_offset: {}\nreview_status: {}\nreview_grounded: {}\nreview_sufficient: {}\nreview_repair_needed: {}\nreview_additional_pages_needed: {}\nreview_reason: {}\nresult_before_review: {}\noriginal_result_before_review: {}",
+                "[summary_leaf_review]\ncollection_id: {}\nwindow_offset: {}\nreview_status: {}\nreview_grounded: {}\nreview_sufficient: {}\nreview_repair_needed: {}\nreview_additional_pages_needed: {}\nreview_reason: {}\nresult_before_review: {}\noriginal_result_before_review: {}\nsummary_before_review:\n{}\nreview_context:\n{}",
                 collection.id,
                 collection_window_offset(collection).unwrap_or(0),
                 verdict.status.as_str(),
@@ -2582,6 +2657,16 @@ impl BlueskyTools {
                 verdict.reason,
                 summary_result_presence(execution.result.as_ref()),
                 summary_result_presence(execution.original_result.as_ref()),
+                truncate_diagnostic_block(
+                    &execution
+                        .result
+                        .as_ref()
+                        .or(execution.original_result.as_ref())
+                        .map(|result| result.summary().to_string())
+                        .unwrap_or_else(|| "<missing summary>".to_string()),
+                    4000,
+                ),
+                truncate_diagnostic_block(&review_window.rendered, 4000),
             ));
         }
 
@@ -2614,6 +2699,7 @@ impl BlueskyTools {
                     match result {
                         CollectionLeafResult::Search(result) => result.summary = repair_summary,
                         CollectionLeafResult::Summary(result) => result.summary = repair_summary,
+                        CollectionLeafResult::RawWindow(result) => result.summary = repair_summary,
                     }
                 } else if let Some(original_result) = execution.original_result.clone() {
                     execution.result = Some(match original_result {
@@ -2624,6 +2710,10 @@ impl BlueskyTools {
                         CollectionLeafResult::Summary(mut result) => {
                             result.summary = repair_summary;
                             CollectionLeafResult::Summary(result)
+                        }
+                        CollectionLeafResult::RawWindow(mut result) => {
+                            result.summary = repair_summary;
+                            CollectionLeafResult::RawWindow(result)
                         }
                     });
                 }
@@ -5218,6 +5308,7 @@ fn parse_llm_search_result(
         .and_then(|result| match result {
             CollectionLeafResult::Search(result) => Some(result),
             CollectionLeafResult::Summary(_) => None,
+            CollectionLeafResult::RawWindow(_) => None,
         })
 }
 
@@ -6184,6 +6275,35 @@ fn render_llm_result(result: Option<&CollectionLeafResult>) -> String {
             }
             lines.join("\n")
         }
+        Some(CollectionLeafResult::RawWindow(result)) => {
+            let mut lines = vec![
+                format!("post: {}", result.title),
+                format!("summary: {}", result.summary),
+                format!("window_offset: {}", result.window_offset),
+                format!("window_size: {}", result.window_size),
+                format!("page_index: {}", result.page_index),
+                format!("page_size: {}", result.page_size),
+                format!("collection_total_items: {}", result.collection_total_items),
+                format!("has_more: {}", result.has_more),
+                format!("failure_reason: {}", result.failure_reason),
+            ];
+            if let Some(raw_summary_response) = result.raw_summary_response.as_deref() {
+                lines.push(format!(
+                    "raw_summary_response:\n{}",
+                    truncate_diagnostic_block(raw_summary_response, 4000)
+                ));
+            }
+            for (index, post) in result.records.iter().enumerate() {
+                lines.push(format!("raw_window_item_{}_uri: {}", index + 1, post.uri));
+                lines.push(format!(
+                    "raw_window_item_{}_author: {}",
+                    index + 1,
+                    post.author_handle
+                ));
+                lines.push(format!("raw_window_item_{}_body: {}", index + 1, post.body));
+            }
+            lines.join("\n")
+        }
         None => "No matching cached posts.".to_string(),
     }
 }
@@ -6231,6 +6351,50 @@ fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
             .or(execution.original_result.as_ref()),
     ));
     lines.join("\n")
+}
+
+fn render_public_summary_outcomes(outcomes: &[CollectionToolOutcome]) -> String {
+    if outcomes.len() == 1 {
+        if let Some(outcome) = outcomes.first() {
+            if let Ok(execution) = outcome.execution.as_ref() {
+                if execution.is_usable() {
+                    if let Some(result) = execution
+                        .result
+                        .as_ref()
+                        .or(execution.original_result.as_ref())
+                        .and_then(CollectionLeafResult::as_summary)
+                    {
+                        let mut sections = Vec::new();
+                        let final_summary = result.summary.trim();
+                        let concatenated = result
+                            .concatenated_window_summaries()
+                            .map(str::trim)
+                            .filter(|text| !text.is_empty());
+
+                        if !final_summary.is_empty() {
+                            sections.push(format!(
+                                "Overall commentary across {}:\n{}",
+                                outcome.collection_label, final_summary
+                            ));
+                        }
+
+                        if let Some(concatenated) = concatenated {
+                            sections.push(format!(
+                                "Concatenated page summaries for {}:\n{}",
+                                outcome.collection_label, concatenated
+                            ));
+                        }
+
+                        if !sections.is_empty() {
+                            return sections.join("\n\n");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    render_summary_collection_loop_result(outcomes)
 }
 
 pub(crate) fn render_collection_outcome_result(
@@ -6300,13 +6464,12 @@ pub(crate) fn apply_summary_sufficiency_gates(
                 .result
                 .as_ref()
                 .or(prior.original_result.as_ref())
-                .and_then(CollectionLeafResult::as_summary)
-        })
-        .filter_map(|result| {
-            Some((
-                result.processed_window_offset()?,
-                result.processed_window_size()?,
-            ))
+                .and_then(|result| {
+                    Some((
+                        result.processed_window_offset()?,
+                        result.processed_window_size()?,
+                    ))
+                })
         })
         .collect::<Vec<_>>();
     ranges.push((current_start, current_len));
@@ -6341,14 +6504,12 @@ pub(crate) fn apply_summary_sufficiency_gates(
     };
     if let Some(verdict) = execution.review_verdict.as_mut() {
         verdict.status = status.clone();
-        if review_grounded {
-            verdict.sufficient = reviewed.sufficient;
-            verdict.additional_pages_needed = reviewed.additional_pages_needed;
-            verdict.next_page = reviewed.next_page;
-            verdict.next_offset = reviewed.next_offset;
-            verdict.required_total_items = reviewed.required_total_items;
-            verdict.reason = reviewed.reason;
-        }
+        verdict.sufficient = reviewed.sufficient;
+        verdict.additional_pages_needed = reviewed.additional_pages_needed;
+        verdict.next_page = reviewed.next_page;
+        verdict.next_offset = reviewed.next_offset;
+        verdict.required_total_items = reviewed.required_total_items;
+        verdict.reason = reviewed.reason;
     }
 
     if matches!(status, CollectionReviewStatus::Pass) && execution.result.is_none() {
@@ -6437,6 +6598,23 @@ fn render_llm_result_compact(result: Option<&CollectionLeafResult>) -> String {
             }
             lines.join("\n")
         }
+        Some(CollectionLeafResult::RawWindow(result)) => {
+            let mut lines = vec![
+                format!("post: {}", result.title),
+                format!("summary: {}", result.summary),
+                format!("window_offset: {}", result.window_offset),
+                format!("window_size: {}", result.window_size),
+                format!("page_index: {}", result.page_index),
+                format!("page_size: {}", result.page_size),
+                format!("collection_total_items: {}", result.collection_total_items),
+                format!("has_more: {}", result.has_more),
+                format!("failure_reason: {}", result.failure_reason),
+            ];
+            for (index, post) in result.records.iter().enumerate() {
+                lines.push(format!("raw_window_item_{}_uri: {}", index + 1, post.uri));
+            }
+            lines.join("\n")
+        }
         None => "No matching cached posts.".to_string(),
     }
 }
@@ -6505,7 +6683,9 @@ fn build_search_agent_node(
         agent_type: AgentNodeKind::ToolAgent,
         agent_kind: Some(AgentKind::Search),
         label: "search tool agent".to_string(),
-        status: if outcomes.iter().any(|outcome| {
+        status: if outcomes.is_empty() {
+            AgentNodeStatus::Failed
+        } else if outcomes.iter().any(|outcome| {
             outcome
                 .execution
                 .as_ref()
@@ -6543,7 +6723,9 @@ fn build_summary_agent_node(
         agent_type: AgentNodeKind::ToolAgent,
         agent_kind: Some(AgentKind::Summary),
         label: "summary tool agent".to_string(),
-        status: if outcomes.iter().any(|outcome| {
+        status: if outcomes.is_empty() {
+            AgentNodeStatus::Failed
+        } else if outcomes.iter().any(|outcome| {
             outcome
                 .execution
                 .as_ref()
@@ -7162,14 +7344,17 @@ fn result_uses_fallback_summary(execution: &LlmSearchExecution) -> bool {
     execution
         .result
         .as_ref()
-        .map(|result| {
-            result
-                .summary()
-                .contains("The model did not return a fully structured")
-                || result
+        .map(|result| match result {
+            CollectionLeafResult::RawWindow(_) => true,
+            _ => {
+                result
                     .summary()
-                    .contains("This fallback summary is derived directly")
-                || result.summary().contains("a follow-up pass may be needed")
+                    .contains("The model did not return a fully structured")
+                    || result
+                        .summary()
+                        .contains("This fallback summary is derived directly")
+                    || result.summary().contains("a follow-up pass may be needed")
+            }
         })
         .unwrap_or(false)
 }
@@ -7345,10 +7530,12 @@ fn optional_string_array_arg(
 mod tests {
     use super::{
         ActorAnchorSource, BlueskyTools, CollectionLeafResult, CollectionLeafToolKind,
+        CollectionToolOutcome,
         CollectionReviewStatus, LlmSearchExecution, LlmSearchResult, LlmSearchResultItem,
         LlmSummaryResult, PreparedPromptToolInput, PromptToolCall, RequestedSummaryScope,
         SearchIntent, SummaryCollectionTargetHint, SummarySelectionReviewStatus,
-        ToolPrepMissingPrerequisite, ToolRegistry, choose_deterministic_collection_id_for_actor,
+        ToolPrepMissingPrerequisite, ToolRegistry, build_search_agent_node,
+        build_summary_agent_node, choose_deterministic_collection_id_for_actor,
         collection_search_offset, detect_actor_refs, detect_post_uri,
         detect_summary_collection_target_hint, deterministic_repair_internal_search_tool_call,
         deterministic_repair_summary, fallback_llm_search_summary, heuristic_collection_review,
@@ -7358,12 +7545,15 @@ mod tests {
         parse_llm_summary_collection_selection_review, parse_prompt_tool_call,
         parse_requested_summary_scope_args, pick_summary_collection_for_hint,
         reduced_search_collection, render_internal_search_tool_protocol, render_llm_result,
+        render_public_summary_outcomes,
         render_post_details, review_summary_collection_selection, serialize_collection,
         source_collection_id_from_post, summary_hydration_args_for_hint, validate_collection_id,
         validate_internal_tool_response,
     };
     use crate::app::EvilGemmaConfig;
-    use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
+    use crate::harness::context_window::{
+        BuiltContextSection, BuiltContextWindow, ProviderContextLimits,
+    };
     use crate::harness::llm_api::{ChatCompletionResponseFormat, LlmApiClient, OpenAiRestConfig};
     use crate::model::{LabeledPostCollection, PostRecord};
     use crate::net_backend::{
@@ -7544,6 +7734,62 @@ mod tests {
         assert!(rendered.contains("summary: quote and context"));
         assert!(rendered.contains("search_result_1_uri: at://one"));
         assert!(rendered.contains("search_result_1_source_collection_id: recent:test"));
+    }
+
+    #[test]
+    fn render_public_summary_outcomes_prefers_commentary_plus_concatenated_pages() {
+        let outcome = CollectionToolOutcome {
+            tool_kind: CollectionLeafToolKind::Summary,
+            collection_id: "recent:test".to_string(),
+            collection_label: "Recent test posts".to_string(),
+            execution: Ok(LlmSearchExecution {
+                result: Some(summary_leaf_result(LlmSummaryResult {
+                    title: "Summary of Recent test posts".to_string(),
+                    summary: "Final cross-page commentary.".to_string(),
+                    covered_item_uris: Vec::new(),
+                    omitted_item_uris: Vec::new(),
+                    concatenated_window_summaries: Some(
+                        "Page one summary.\n\nPage two summary.".to_string(),
+                    ),
+                    window_offset: Some(0),
+                    window_size: Some(100),
+                    page_index: Some(0),
+                    page_size: Some(50),
+                    collection_total_items: Some(100),
+                    has_more: Some(false),
+                    source_exhausted: Some(true),
+                    window_start: Some(0),
+                    window_total_items: Some(100),
+                })),
+                original_result: None,
+                context_window: BuiltContextWindow {
+                    rendered: "test".to_string(),
+                    limits: ProviderContextLimits {
+                        provider_name: "llama.cpp".to_string(),
+                        model_name: "test-model".to_string(),
+                        max_context_tokens: 1024,
+                        reserved_output_tokens: 128,
+                    },
+                    header_tokens: 1,
+                    used_input_tokens: 1,
+                    truncated: false,
+                    sections: Vec::<BuiltContextSection>::new(),
+                },
+                diagnostic: Some("ok".to_string()),
+                raw_response: None,
+                review_verdict: None,
+                review_context_window: None,
+                repair_diagnostic: None,
+            }),
+        };
+
+        let rendered = render_public_summary_outcomes(&[outcome]);
+        assert!(rendered.contains("Overall commentary across Recent test posts:"));
+        assert!(rendered.contains("Final cross-page commentary."));
+        assert!(rendered.contains("Concatenated page summaries for Recent test posts:"));
+        assert!(rendered.contains("Page one summary."));
+        assert!(rendered.contains("Page two summary."));
+        assert!(!rendered.contains("diagnostic:"));
     }
 
     #[test]
@@ -9051,8 +9297,6 @@ mod tests {
 
     #[test]
     fn apply_summary_sufficiency_gates_preserves_ungrounded_failure_reason() {
-        let original_reason =
-            "The summary omits meaningful text that was available in the matched records.";
         let mut execution = LlmSearchExecution {
             result: None,
             original_result: Some(summary_leaf_result(LlmSummaryResult {
@@ -9078,7 +9322,7 @@ mod tests {
                 status: CollectionReviewStatus::Fail,
                 grounded: false,
                 sufficient: false,
-                reason: original_reason.to_string(),
+                reason: "The summary omits meaningful text that was available in the matched records.".to_string(),
                 repair_needed: false,
                 repair_instructions: None,
                 additional_pages_needed: false,
@@ -9103,8 +9347,14 @@ mod tests {
         assert_eq!(verdict.status, CollectionReviewStatus::Fail);
         assert!(!verdict.grounded);
         assert!(!verdict.sufficient);
-        assert_eq!(verdict.reason, original_reason);
-        assert!(!verdict.additional_pages_needed);
+        assert_eq!(
+            verdict.reason,
+            "Grounded summary coverage currently reaches 50 item(s), but 400 item(s) are required before parent synthesis is sufficient."
+        );
+        assert!(verdict.additional_pages_needed);
+        assert_eq!(verdict.next_offset, Some(50));
+        assert_eq!(verdict.next_page, Some(1));
+        assert_eq!(verdict.required_total_items, Some(400));
         assert!(execution.result.is_none());
         assert!(execution.original_result.is_some());
     }
@@ -9446,6 +9696,33 @@ mod tests {
         assert_eq!(review.status, SummarySelectionReviewStatus::Rejected);
         assert!(!review.deterministic_repair_applied);
         assert!(review.reason.contains("recent_posts"));
+    }
+
+    #[test]
+    fn build_summary_agent_node_marks_empty_outcomes_as_failed() {
+        let llm_client = summary_prep_llm_for_tests(
+            r#"{"status":"accepted","final_collection_id":"recent_posts:did:plc:test","reason":"ok"}"#,
+        );
+
+        let node =
+            build_summary_agent_node("summarize the last 50 posts by test", &[], &llm_client);
+
+        assert_eq!(node.status, crate::harness::agents::AgentNodeStatus::Failed);
+        assert_eq!(
+            node.result_summary.as_deref(),
+            Some("status: failed\nreason: no summary pages were processed")
+        );
+    }
+
+    #[test]
+    fn build_search_agent_node_marks_empty_outcomes_as_failed() {
+        let llm_client = summary_prep_llm_for_tests(
+            r#"{"status":"accepted","final_collection_id":"recent_posts:did:plc:test","reason":"ok"}"#,
+        );
+
+        let node = build_search_agent_node("search for mentions of test", &[], &llm_client);
+
+        assert_eq!(node.status, crate::harness::agents::AgentNodeStatus::Failed);
     }
 
     #[tokio::test]

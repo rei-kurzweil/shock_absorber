@@ -10,12 +10,12 @@ use crate::harness::r#loop::{
 };
 use crate::harness::tools::{
     BlueskyTools, COLLECTION_SEARCH_PAGE_SIZE, CollectionLeafResult, CollectionLeafToolKind,
-    CollectionReviewStatus, CollectionReviewVerdict, CollectionToolOutcome, LlmSearchExecution,
-    LlmSummaryResult, RequestedSummaryScope, ToolProgressEvent, apply_summary_sufficiency_gates,
-    paged_search_collection, render_collection_outcome_result, summary_scope_initial_offset,
-    summary_scope_max_pages,
+    CollectionRawWindowResult, CollectionReviewStatus, CollectionReviewVerdict,
+    CollectionToolOutcome, LlmSearchExecution, LlmSummaryResult, RequestedSummaryScope,
+    ToolProgressEvent, apply_summary_sufficiency_gates, paged_search_collection,
+    render_collection_outcome_result, summary_scope_initial_offset, summary_scope_max_pages,
 };
-use crate::model::LabeledPostCollection;
+use crate::model::{LabeledPostCollection, PostRecord};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::sync::mpsc::UnboundedSender;
@@ -249,6 +249,7 @@ const PORT_FAILURE: &str = "failure";
 #[derive(Default)]
 struct SummaryLoopAccumulator {
     page_outcomes: Vec<CollectionToolOutcome>,
+    page_states: Vec<SummaryPageState>,
     accepted_page_summaries: Vec<String>,
     planner_updates: Vec<String>,
     covered_window_offsets: Vec<usize>,
@@ -273,45 +274,56 @@ struct SummaryLoopAccumulator {
     accepted_windows: Vec<(usize, usize)>,
 }
 
+#[derive(Clone)]
+enum SummaryPagePayload {
+    Summary { text: String },
+    RawWindow { fallback: CollectionRawWindowResult },
+}
+
+#[derive(Clone)]
+struct SummaryPageState {
+    offset: usize,
+    page_index: usize,
+    window_size: usize,
+    next_offset: Option<usize>,
+    source_exhausted: bool,
+    repair_attempted: bool,
+    fallback_applied: bool,
+    failure_reason: Option<String>,
+    payload: SummaryPagePayload,
+}
+
 impl SummaryLoopAccumulator {
     fn record_page_outcome(&mut self, outcome: CollectionToolOutcome) {
         self.page_outcomes.push(outcome);
     }
 
-    fn accept_summary(
-        &mut self,
-        execution: &LlmSearchExecution,
-        offset: usize,
-        collection_total_items: usize,
-    ) {
-        if !execution
-            .review_verdict
-            .as_ref()
-            .map(|verdict| verdict.grounded)
-            .unwrap_or(false)
-        {
-            return;
-        }
-        let Some(result) = execution
-            .result
-            .as_ref()
-            .or(execution.original_result.as_ref())
-            .and_then(CollectionLeafResult::as_summary)
-        else {
-            return;
-        };
-        self.covered_window_offsets.push(offset);
-        self.covered_post_count += result.processed_window_size().unwrap_or(0);
+    fn record_page_state(&mut self, page_state: SummaryPageState, collection_total_items: usize) {
+        self.covered_window_offsets.push(page_state.offset);
+        self.covered_post_count += page_state.window_size;
         self.collection_total_items = Some(collection_total_items);
-        self.source_exhausted = result.has_more == Some(false);
+        self.source_exhausted = page_state.source_exhausted;
         self.accepted_windows
-            .push((offset, result.processed_window_size().unwrap_or(0)));
-        self.accepted_page_summaries
-            .push(result.summary.trim().to_string());
+            .push((page_state.offset, page_state.window_size));
+        if let SummaryPagePayload::Summary { text } = &page_state.payload {
+            self.accepted_page_summaries.push(text.trim().to_string());
+        }
+        self.page_states.push(page_state);
     }
 
     fn concatenated_window_summaries(&self) -> String {
         self.accepted_page_summaries.join("\n\n")
+    }
+
+    fn coherent_page_count(&self) -> usize {
+        self.page_states.len()
+    }
+
+    fn fallback_page_count(&self) -> usize {
+        self.page_states
+            .iter()
+            .filter(|page| page.fallback_applied)
+            .count()
     }
 
     fn planner_notes(&self) -> String {
@@ -339,7 +351,14 @@ impl SummaryLoopAccumulator {
 
         let concatenated = self.concatenated_window_summaries();
         if concatenated.trim().is_empty() {
-            "No grounded summary pages were accepted.".to_string()
+            if self.page_states.is_empty() {
+                "No grounded summary pages were accepted.".to_string()
+            } else {
+                format!(
+                    "Grounded raw-window fallback preserved {} page(s), but no final synthesis was produced.",
+                    self.page_states.len()
+                )
+            }
         } else {
             concatenated
         }
@@ -350,7 +369,7 @@ impl SummaryLoopAccumulator {
         collection: &LabeledPostCollection,
         requested_summary_scope: RequestedSummaryScope,
     ) -> Option<CollectionToolOutcome> {
-        if self.accepted_page_summaries.is_empty() {
+        if self.page_states.is_empty() {
             return None;
         }
 
@@ -369,8 +388,9 @@ impl SummaryLoopAccumulator {
                 .map(|total| self.covered_post_count >= total)
                 .unwrap_or(false);
         let diagnostic = format!(
-            "collection_summary_planner accepted {} page summaries; collection_summary_notes produced final scope summary",
-            self.accepted_page_summaries.len()
+            "collection_summary_planner accepted {} page summaries and {} raw-window fallbacks; collection_summary_notes produced final scope summary",
+            self.accepted_page_summaries.len(),
+            self.fallback_page_count()
         );
         let review_reason = if coverage_complete {
             format!(
@@ -383,6 +403,14 @@ impl SummaryLoopAccumulator {
                 self.covered_post_count
             )
         };
+        let rendered_summary = if coverage_complete || source_exhausted {
+            final_summary
+        } else {
+            format!(
+                "Partial coverage only. The loop preserved grounded evidence for {} post(s), but the requested scope remains incomplete.\n\n{}",
+                self.covered_post_count, final_summary
+            )
+        };
 
         Some(CollectionToolOutcome {
             tool_kind: CollectionLeafToolKind::Summary,
@@ -391,7 +419,7 @@ impl SummaryLoopAccumulator {
             execution: Ok(LlmSearchExecution {
                 result: Some(CollectionLeafResult::Summary(LlmSummaryResult {
                     title: format!("Summary of {}", collection.label),
-                    summary: final_summary,
+                    summary: rendered_summary,
                     covered_item_uris: Vec::new(),
                     omitted_item_uris: Vec::new(),
                     concatenated_window_summaries: Some(concatenated_window_summaries),
@@ -421,14 +449,15 @@ impl SummaryLoopAccumulator {
                             .map(|execution| execution.context_window.clone())
                     })?,
                 diagnostic: Some(format!(
-                    "{diagnostic}\ncovered_window_offsets: {}\ncovered_post_count: {}\nplanner_updates: {}",
+                    "{diagnostic}\ncovered_window_offsets: {}\ncovered_post_count: {}\nplanner_updates: {}\ncoherent_pages: {}",
                     self.covered_window_offsets
                         .iter()
                         .map(|offset| offset.to_string())
                         .collect::<Vec<_>>()
                         .join(", "),
                     self.covered_post_count,
-                    self.planner_updates.len()
+                    self.planner_updates.len(),
+                    self.coherent_page_count()
                 )),
                 raw_response: self.notes_raw_response.or(self.planner_raw_response),
                 review_verdict: Some(CollectionReviewVerdict {
@@ -467,6 +496,16 @@ fn next_node(current: &'static str, port: &str) -> Option<&'static str> {
     }
 }
 
+fn route_after_planner_attempt(pending_next_offset: Option<usize>) -> &'static str {
+    if pending_next_offset.is_some() {
+        next_node(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW, PORT_CONTINUE)
+            .unwrap_or(NODE_ADVANCE_CURSOR)
+    } else {
+        next_node(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW, PORT_COMPLETE)
+            .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES)
+    }
+}
+
 fn summarize_progress_excerpt(text: &str, limit: usize) -> String {
     let _ = limit;
     let trimmed = text.trim();
@@ -475,6 +514,259 @@ fn summarize_progress_excerpt(text: &str, limit: usize) -> String {
 
 fn normalize_synthesis_response(text: String) -> String {
     text.replace("\\\"", "\"")
+}
+
+fn render_raw_window_records(records: &[PostRecord]) -> String {
+    let mut lines = Vec::new();
+    for (index, post) in records.iter().enumerate() {
+        lines.push(format!("item[{index}]"));
+        lines.push(format!("uri: {}", post.uri));
+        lines.push(format!("author: {}", post.author_handle));
+        lines.push(format!("body: {}", post.body));
+        lines.push(String::new());
+    }
+    lines.join("\n")
+}
+
+fn render_page_evidence(page_state: &SummaryPageState) -> String {
+    let mut lines = vec![
+        format!("window_offset: {}", page_state.offset),
+        format!("window_size: {}", page_state.window_size),
+        format!("page_index: {}", page_state.page_index),
+        format!("repair_attempted: {}", page_state.repair_attempted),
+        format!("fallback_applied: {}", page_state.fallback_applied),
+        format!(
+            "failure_reason: {}",
+            page_state.failure_reason.as_deref().unwrap_or("<none>")
+        ),
+    ];
+    if let Some(next_offset) = page_state.next_offset {
+        lines.push(format!("next_offset: {next_offset}"));
+    }
+    match &page_state.payload {
+        SummaryPagePayload::Summary { text } => {
+            lines.push("page_status: accepted_summary".to_string());
+            lines.push(format!("summary: {text}"));
+        }
+        SummaryPagePayload::RawWindow { fallback } => {
+            lines.push("page_status: raw_window_fallback".to_string());
+            lines.push(format!("failure_reason: {}", fallback.failure_reason));
+            if let Some(raw_summary_response) = fallback.raw_summary_response.as_deref() {
+                lines.push(format!("raw_summary_response:\n{raw_summary_response}"));
+            }
+            lines.push("records:".to_string());
+            lines.push(render_raw_window_records(&fallback.records));
+        }
+    }
+    lines.join("\n")
+}
+
+fn next_offset_for_scope(
+    requested_summary_scope: RequestedSummaryScope,
+    collection_total_items: usize,
+    offset: usize,
+    window_size: usize,
+) -> Option<usize> {
+    let next_offset = offset.saturating_add(window_size);
+    if next_offset >= collection_total_items {
+        return None;
+    }
+
+    match requested_summary_scope {
+        RequestedSummaryScope::CurrentWindow | RequestedSummaryScope::Page { .. } => None,
+        RequestedSummaryScope::Count { requested_items } => {
+            (next_offset < requested_items).then_some(next_offset)
+        }
+        RequestedSummaryScope::PageRange {
+            start_page: _,
+            end_page,
+        } => {
+            let next_page_index = next_offset / COLLECTION_SEARCH_PAGE_SIZE.max(1);
+            (next_page_index <= end_page).then_some(next_offset)
+        }
+    }
+}
+
+fn build_page_state(
+    collection_total_items: usize,
+    requested_summary_scope: RequestedSummaryScope,
+    offset: usize,
+    page_index: usize,
+    window_records: &[PostRecord],
+    fallback_context_window: BuiltContextWindow,
+    outcome: &mut CollectionToolOutcome,
+) -> Option<SummaryPageState> {
+    let window_size = window_records.len();
+    let has_more = offset.saturating_add(window_size) < collection_total_items;
+    let next_offset = next_offset_for_scope(
+        requested_summary_scope,
+        collection_total_items,
+        offset,
+        window_size,
+    );
+
+    if let Err(err) = &outcome.execution {
+        let failure_reason = format!("summary execution failed: {err}");
+        let fallback = CollectionRawWindowResult {
+            title: format!("Raw window fallback for page {}", page_index + 1),
+            summary: format!(
+                "This raw-window fallback preserves the exact page records after summary execution failed at offset {}.",
+                offset
+            ),
+            window_offset: offset,
+            window_size,
+            page_index,
+            page_size: COLLECTION_SEARCH_PAGE_SIZE,
+            collection_total_items,
+            has_more,
+            failure_reason: failure_reason.clone(),
+            raw_summary_response: None,
+            records: window_records.to_vec(),
+        };
+        outcome.execution = Ok(LlmSearchExecution {
+            result: Some(CollectionLeafResult::RawWindow(fallback.clone())),
+            original_result: None,
+            context_window: fallback_context_window,
+            diagnostic: Some(format!("raw-window fallback preserved offset {offset}")),
+            raw_response: None,
+            review_verdict: Some(CollectionReviewVerdict {
+                status: CollectionReviewStatus::Pass,
+                grounded: true,
+                sufficient: next_offset.is_none(),
+                reason: format!(
+                    "Raw-window fallback preserved grounded evidence for page {} after summary execution failed: {}",
+                    page_index + 1,
+                    failure_reason
+                ),
+                repair_needed: false,
+                repair_instructions: None,
+                additional_pages_needed: next_offset.is_some(),
+                next_page: next_offset.map(|value| value / COLLECTION_SEARCH_PAGE_SIZE.max(1)),
+                next_offset,
+                required_total_items: match requested_summary_scope {
+                    RequestedSummaryScope::Count { requested_items } => Some(requested_items),
+                    _ => None,
+                },
+            }),
+            review_context_window: None,
+            repair_diagnostic: None,
+        });
+
+        return Some(SummaryPageState {
+            offset,
+            page_index,
+            window_size,
+            next_offset,
+            source_exhausted: !has_more,
+            repair_attempted: false,
+            fallback_applied: true,
+            failure_reason: Some(failure_reason),
+            payload: SummaryPagePayload::RawWindow { fallback },
+        });
+    }
+
+    let execution = outcome.execution.as_mut().ok()?;
+    if execution
+        .review_verdict
+        .as_ref()
+        .map(|verdict| verdict.grounded)
+        .unwrap_or(false)
+    {
+        if let Some(result) = execution
+            .result
+            .as_ref()
+            .or(execution.original_result.as_ref())
+            .and_then(CollectionLeafResult::as_summary)
+        {
+            return Some(SummaryPageState {
+                offset,
+                page_index,
+                window_size: result
+                    .processed_window_size()
+                    .unwrap_or(window_records.len()),
+                next_offset: execution
+                    .review_verdict
+                    .as_ref()
+                    .and_then(|verdict| verdict.next_offset)
+                    .or_else(|| {
+                        next_offset_for_scope(
+                            requested_summary_scope,
+                            collection_total_items,
+                            offset,
+                            result
+                                .processed_window_size()
+                                .unwrap_or(window_records.len()),
+                        )
+                    }),
+                source_exhausted: result.has_more == Some(false),
+                repair_attempted: execution.repair_diagnostic.is_some(),
+                fallback_applied: false,
+                failure_reason: None,
+                payload: SummaryPagePayload::Summary {
+                    text: result.summary.trim().to_string(),
+                },
+            });
+        }
+    }
+
+    let failure_reason = execution
+        .review_verdict
+        .as_ref()
+        .map(|verdict| verdict.reason.clone())
+        .unwrap_or_else(|| "summary review did not return a usable verdict".to_string());
+    let raw_summary_response = execution.raw_response.clone();
+    let fallback = CollectionRawWindowResult {
+        title: format!("Raw window fallback for page {}", page_index + 1),
+        summary: format!(
+            "This raw-window fallback preserves the exact page records after summary processing failed at offset {}.",
+            offset
+        ),
+        window_offset: offset,
+        window_size,
+        page_index,
+        page_size: COLLECTION_SEARCH_PAGE_SIZE,
+        collection_total_items,
+        has_more,
+        failure_reason: failure_reason.clone(),
+        raw_summary_response,
+        records: window_records.to_vec(),
+    };
+    execution.result = Some(CollectionLeafResult::RawWindow(fallback.clone()));
+    execution.review_verdict = Some(CollectionReviewVerdict {
+        status: CollectionReviewStatus::Pass,
+        grounded: true,
+        sufficient: next_offset.is_none(),
+        reason: format!(
+            "Raw-window fallback preserved grounded evidence for page {} after summary failure: {}",
+            page_index + 1,
+            failure_reason
+        ),
+        repair_needed: false,
+        repair_instructions: None,
+        additional_pages_needed: next_offset.is_some(),
+        next_page: next_offset.map(|value| value / COLLECTION_SEARCH_PAGE_SIZE.max(1)),
+        next_offset,
+        required_total_items: match requested_summary_scope {
+            RequestedSummaryScope::Count { requested_items } => Some(requested_items),
+            _ => None,
+        },
+    });
+    execution.diagnostic = Some(match execution.diagnostic.take() {
+        Some(diagnostic) => format!("{diagnostic}; raw-window fallback preserved offset {offset}"),
+        None => format!("raw-window fallback preserved offset {offset}"),
+    });
+
+    Some(SummaryPageState {
+        offset,
+        page_index,
+        window_size,
+        next_offset,
+        source_exhausted: !has_more,
+        repair_attempted: execution.repair_diagnostic.is_some(),
+        fallback_applied: true,
+        failure_reason: Some(failure_reason),
+        payload: SummaryPagePayload::RawWindow { fallback },
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -680,6 +972,20 @@ fn build_collection_summary_planner_context(
         ContextSectionKind::CollectionEvidence,
         accumulator.concatenated_window_summaries(),
     );
+    let fallback_pages = accumulator
+        .page_states
+        .iter()
+        .filter(|page| page.fallback_applied)
+        .map(render_page_evidence)
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if !fallback_pages.trim().is_empty() {
+        context.push_section_with_kind(
+            "Raw Window Fallbacks",
+            ContextSectionKind::CollectionEvidence,
+            fallback_pages,
+        );
+    }
     context
 }
 
@@ -716,6 +1022,20 @@ fn build_collection_summary_notes_context(
         ContextSectionKind::CollectionEvidence,
         accumulator.concatenated_window_summaries(),
     );
+    let fallback_pages = accumulator
+        .page_states
+        .iter()
+        .filter(|page| page.fallback_applied)
+        .map(render_page_evidence)
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if !fallback_pages.trim().is_empty() {
+        context.push_section_with_kind(
+            "Raw Window Fallbacks",
+            ContextSectionKind::CollectionEvidence,
+            fallback_pages,
+        );
+    }
     if !accumulator.planner_updates.is_empty() {
         context.push_section_with_kind(
             "Planner Notes",
@@ -895,10 +1215,18 @@ impl BlueskyTools {
                         paged_search_collection(collection, offset, COLLECTION_SEARCH_PAGE_SIZE);
                     let paged_collection_id = paged.id.clone();
                     let paged_post_count = paged.posts.len();
+                    let mut fallback_context = LLMContext::new("Raw window fallback context");
+                    fallback_context.push_section("Task", prompt);
+                    fallback_context
+                        .push_section("Collection", render_collection_summary_stub(&paged));
+                    let fallback_context_window = build_context_window_report(
+                        &fallback_context,
+                        &llm_client.context_limits(),
+                    );
                     let mut page_outcomes = self
                         .run_collection_tools(
                             CollectionLeafToolKind::Summary,
-                            &[paged],
+                            &[paged.clone()],
                             prompt,
                             requested_summary_scope,
                             llm_client,
@@ -938,6 +1266,15 @@ impl BlueskyTools {
                             ));
                         }
                     }
+                    let page_state = build_page_state(
+                        collection.posts.len(),
+                        requested_summary_scope,
+                        offset,
+                        pages_processed,
+                        &paged.posts,
+                        fallback_context_window,
+                        &mut outcome,
+                    );
                     append_summary_trace(match outcome.execution.as_ref() {
                         Ok(execution) => format!(
                             "[collection_summary_loop]\nnode: summarize_page\nstatus: page_outcome\ncollection_id: {}\noffset: {}\nresult_present: {}\nreview_status: {}\nreview_reason: {}\ndiagnostic: {}",
@@ -994,28 +1331,43 @@ impl BlueskyTools {
                             ),
                         });
                     }
-
-                    let next_offset = outcome.execution.as_ref().ok().and_then(|execution| {
-                        let fallback_next_offset = execution
-                            .result
-                            .as_ref()
-                            .or(execution.original_result.as_ref())
-                            .and_then(CollectionLeafResult::as_summary)
-                            .and_then(|result| {
-                                Some(
-                                    result
-                                        .processed_window_offset()?
-                                        .saturating_add(result.processed_window_size()?),
-                                )
-                            });
-                        execution.review_verdict.as_ref().and_then(|verdict| {
-                            verdict
-                                .additional_pages_needed
-                                .then(|| verdict.next_offset.or(fallback_next_offset))
-                                .flatten()
-                        })
-                    });
-                    pending_next_offset = next_offset;
+                    if let Some(page_state) = page_state {
+                        append_summary_trace(format!(
+                            "[collection_summary_loop_page_state]\ncollection_id: {}\npage_offset: {}\npage_index: {}\npage_status: {}\nrepair_attempted: {}\nfallback_applied: {}\nnext_offset: {}\naccumulated_covered_count: {}\nfailure_reason: {}",
+                            outcome.collection_id,
+                            page_state.offset,
+                            page_state.page_index,
+                            if page_state.fallback_applied {
+                                "raw_window_fallback"
+                            } else {
+                                "accepted_summary"
+                            },
+                            page_state.repair_attempted,
+                            page_state.fallback_applied,
+                            page_state
+                                .next_offset
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "<none>".to_string()),
+                            accumulator
+                                .covered_post_count
+                                .saturating_add(page_state.window_size),
+                            page_state.failure_reason.as_deref().unwrap_or("<none>")
+                        ));
+                        if page_state.fallback_applied {
+                            append_summary_trace(format!(
+                                "[summary_leaf_raw_window_fallback]\ncollection_id: {}\npage_offset: {}\npage_index: {}\nwindow_size: {}\nfailure_reason: {}",
+                                outcome.collection_id,
+                                page_state.offset,
+                                page_state.page_index,
+                                page_state.window_size,
+                                page_state.failure_reason.as_deref().unwrap_or("<none>")
+                            ));
+                        }
+                        pending_next_offset = page_state.next_offset;
+                        accumulator.record_page_state(page_state, collection.posts.len());
+                    } else {
+                        pending_next_offset = None;
+                    }
                     accumulator.record_page_outcome(outcome);
                     pages_processed += 1;
 
@@ -1028,92 +1380,42 @@ impl BlueskyTools {
                     };
                 }
                 NODE_COLLECTION_SUMMARY_PLANNER => {
-                    let Some(grounded) = accumulator
-                        .page_outcomes
-                        .last()
-                        .and_then(|outcome| outcome.execution.as_ref().ok())
-                        .map(|execution| {
-                            execution
-                                .review_verdict
-                                .as_ref()
-                                .map(|verdict| verdict.grounded)
-                                .unwrap_or(false)
-                        })
-                    else {
+                    let Some(_page_state) = accumulator.page_states.last() else {
                         current_node = next_node(NODE_COLLECTION_SUMMARY_PLANNER, PORT_FAILURE)
                             .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REPAIR);
                         continue;
                     };
-                    if grounded {
-                        let accepted_summary = accumulator
-                            .page_outcomes
-                            .last()
-                            .and_then(|outcome| outcome.execution.as_ref().ok())
-                            .and_then(|execution| {
-                                execution
-                                    .result
-                                    .as_ref()
-                                    .or(execution.original_result.as_ref())
-                                    .and_then(CollectionLeafResult::as_summary)
-                                    .map(|result| {
-                                        (
-                                            result.processed_window_size().unwrap_or(0),
-                                            result.has_more == Some(false),
-                                            result.summary.trim().to_string(),
-                                        )
-                                    })
-                            });
-                        if let Some((window_size, source_exhausted, page_summary)) =
-                            accepted_summary
-                        {
-                            accumulator.covered_window_offsets.push(offset);
-                            accumulator.covered_post_count += window_size;
-                            accumulator.collection_total_items = Some(collection.posts.len());
-                            accumulator.source_exhausted = source_exhausted;
-                            accumulator.accepted_windows.push((offset, window_size));
-                            accumulator.accepted_page_summaries.push(page_summary);
-                        }
-                        let planner_context = build_collection_summary_planner_context(
-                            collection,
-                            prompt,
-                            requested_summary_scope,
-                            &accumulator,
-                        );
-                        let planner_window = build_context_window_report(
-                            &planner_context,
-                            &llm_client.context_limits(),
-                        );
-                        let planner_response = llm_client
-                            .complete_chat(
-                                vec![
-                                    ChatMessage {
-                                        role: "system".to_string(),
-                                        content: planner_context.header().to_string(),
-                                    },
-                                    ChatMessage {
-                                        role: "user".to_string(),
-                                        content: planner_window.rendered.clone(),
-                                    },
-                                ],
-                                256,
-                            )
-                            .await
-                            .ok()
-                            .map(|response| {
-                                normalize_synthesis_response(response.trim().to_string())
-                            })
-                            .filter(|response| !response.is_empty());
-                        accumulator.pending_planner_update = planner_response.clone();
-                        accumulator.pending_planner_context_window = Some(planner_window);
-                        accumulator.pending_planner_raw_response = planner_response;
-                        accumulator.pending_planner_failure_reason = None;
-                        accumulator.planner_repair_attempted = false;
-                    } else {
-                        accumulator.pending_planner_update = None;
-                        accumulator.pending_planner_context_window = None;
-                        accumulator.pending_planner_raw_response = None;
-                        accumulator.pending_planner_failure_reason = None;
-                    }
+                    let planner_context = build_collection_summary_planner_context(
+                        collection,
+                        prompt,
+                        requested_summary_scope,
+                        &accumulator,
+                    );
+                    let planner_window =
+                        build_context_window_report(&planner_context, &llm_client.context_limits());
+                    let planner_response = llm_client
+                        .complete_chat(
+                            vec![
+                                ChatMessage {
+                                    role: "system".to_string(),
+                                    content: planner_context.header().to_string(),
+                                },
+                                ChatMessage {
+                                    role: "user".to_string(),
+                                    content: planner_window.rendered.clone(),
+                                },
+                            ],
+                            256,
+                        )
+                        .await
+                        .ok()
+                        .map(|response| normalize_synthesis_response(response.trim().to_string()))
+                        .filter(|response| !response.is_empty());
+                    accumulator.pending_planner_update = planner_response.clone();
+                    accumulator.pending_planner_context_window = Some(planner_window);
+                    accumulator.pending_planner_raw_response = planner_response;
+                    accumulator.pending_planner_failure_reason = None;
+                    accumulator.planner_repair_attempted = false;
                     current_node = if accumulator.pending_planner_update.is_some() {
                         next_node(NODE_COLLECTION_SUMMARY_PLANNER, PORT_SUCCESS)
                             .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW)
@@ -1161,17 +1463,21 @@ impl BlueskyTools {
                                     });
                                 }
                             }
-                            current_node = if pending_next_offset.is_some() {
-                                next_node(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW, PORT_CONTINUE)
-                                    .unwrap_or(NODE_ADVANCE_CURSOR)
-                            } else {
-                                next_node(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW, PORT_COMPLETE)
-                                    .unwrap_or(NODE_COLLECTION_SUMMARY_NOTES)
-                            };
+                            current_node = route_after_planner_attempt(pending_next_offset);
                         }
                         Err(reason) => {
                             if accumulator.planner_repair_attempted {
-                                break;
+                                append_summary_trace(format!(
+                                    "[collection_summary_loop]\nnode: collection_summary_planner_review\nstatus: planner_optional_failure\nreason: {}\nroute: {}",
+                                    reason,
+                                    if pending_next_offset.is_some() {
+                                        NODE_ADVANCE_CURSOR
+                                    } else {
+                                        NODE_COLLECTION_SUMMARY_NOTES
+                                    }
+                                ));
+                                accumulator.pending_planner_failure_reason = Some(reason);
+                                current_node = route_after_planner_attempt(pending_next_offset);
                             } else {
                                 accumulator.pending_planner_failure_reason = Some(reason);
                                 current_node =
@@ -1183,11 +1489,43 @@ impl BlueskyTools {
                 }
                 NODE_COLLECTION_SUMMARY_PLANNER_REPAIR => {
                     if accumulator.planner_repair_attempted {
-                        break;
+                        let reason = accumulator
+                            .pending_planner_failure_reason
+                            .clone()
+                            .unwrap_or_else(|| {
+                                "planner synthesis failed after repair attempt".to_string()
+                            });
+                        append_summary_trace(format!(
+                            "[collection_summary_loop]\nnode: collection_summary_planner_repair\nstatus: planner_optional_failure\nreason: {}\nroute: {}",
+                            reason,
+                            if pending_next_offset.is_some() {
+                                NODE_ADVANCE_CURSOR
+                            } else {
+                                NODE_COLLECTION_SUMMARY_NOTES
+                            }
+                        ));
+                        current_node = route_after_planner_attempt(pending_next_offset);
+                        continue;
                     }
                     let Some(prior_context) = accumulator.pending_planner_context_window.clone()
                     else {
-                        break;
+                        accumulator.pending_planner_failure_reason = Some(
+                            "planner repair context missing after validation failure".to_string(),
+                        );
+                        append_summary_trace(format!(
+                            "[collection_summary_loop]\nnode: collection_summary_planner_repair\nstatus: planner_optional_failure\nreason: {}\nroute: {}",
+                            accumulator
+                                .pending_planner_failure_reason
+                                .as_deref()
+                                .unwrap_or("<none>"),
+                            if pending_next_offset.is_some() {
+                                NODE_ADVANCE_CURSOR
+                            } else {
+                                NODE_COLLECTION_SUMMARY_NOTES
+                            }
+                        ));
+                        current_node = route_after_planner_attempt(pending_next_offset);
+                        continue;
                     };
                     let prior_response = accumulator
                         .pending_planner_update
@@ -1232,7 +1570,18 @@ impl BlueskyTools {
                         next_node(NODE_COLLECTION_SUMMARY_PLANNER_REPAIR, PORT_SUCCESS)
                             .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REVIEW)
                     } else {
-                        break;
+                        accumulator.pending_planner_failure_reason =
+                            Some(failure_reason.clone());
+                        append_summary_trace(format!(
+                            "[collection_summary_loop]\nnode: collection_summary_planner_repair\nstatus: planner_optional_failure\nreason: {}\nroute: {}",
+                            failure_reason,
+                            if pending_next_offset.is_some() {
+                                NODE_ADVANCE_CURSOR
+                            } else {
+                                NODE_COLLECTION_SUMMARY_NOTES
+                            }
+                        ));
+                        route_after_planner_attempt(pending_next_offset)
                     };
                 }
                 NODE_ADVANCE_CURSOR => {
@@ -1627,5 +1976,142 @@ mod tests {
 
         let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
         assert!(diagnostic.contains("collection_summary_planner accepted 2 page summaries"));
+    }
+
+    #[tokio::test]
+    async fn run_collection_summary_loop_preserves_later_page_as_raw_window_fallback() {
+        let llm_client = start_mock_llm_client(vec![
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
+            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 50 item(s), but 100 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 50\nrequired_total_items: 100".to_string(),
+            "Across the covered windows so far, the posts repeatedly circle the \\\"alpha\\\" theme, with terse updates and quoted snippets showing a steady, narrow focus rather than abrupt topic changes.".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 50: theme beta\\\" and \\\"quote: \\\"snippet 79\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
+            "status: fail\ngrounded: false\nsufficient: false\nreason: The response appears truncated and cannot be trusted as a grounded page summary.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 100".to_string(),
+            "The covered scope now includes both the accepted alpha summary and one raw fallback window whose exact records show the later shift into recurring beta updates.".to_string(),
+            "Across the first 100 posts, the collection starts with a concentrated run of alpha updates and then shifts into recurring beta posts. The later window was preserved as raw fallback evidence, and its exact records still show the same change in emphasis across the requested scope.".to_string(),
+        ]);
+        let tools = BlueskyTools::new();
+        let collection = test_collection(100);
+
+        let outcomes = tools
+            .run_collection_summary_loop(
+                &collection,
+                "summarize the last 100 posts by alpha.test",
+                RequestedSummaryScope::Count {
+                    requested_items: 100,
+                },
+                &llm_client,
+                None,
+            )
+            .await;
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = outcomes.first().expect("aggregated outcome");
+        let execution = outcome.execution.as_ref().expect("successful execution");
+        let result = execution
+            .result
+            .as_ref()
+            .and_then(CollectionLeafResult::as_summary)
+            .expect("summary result");
+
+        assert_eq!(result.window_size, Some(100));
+        assert!(result.summary.contains("alpha updates"));
+        assert!(result.summary.contains("beta posts"));
+        assert!(result.summary.contains("raw fallback evidence"));
+
+        let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
+        assert!(diagnostic.contains("accepted 1 page summaries and 1 raw-window fallbacks"));
+        assert!(diagnostic.contains("covered_post_count: 100"));
+
+        let verdict = execution.review_verdict.as_ref().expect("review verdict");
+        assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+        assert!(verdict.grounded);
+        assert!(verdict.sufficient);
+    }
+
+    #[tokio::test]
+    async fn run_collection_summary_loop_continues_after_planner_and_repair_fail() {
+        let llm_client = start_mock_llm_client(vec![
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
+            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 50 item(s), but 100 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 50\nrequired_total_items: 100".to_string(),
+            "status: completed\nsummary: invalid planner metadata".to_string(),
+            "still invalid:\nsummary: planner repair also returned metadata".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 50: theme beta\\\" and \\\"quote: \\\"snippet 79\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
+            "status: pass\ngrounded: true\nsufficient: true\nreason: Grounded summary coverage reaches 100 item(s), satisfying the requested 100 item scope.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 100".to_string(),
+            "Taken together, the covered windows move from a concentrated \\\"alpha\\\" run into a broader \\\"beta\\\" run, so the collection now shows both continuity and a visible topic shift across the requested scope.".to_string(),
+            "The first 100 posts split into two clear phases. The opening half repeatedly returns to \\\"alpha\\\" updates, with short quoted snippets like \\\"snippet 0\\\" and \\\"snippet 12\\\" reinforcing a steady, narrow focus.\n\nThe second half broadens into recurring \\\"beta\\\" updates, with lines like \\\"snippet 50\\\" and \\\"snippet 79\\\" marking a visible shift in emphasis across the requested scope.".to_string(),
+        ]);
+        let tools = BlueskyTools::new();
+        let collection = test_collection(100);
+
+        let outcomes = tools
+            .run_collection_summary_loop(
+                &collection,
+                "summarize the last 100 posts by alpha.test",
+                RequestedSummaryScope::Count {
+                    requested_items: 100,
+                },
+                &llm_client,
+                None,
+            )
+            .await;
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = outcomes.first().expect("aggregated outcome");
+        let execution = outcome.execution.as_ref().expect("successful execution");
+        let result = execution
+            .result
+            .as_ref()
+            .and_then(CollectionLeafResult::as_summary)
+            .expect("summary result");
+
+        assert_eq!(result.window_size, Some(100));
+        assert!(result.summary.contains("The first 100 posts split into two clear phases."));
+        assert!(result.summary.contains("\"beta\""));
+
+        let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
+        assert!(diagnostic.contains("covered_post_count: 100"));
+    }
+
+    #[tokio::test]
+    async fn run_collection_summary_loop_falls_back_when_review_output_is_missing() {
+        let llm_client = start_mock_llm_client(vec![
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The opening window contains only alpha posts:\"\n}".to_string(),
+            "this is not a parseable review verdict".to_string(),
+            "The requested scope is covered by one raw fallback window whose exact records remain focused on alpha posts throughout the page.".to_string(),
+            "Across the requested 50 posts, the collection stays tightly focused on recurring alpha updates. The final answer relies on a raw fallback window because the page review verdict was missing, but the preserved records still show a consistent single-theme run.".to_string(),
+        ]);
+        let tools = BlueskyTools::new();
+        let collection = test_collection(50);
+
+        let outcomes = tools
+            .run_collection_summary_loop(
+                &collection,
+                "summarize the last 50 posts by alpha.test",
+                RequestedSummaryScope::Count {
+                    requested_items: 50,
+                },
+                &llm_client,
+                None,
+            )
+            .await;
+
+        assert_eq!(outcomes.len(), 1);
+        let outcome = outcomes.first().expect("aggregated outcome");
+        let execution = outcome.execution.as_ref().expect("successful execution");
+        let result = execution
+            .result
+            .as_ref()
+            .and_then(CollectionLeafResult::as_summary)
+            .expect("summary result");
+
+        assert_eq!(result.window_size, Some(50));
+        assert!(result.summary.contains("raw fallback window"));
+
+        let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
+        assert!(diagnostic.contains("accepted 0 page summaries and 1 raw-window fallbacks"));
+
+        let verdict = execution.review_verdict.as_ref().expect("review verdict");
+        assert_eq!(verdict.status, CollectionReviewStatus::Pass);
+        assert!(verdict.grounded);
     }
 }
