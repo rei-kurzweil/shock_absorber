@@ -5,17 +5,11 @@
 - label: Root Agent
 - status: completed
 - parent_agent_id: <none>
-- child_agent_ids: 1, 2, 3
+- child_agent_ids: 1
 
 ## Result Summary
 
-The attempt to summarize the most recent 400 posts by the actor (schizanon.bsky.social / did:plc:6lwfvmss45d7j7fot34v2kw5) into 4 paragraphs has failed in the previous three tool calls.
-
-Since no successful tool result was provided, the answer must be based on the *intent* of the query and the *context* of the failed calls. The actor is **schizanon.bsky.social**.
-
-**Direct Answer:**
-
-The most recent 400 posts by schizanon.bsky.social could not be summarized into 4 paragraphs because the `summary` tool failed to return a result across three consecutive attempts. However, the query was specifically to summarize the coverage of this actor's recent activity.
+The last 300 posts by schizanon.bsky.social are anchored by a profile summary indicating the user was "Raised by a pack of feral barn cats." The primary focus areas are **Bitcoin** and **Generative AI**, suggesting the content stream is heavily saturated with discussions, updates, or commentary related to these two themes.
 
 ## Context Window Stats
 
@@ -23,15 +17,15 @@ The most recent 400 posts by schizanon.bsky.social could not be summarized into 
 - model: gemma-4-local
 - max_context_tokens: 32768
 - reserved_output_tokens: 1024
-- used_input_tokens: 833
+- used_input_tokens: 755
 - truncated: false
 
 ## Included Sections
 
 - Tools [tool_definitions]: used 635 / estimated 635
-- Search Hints [ui_context]: used 74 / estimated 74
-- Current UI Context [ui_context]: used 81 / estimated 81
-- Current Task [local_task]: used 22 / estimated 22
+- Search Hints [ui_context]: used 64 / estimated 64
+- Current UI Context [ui_context]: used 17 / estimated 17
+- Current Task [local_task]: used 18 / estimated 18
 
 ## Rendered Context Window
 
@@ -72,16 +66,11 @@ Notes:
 - Returns a grounded coverage summary with covered item URIs and source-exhaustion metadata when applicable.
 
 ## Search Hints
-The selected actor is did:plc:6lwfvmss45d7j7fot34v2kw5. Use `search` with a natural-language `query` when you need selective grounded evidence about this actor or related topics. Use `summary` when you need broad coverage such as summarizing the actor's recent posts or replies.
+Use `search` with a natural-language `query` when you need selective Bluesky-grounded evidence about a handle/user or broader topic questions. Use `summary` for coverage-oriented requests like summarizing the last 50 posts by an actor.
 
 ## Current UI Context
-reason: like
-author_handle: schizanon.bsky.social
-author_did: did:plc:6lwfvmss45d7j7fot34v2kw5
-uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.like/3mqag6sdibx2k
-indexed_at: 2026-07-09 19:57:42.917 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mqafdu4t3s2l
+No actor is currently selected in the UI.
 
 ## Current Task
-summarize the most recent 400 posts by this actor into 4 paragraphs
+summarize the last 300 posts by schizanon.bsky.social
 ```

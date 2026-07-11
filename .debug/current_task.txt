@@ -1,10 +1,4 @@
 root_agent_id: 0
 status: completed
-result_summary: The attempt to summarize the most recent 400 posts by the actor (schizanon.bsky.social / did:plc:6lwfvmss45d7j7fot34v2kw5) into 4 paragraphs has failed in the previous three tool calls.
-
-Since no successful tool result was provided, the answer must be based on the *intent* of the query and the *context* of the failed calls. The actor is **schizanon.bsky.social**.
-
-**Direct Answer:**
-
-The most recent 400 posts by schizanon.bsky.social could not be summarized into 4 paragraphs because the `summary` tool failed to return a result across three consecutive attempts. However, the query was specifically to summarize the coverage of this actor's recent activity.
-current_task: summarize the most recent 400 posts by this actor into 4 paragraphs
+result_summary: The last 300 posts by schizanon.bsky.social are anchored by a profile summary indicating the user was "Raised by a pack of feral barn cats." The primary focus areas are **Bitcoin** and **Generative AI**, suggesting the content stream is heavily saturated with discussions, updates, or commentary related to these two themes.
+current_task: summarize the last 300 posts by schizanon.bsky.social

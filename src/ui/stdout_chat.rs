@@ -13,6 +13,17 @@ use std::io::{Result as IoResult, Write};
 const FOOTER_HEIGHT: u16 = 5;
 const INPUT_ROWS: usize = 3;
 const MIN_TERMINAL_WIDTH: u16 = 20;
+const INPUT_BOX_LEFT_PADDING: usize = 4;
+const INPUT_BOX_FG: Color = Color::Rgb {
+    r: 16,
+    g: 16,
+    b: 16,
+};
+const INPUT_BOX_BG: Color = Color::Rgb {
+    r: 220,
+    g: 220,
+    b: 220,
+};
 
 pub struct StdoutChatRenderer {
     active_run_id: Option<u64>,
@@ -173,7 +184,7 @@ impl StdoutChatRenderer {
         if let Some(run) = run {
             let compacted_entries = compact_transcript_entries(run.transcript_entries());
             for entry in compacted_entries.iter().skip(self.rendered_entry_count) {
-                write_transcript_entry(writer, entry)?;
+                write_transcript_entry(writer, entry, layout.width as usize)?;
                 queue!(writer, Print("\r\n"))?;
             }
 
@@ -339,13 +350,13 @@ fn render_fallback_footer(app: &App, width: usize) -> FooterRenderView {
 }
 
 fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
-    let prompt_width = width.saturating_sub(4).max(1);
+    let prompt_width = input_box_content_width(width);
     let editor_lines = app.chat_editor().lines();
     let (cursor_line, cursor_column_in_line) = app.chat_editor().cursor_line_and_column();
 
     let mut wrapped_rows = Vec::new();
     let mut cursor_row_index = 0usize;
-    let mut cursor_column = 4u16;
+    let mut cursor_column = INPUT_BOX_LEFT_PADDING as u16;
 
     for (line_index, line) in editor_lines.iter().enumerate() {
         let wrapped = wrap_line(line, prompt_width);
@@ -353,14 +364,15 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
         for (segment_index, segment) in wrapped.iter().enumerate() {
             let segment_len = segment.chars().count();
             let row_index = wrapped_rows.len();
-            wrapped_rows.push(format!("    {segment}"));
+            wrapped_rows.push(format_input_box_row(segment));
 
             if line_index == cursor_line
                 && cursor_column_in_line >= consumed
                 && cursor_column_in_line <= consumed + segment_len
             {
                 cursor_row_index = row_index;
-                cursor_column = 4 + (cursor_column_in_line - consumed) as u16;
+                cursor_column = INPUT_BOX_LEFT_PADDING as u16
+                    + (cursor_column_in_line - consumed) as u16;
             }
 
             consumed += segment_len;
@@ -369,7 +381,7 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
                 && cursor_column_in_line == consumed
             {
                 cursor_row_index = row_index;
-                cursor_column = 4 + segment_len as u16;
+                cursor_column = INPUT_BOX_LEFT_PADDING as u16 + segment_len as u16;
             }
         }
     }
@@ -377,7 +389,7 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
     if wrapped_rows.is_empty() {
         wrapped_rows.push("  ⮚ ".to_string());
         cursor_row_index = 0;
-        cursor_column = 4;
+        cursor_column = INPUT_BOX_LEFT_PADDING as u16;
     }
 
     let visible_start = wrapped_rows.len().saturating_sub(INPUT_ROWS);
@@ -492,16 +504,10 @@ fn write_footer_view<W: Write>(
         match line.style {
             FooterLineStyle::Blank => {}
             FooterLineStyle::InputBox => {
-                queue!(
+                write_input_box_styled_line(
                     writer,
-                    SetForegroundColor(Color::Black),
-                    SetBackgroundColor(Color::Rgb {
-                        r: 220,
-                        g: 220,
-                        b: 220
-                    }),
-                    Print(pad_line_to_width(&line.text, footer_view.terminal_width as usize)),
-                    ResetColor
+                    &line.text,
+                    footer_view.terminal_width as usize,
                 )?;
             }
             FooterLineStyle::Plain => {
@@ -545,9 +551,54 @@ fn wrap_line(line: &str, width: usize) -> Vec<String> {
     wrapped
 }
 
-fn write_transcript_entry<W: Write>(writer: &mut W, entry: &TranscriptEntry) -> IoResult<()> {
+fn input_box_content_width(width: usize) -> usize {
+    width.saturating_sub(INPUT_BOX_LEFT_PADDING).max(1)
+}
+
+fn format_input_box_row(segment: &str) -> String {
+    format!("{}{}", " ".repeat(INPUT_BOX_LEFT_PADDING), segment)
+}
+
+fn render_user_input_echo_rows(content: &str, width: usize) -> Vec<String> {
+    let mut rows = Vec::new();
+    for line in content.lines() {
+        for segment in wrap_line(line, input_box_content_width(width)) {
+            rows.push(format_input_box_row(&segment));
+        }
+    }
+    if rows.is_empty() {
+        rows.push(format_input_box_row(""));
+    }
+    rows
+}
+
+fn write_input_box_styled_line<W: Write>(
+    writer: &mut W,
+    text: &str,
+    width: usize,
+) -> IoResult<()> {
+    queue!(
+        writer,
+        SetForegroundColor(INPUT_BOX_FG),
+        SetBackgroundColor(INPUT_BOX_BG),
+        Print(pad_line_to_width(text, width)),
+        ResetColor
+    )
+}
+
+fn write_transcript_entry<W: Write>(
+    writer: &mut W,
+    entry: &TranscriptEntry,
+    terminal_width: usize,
+) -> IoResult<()> {
     let indent = "    ".repeat(entry.depth);
     match entry.kind {
+        TranscriptEntryKind::UserInput => {
+            for line in render_user_input_echo_rows(&entry.content, terminal_width) {
+                write_input_box_styled_line(writer, &line, terminal_width)?;
+                queue!(writer, Print("\r\n"))?;
+            }
+        }
         TranscriptEntryKind::ToolCall => {
             if let Some(agent_label) = entry.agent_label.as_deref() {
                 queue!(writer, Print(format!("{indent}[agent] {agent_label}\r\n")))?;
@@ -652,7 +703,7 @@ impl Command for ResetScrollRegion {
 
 #[cfg(test)]
 mod tests {
-    use super::{INPUT_ROWS, TerminalLayout, wrap_line};
+    use super::{INPUT_ROWS, TerminalLayout, render_user_input_echo_rows, wrap_line};
 
     #[test]
     fn wrap_line_preserves_empty_line() {
@@ -683,5 +734,18 @@ mod tests {
     #[test]
     fn fixed_input_row_count_stays_at_three() {
         assert_eq!(INPUT_ROWS, 3);
+    }
+
+    #[test]
+    fn multiline_user_input_echo_preserves_line_breaks_and_padding() {
+        let rendered = render_user_input_echo_rows("alpha\nbeta gamma", 12);
+        assert_eq!(
+            rendered,
+            vec![
+                "    alpha".to_string(),
+                "    beta gam".to_string(),
+                "    ma".to_string(),
+            ]
+        );
     }
 }

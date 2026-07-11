@@ -88,13 +88,13 @@ pub(crate) fn render_input(frame: &mut Frame, area: Rect, input: &str) {
                 .style(
                     Style::default()
                         .bg(Color::Rgb(220, 220, 220))
-                        .fg(Color::Black),
+                        .fg(Color::Rgb(16, 16, 16)),
                 ),
         )
         .style(
             Style::default()
                 .bg(Color::Rgb(220, 220, 220))
-                .fg(Color::Black),
+                .fg(Color::Rgb(16, 16, 16)),
         )
         .wrap(Wrap { trim: false });
     frame.render_widget(input, area);

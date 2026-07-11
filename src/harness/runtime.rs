@@ -37,6 +37,7 @@ impl RootRunStatus {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TranscriptEntryKind {
+    UserInput,
     ToolCall,
     Notice,
     AgentEvent,
@@ -330,11 +331,18 @@ impl RootRunState {
                 if let Some(agent_label) = entry.agent_label.as_deref() {
                     lines.push(format!("{indent}[agent] {agent_label}"));
                 }
+                let body_indent = match entry.kind {
+                    TranscriptEntryKind::UserInput => format!("{indent}    "),
+                    _ => indent.clone(),
+                };
                 for line in entry.content.lines() {
                     if line.is_empty() {
-                        lines.push(String::new());
+                        lines.push(match entry.kind {
+                            TranscriptEntryKind::UserInput => body_indent.clone(),
+                            _ => String::new(),
+                        });
                     } else {
-                        lines.push(format!("{indent}{line}"));
+                        lines.push(format!("{body_indent}{line}"));
                     }
                 }
                 lines.push(String::new());
@@ -371,6 +379,15 @@ impl RootRunState {
             lines.push(Line::from(""));
             for entry in compact_transcript_entries(&self.transcript_entries) {
                 match entry.kind {
+                    TranscriptEntryKind::UserInput => {
+                        lines.extend(render_padded_panel_entry(
+                            None,
+                            entry.depth,
+                            &entry.content,
+                            user_input_panel_style(),
+                            4,
+                        ));
+                    }
                     TranscriptEntryKind::ToolCall => {
                         let agent_label = entry.agent_label.as_deref();
                         lines.extend(render_panel_entry(
@@ -395,7 +412,12 @@ impl RootRunState {
                         }
                     }
                 }
-                if matches!(entry.kind, TranscriptEntryKind::ToolCall) {
+                if matches!(entry.kind, TranscriptEntryKind::UserInput) {
+                    lines.push(Line::from(vec![Span::styled(
+                        String::new(),
+                        user_input_panel_style(),
+                    )]));
+                } else if matches!(entry.kind, TranscriptEntryKind::ToolCall) {
                     lines.push(Line::from(vec![Span::styled(
                         String::new(),
                         tool_panel_style(),
@@ -451,8 +473,20 @@ fn render_panel_entry(
     content: &str,
     style: Style,
 ) -> Vec<Line<'static>> {
+    render_padded_panel_entry(agent_label, depth, content, style, 0)
+}
+
+fn render_padded_panel_entry(
+    agent_label: Option<&str>,
+    depth: usize,
+    content: &str,
+    style: Style,
+    leading_padding: usize,
+) -> Vec<Line<'static>> {
     let indent = "    ".repeat(depth);
-    let inner_indent = format!("{indent}    ");
+    let padding = " ".repeat(leading_padding);
+    let inner_indent = format!("{indent}    {padding}");
+    let body_indent = format!("{indent}{padding}");
     let mut lines = Vec::new();
     if let Some(agent_label) = agent_label {
         lines.push(Line::from(vec![Span::styled(
@@ -465,13 +499,13 @@ fn render_panel_entry(
             if agent_label.is_some() {
                 inner_indent.clone()
             } else {
-                indent.clone()
+                body_indent.clone()
             }
         } else {
             let line_indent = if agent_label.is_some() {
                 inner_indent.as_str()
             } else {
-                indent.as_str()
+                body_indent.as_str()
             };
             format!("{line_indent}{line}")
         };
@@ -482,6 +516,12 @@ fn render_panel_entry(
 
 fn tool_panel_style() -> Style {
     Style::default().bg(TOOL_PANEL_BG).fg(TOOL_PANEL_FG)
+}
+
+fn user_input_panel_style() -> Style {
+    Style::default()
+        .bg(Color::Rgb(220, 220, 220))
+        .fg(Color::Rgb(16, 16, 16))
 }
 
 fn agent_panel_style() -> Style {
@@ -584,5 +624,28 @@ mod tests {
 
         let compacted = compact_transcript_entries(&entries);
         assert_eq!(compacted.len(), 3);
+    }
+
+    #[test]
+    fn does_not_compact_consecutive_user_input_entries() {
+        let entries = vec![
+            TranscriptEntry {
+                kind: TranscriptEntryKind::UserInput,
+                content: "first prompt".to_string(),
+                agent_label: None,
+                depth: 0,
+            },
+            TranscriptEntry {
+                kind: TranscriptEntryKind::UserInput,
+                content: "second prompt".to_string(),
+                agent_label: None,
+                depth: 0,
+            },
+        ];
+
+        let compacted = compact_transcript_entries(&entries);
+        assert_eq!(compacted.len(), 2);
+        assert_eq!(compacted[0].content, "first prompt");
+        assert_eq!(compacted[1].content, "second prompt");
     }
 }

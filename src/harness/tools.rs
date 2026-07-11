@@ -32,6 +32,14 @@ fn append_summary_trace(entry: impl AsRef<str>) {
     let _ = append_debug_trace(&debug_base_dir, "summary_trace.md", entry.as_ref());
 }
 
+fn summary_result_presence(result: Option<&CollectionLeafResult>) -> &'static str {
+    match result {
+        Some(CollectionLeafResult::Summary(_)) => "summary",
+        Some(CollectionLeafResult::Search(_)) => "search",
+        None => "none",
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolArgumentSpec {
     pub name: String,
@@ -691,6 +699,16 @@ impl<'a> LlmSearchComparator<'a> {
             self.tool_kind,
             collection_window_offset(collection),
         );
+        if self.tool_kind == CollectionLeafToolKind::Summary {
+            append_summary_trace(format!(
+                "[summary_leaf_parse]\ncollection_id: {}\nwindow_offset: {}\nresult_present: {}\noriginal_result_kind: {}\ndiagnostic: {}",
+                collection.id,
+                collection_window_offset(collection).unwrap_or(0),
+                parsed.result.is_some(),
+                summary_result_presence(parsed.result.as_ref()),
+                parsed.diagnostic.as_deref().unwrap_or("<none>")
+            ));
+        }
         Ok(LlmSearchExecution {
             result: parsed.result.clone(),
             original_result: parsed.result,
@@ -2328,6 +2346,22 @@ impl BlueskyTools {
             verdict = heuristic.clone();
         }
 
+        if tool_kind == CollectionLeafToolKind::Summary {
+            append_summary_trace(format!(
+                "[summary_leaf_review]\ncollection_id: {}\nwindow_offset: {}\nreview_status: {}\nreview_grounded: {}\nreview_sufficient: {}\nreview_repair_needed: {}\nreview_additional_pages_needed: {}\nreview_reason: {}\nresult_before_review: {}\noriginal_result_before_review: {}",
+                collection.id,
+                collection_window_offset(collection).unwrap_or(0),
+                verdict.status.as_str(),
+                verdict.grounded,
+                verdict.sufficient,
+                verdict.repair_needed,
+                verdict.additional_pages_needed,
+                verdict.reason,
+                summary_result_presence(execution.result.as_ref()),
+                summary_result_presence(execution.original_result.as_ref()),
+            ));
+        }
+
         execution.review_context_window = Some(review_window);
 
         if verdict.status == CollectionReviewStatus::Fail && verdict.repair_needed {
@@ -2339,6 +2373,13 @@ impl BlueskyTools {
             if tool_kind.is_coverage_oriented() {
                 execution.review_verdict = Some(verdict.clone());
                 execution.result = None;
+                append_summary_trace(format!(
+                    "[summary_leaf_review]\ncollection_id: {}\nwindow_offset: {}\naction: dropped_result_for_failed_coverage_review\nresult_after_drop: {}\noriginal_result_after_drop: {}",
+                    collection.id,
+                    collection_window_offset(collection).unwrap_or(0),
+                    summary_result_presence(execution.result.as_ref()),
+                    summary_result_presence(execution.original_result.as_ref()),
+                ));
             } else {
                 let repair_summary =
                     repair_collection_summary(collection, &execution, prompt, &verdict);
@@ -5713,13 +5754,24 @@ pub(crate) fn apply_summary_sufficiency_gates(
     prior_outcomes: &[CollectionToolOutcome],
     execution: &mut LlmSearchExecution,
 ) {
-    let original_summary_result = execution
-        .result
-        .as_ref()
-        .or(execution.original_result.as_ref())
-        .and_then(CollectionLeafResult::as_summary)
-        .cloned();
+        let original_summary_result = execution
+            .result
+            .as_ref()
+            .or(execution.original_result.as_ref())
+            .and_then(CollectionLeafResult::as_summary)
+            .cloned();
     let Some(result) = original_summary_result.as_ref() else {
+        append_summary_trace(format!(
+            "[summary_sufficiency_gate]\ncollection_id: {}\nstatus: skipped\nreason: missing_summary_result\nresult_present: {}\noriginal_result_present: {}\nreview_status: {}",
+            collection_id,
+            execution.result.is_some(),
+            execution.original_result.is_some(),
+            execution
+                .review_verdict
+                .as_ref()
+                .map(|verdict| verdict.status.as_str())
+                .unwrap_or("<none>")
+        ));
         return;
     };
     let current_start = result.processed_window_offset().unwrap_or(0);
@@ -5766,31 +5818,64 @@ pub(crate) fn apply_summary_sufficiency_gates(
                 .unwrap_or(contiguous_coverage)
         };
     let reviewed = summary_scope_verdict(requested_summary_scope, &ranges, current_available_total);
-
-    let status = if execution
+    let result_present_before_restore = execution.result.is_some();
+    let original_result_present_before_restore = execution.original_result.is_some();
+    let review_grounded = execution
         .review_verdict
         .as_ref()
         .map(|v| v.grounded)
-        .unwrap_or(false)
-        && reviewed.sufficient
-    {
+        .unwrap_or(false);
+
+    let status = if review_grounded && reviewed.sufficient {
         CollectionReviewStatus::Pass
     } else {
         CollectionReviewStatus::Fail
     };
     if let Some(verdict) = execution.review_verdict.as_mut() {
         verdict.status = status.clone();
-        verdict.sufficient = reviewed.sufficient;
-        verdict.additional_pages_needed = reviewed.additional_pages_needed;
-        verdict.next_page = reviewed.next_page;
-        verdict.next_offset = reviewed.next_offset;
-        verdict.required_total_items = reviewed.required_total_items;
-        verdict.reason = reviewed.reason;
+        if review_grounded {
+            verdict.sufficient = reviewed.sufficient;
+            verdict.additional_pages_needed = reviewed.additional_pages_needed;
+            verdict.next_page = reviewed.next_page;
+            verdict.next_offset = reviewed.next_offset;
+            verdict.required_total_items = reviewed.required_total_items;
+            verdict.reason = reviewed.reason;
+        }
     }
 
     if matches!(status, CollectionReviewStatus::Pass) && execution.result.is_none() {
         execution.result = original_summary_result.map(CollectionLeafResult::Summary);
     }
+
+    append_summary_trace(format!(
+        "[summary_sufficiency_gate]\ncollection_id: {}\nwindow_offset: {}\ncontiguous_coverage: {}\navailable_total_items: {}\nstatus_after_gate: {}\nreview_grounded: {}\nreview_sufficient: {}\nreview_additional_pages_needed: {}\nreview_next_offset: {}\nresult_before_restore: {}\noriginal_result_before_restore: {}\nresult_after_gate: {}\noriginal_result_after_gate: {}",
+        collection_id,
+        current_start,
+        contiguous_coverage,
+        current_available_total,
+        status.as_str(),
+        review_grounded,
+        execution
+            .review_verdict
+            .as_ref()
+            .map(|verdict| verdict.sufficient)
+            .unwrap_or(false),
+        execution
+            .review_verdict
+            .as_ref()
+            .map(|verdict| verdict.additional_pages_needed)
+            .unwrap_or(false),
+        execution
+            .review_verdict
+            .as_ref()
+            .and_then(|verdict| verdict.next_offset)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "<none>".to_string()),
+        result_present_before_restore,
+        original_result_present_before_restore,
+        execution.result.is_some(),
+        execution.original_result.is_some(),
+    ));
 }
 
 fn render_llm_result_compact(result: Option<&CollectionLeafResult>) -> String {
@@ -8436,6 +8521,66 @@ mod tests {
         assert_eq!(verdict.next_offset, None);
         assert_eq!(verdict.required_total_items, Some(7));
         assert!(verdict.reason.contains("all 7 available item(s)"));
+    }
+
+    #[test]
+    fn apply_summary_sufficiency_gates_preserves_ungrounded_failure_reason() {
+        let original_reason =
+            "The summary omits meaningful text that was available in the matched records.";
+        let mut execution = LlmSearchExecution {
+            result: None,
+            original_result: Some(summary_leaf_result(LlmSummaryResult {
+                title: "page 0".to_string(),
+                summary: "generic paraphrase without grounded snippets".to_string(),
+                covered_item_uris: (0..50).map(|index| format!("at://{index}")).collect(),
+                omitted_item_uris: Vec::new(),
+                concatenated_window_summaries: None,
+                window_offset: Some(0),
+                window_size: Some(50),
+                page_index: Some(0),
+                page_size: Some(50),
+                collection_total_items: Some(400),
+                has_more: Some(true),
+                source_exhausted: None,
+                window_start: Some(0),
+                window_total_items: Some(50),
+            })),
+            context_window: empty_test_window(),
+            diagnostic: None,
+            raw_response: None,
+            review_verdict: Some(super::CollectionReviewVerdict {
+                status: CollectionReviewStatus::Fail,
+                grounded: false,
+                sufficient: false,
+                reason: original_reason.to_string(),
+                repair_needed: false,
+                repair_instructions: None,
+                additional_pages_needed: false,
+                next_page: None,
+                next_offset: None,
+                required_total_items: None,
+            }),
+            review_context_window: None,
+            repair_diagnostic: None,
+        };
+
+        super::apply_summary_sufficiency_gates(
+            RequestedSummaryScope::Count {
+                requested_items: 400,
+            },
+            "recent:test",
+            &[],
+            &mut execution,
+        );
+
+        let verdict = execution.review_verdict.expect("verdict");
+        assert_eq!(verdict.status, CollectionReviewStatus::Fail);
+        assert!(!verdict.grounded);
+        assert!(!verdict.sufficient);
+        assert_eq!(verdict.reason, original_reason);
+        assert!(!verdict.additional_pages_needed);
+        assert!(execution.result.is_none());
+        assert!(execution.original_result.is_some());
     }
 
     #[test]

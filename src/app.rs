@@ -948,53 +948,13 @@ impl App {
         let selected_notification = self.opened_notification().cloned();
         let store = self.store.clone();
 
-        let root_context_window = {
-            let tools = BlueskyTools::new();
-            build_tool_aware_query_context_window(
-                selected_actor_did.as_ref(),
-                selected_actor_summary,
-                &tools,
-                &root_conversation,
-                &query,
-                &evil_gemma.client,
-            )
-        };
-        let initial_context = root_context_window.rendered.clone();
-        let messages = vec![
-            ContextMessage {
-                kind: ContextMessageKind::InitialSystem,
-                message: ChatMessage {
-                    role: "system".to_string(),
-                    content: format!(
-                        "{}\n\n{}",
-                        evil_gemma.system_prompt.trim(),
-                        prompt_tool_protocol_instructions()
-                    ),
-                },
-            },
-            ContextMessage {
-                kind: ContextMessageKind::InitialUserContext,
-                message: ChatMessage {
-                    role: "user".to_string(),
-                    content: initial_context,
-                },
-            },
-        ];
-        let mut agent_graph = AgentGraph::new_root("Root Agent");
-        agent_graph.set_context_window(agent_graph.root_agent_id(), root_context_window.clone());
-        agent_graph.set_result_summary(agent_graph.root_agent_id(), query.clone());
-        let mut root_run =
-            RootRunState::new(query.clone(), root_context_window, messages, agent_graph);
-        let initial_visualization = build_live_context_visualization(
-            "/context",
-            root_run.messages(),
-            evil_gemma.system_prompt.trim(),
-            prompt_tool_protocol_instructions(),
-            root_run.root_context_window(),
-            root_run.agent_graph(),
-            &evil_gemma.client.context_limits(),
+        let root_run = self.build_root_run_state(
+            evil_gemma.as_ref(),
+            query.as_str(),
+            selected_actor_did.as_ref(),
+            selected_actor_summary,
+            &root_conversation,
         );
-        root_run.set_context_visualization(initial_visualization);
         self.root_run = Some(root_run.clone());
         self.chat_title = Some(format!("evil_gemma: {query}"));
         if keep_context_overlay {
@@ -1029,6 +989,71 @@ impl App {
             handle,
         });
         Ok(())
+    }
+
+    fn build_root_run_state(
+        &self,
+        evil_gemma: &EvilGemmaConfig,
+        query: &str,
+        selected_actor_did: Option<&bsky_sdk::api::types::string::Did>,
+        selected_actor_summary: Option<String>,
+        root_conversation: &[ConversationTurn],
+    ) -> RootRunState {
+        let root_context_window = {
+            let tools = BlueskyTools::new();
+            build_tool_aware_query_context_window(
+                selected_actor_did,
+                selected_actor_summary,
+                &tools,
+                root_conversation,
+                query,
+                &evil_gemma.client,
+            )
+        };
+        let initial_context = root_context_window.rendered.clone();
+        let messages = vec![
+            ContextMessage {
+                kind: ContextMessageKind::InitialSystem,
+                message: ChatMessage {
+                    role: "system".to_string(),
+                    content: format!(
+                        "{}\n\n{}",
+                        evil_gemma.system_prompt.trim(),
+                        prompt_tool_protocol_instructions()
+                    ),
+                },
+            },
+            ContextMessage {
+                kind: ContextMessageKind::InitialUserContext,
+                message: ChatMessage {
+                    role: "user".to_string(),
+                    content: initial_context,
+                },
+            },
+        ];
+        let mut agent_graph = AgentGraph::new_root("Root Agent");
+        agent_graph.set_context_window(agent_graph.root_agent_id(), root_context_window.clone());
+        agent_graph.set_result_summary(agent_graph.root_agent_id(), query.to_string());
+        let mut root_run = RootRunState::new(
+            query.to_string(),
+            root_context_window,
+            messages,
+            agent_graph,
+        );
+        if should_echo_stdout_chat_submission(query) {
+            root_run.push_transcript_entry(TranscriptEntryKind::UserInput, query.to_string());
+        }
+        let initial_visualization = build_live_context_visualization(
+            "/context",
+            root_run.messages(),
+            evil_gemma.system_prompt.trim(),
+            prompt_tool_protocol_instructions(),
+            root_run.root_context_window(),
+            root_run.agent_graph(),
+            &evil_gemma.client.context_limits(),
+        );
+        root_run.set_context_visualization(initial_visualization);
+        root_run
     }
 
     fn stop_active_root_run(&mut self) {
@@ -1636,6 +1661,11 @@ fn is_local_command(verb: &str) -> bool {
     )
 }
 
+fn should_echo_stdout_chat_submission(command: &str) -> bool {
+    let trimmed = command.trim_start();
+    !trimmed.is_empty() && !trimmed.starts_with('/')
+}
+
 fn resolve_system_prompt_path(path: String) -> PathBuf {
     let candidate = PathBuf::from(&path);
     if candidate.is_absolute() {
@@ -1755,7 +1785,18 @@ fn draw_ui(frame: &mut Frame, app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::llm_api::OpenAiRestConfig;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_evil_gemma_config() -> EvilGemmaConfig {
+        EvilGemmaConfig {
+            client: LlmApiClient::new(OpenAiRestConfig::llama_cpp(
+                "http://example.test",
+                "test-model",
+            )),
+            system_prompt: "system prompt".to_string(),
+        }
+    }
 
     #[test]
     fn tab_toggle_restores_last_non_chat_detail() {
@@ -1804,5 +1845,36 @@ mod tests {
 
         assert_eq!(loaded.evil_gemma_model.as_deref(), Some("test-model"));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn non_command_prompt_adds_one_user_input_transcript_entry() {
+        let app = App::new("tester".to_string());
+        let evil_gemma = test_evil_gemma_config();
+
+        let mut root_run =
+            app.build_root_run_state(&evil_gemma, "tell me about this thread", None, None, &[]);
+        root_run.push_transcript_entry(TranscriptEntryKind::ToolCall, "tool output");
+        root_run.set_final_response("final answer");
+
+        let entries = root_run.transcript_entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].kind, TranscriptEntryKind::UserInput);
+        assert_eq!(entries[0].content, "tell me about this thread");
+        assert_eq!(entries[1].kind, TranscriptEntryKind::ToolCall);
+    }
+
+    #[test]
+    fn slash_commands_do_not_add_user_input_transcript_entry() {
+        let app = App::new("tester".to_string());
+        let evil_gemma = test_evil_gemma_config();
+
+        for command in ["/stop", "/clear", "/unknown"] {
+            let root_run = app.build_root_run_state(&evil_gemma, command, None, None, &[]);
+            assert!(
+                root_run.transcript_entries().is_empty(),
+                "expected no echoed transcript entry for {command}"
+            );
+        }
     }
 }

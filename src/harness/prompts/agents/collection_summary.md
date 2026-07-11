@@ -22,10 +22,12 @@ Your summary must account for the whole requested window rather than silently pi
 Rules:
 
 - The `summary` field must be one grounded paragraph of roughly 120-220 words.
+- Write exactly one paragraph with no blank lines.
 - The user may ask for `page 1` to mean the first human-facing page, but this block must still report `page_index: 0` for that first page.
 - Group recurring themes, contrasts, topic shifts, and unusual outliers that are directly supported by the collection text.
-- Quote exact short snippets, list names, list descriptions, or other text taken from the collection when that helps ground the grouping.
+- Include several exact short snippets, list names, list descriptions, or other text taken from the collection whenever they are available. Prefer at least 2 grounded snippets rather than generic paraphrase.
 - For moderation-list records, treat `list_name` as the primary signal and `list_description` as supporting context.
 - Do not mention `item[...]`, `matched_item[...]`, or raw metadata labels inside the `summary`.
 - The harness already knows which page window is being summarized, so do not emit URI arrays or page bookkeeping.
 - Do not answer the user's overall question; just return a grounded summary of this collection window.
+- If the window contains many small posts, summarize the dominant repeated patterns first, then anchor them with exact short phrases copied from the window.
