@@ -1,8 +1,8 @@
 [execute_public_summary]
 status: start
-query: summarize the most recent 300 posts by schizanon.bsky.social
+query: summarize this actor's most recent 300 posts
 actor_anchor_did: did:plc:6lwfvmss45d7j7fot34v2kw5
-actor_anchor_source: explicit_query_ref
+actor_anchor_source: selected_actor_fallback
 
 [execute_public_summary]
 status: actor_resolved
@@ -42,7 +42,7 @@ post_count: 400
 requested_scope: Count { requested_items: 300 }
 
 [summary_collection_selection_review]
-query: summarize the most recent 300 posts by schizanon.bsky.social
+query: summarize this actor's most recent 300 posts
 requested_scope: Count { requested_items: 300 }
 requested_target: recent_posts
 hydrated_candidate_collections:
@@ -62,14 +62,14 @@ deterministic_repair_applied: false
 reason: selected collection kind `recent_posts` matches explicit request target `recent_posts`
 
 [summary_collection_selection_llm_review]
-query: summarize the most recent 300 posts by schizanon.bsky.social
+query: summarize this actor's most recent 300 posts
 requested_scope: Count { requested_items: 300 }
 proposed_collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 proposed_collection_kind: recent_posts
 review_status: accepted
 final_collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 final_collection_kind: recent_posts
-reason: The proposed collection 'recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5' has 400 items, which is sufficient to cover the requested 300 items. The collection kind matches the request ('recent_posts').
+reason: The proposed collection 'recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5' has 400 items, which satisfies the requested scope of 300 items.
 
 [summary_collection_selection_llm_enforcement]
 review_status: accepted
@@ -106,8 +106,8 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "Recent Posts by schizanon.bsky.social: Crypto, AI, and Philosophy",
-  "summary": "The recent posts from schizanon.bsky.social cover a wide array of topics, heavily focusing on cryptocurrency, artificial intelligence, and philosophical musings on personhood and digital interaction. In the crypto sphere, there is discussion around the inherent value of crypto, noting that \"The ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee is the value,\" which also explains its volatility. Several posts touch on AI advancements, including critiques of current models, the efficiency gains seen in systems like Perplexity fine-tuning GLM 5.2, and the debate over local versus cloud models. Schizanon also ponders the nature of personhood, suggesting it should be \"proportional to the amount of space and resources that requires,\" contrasting human needs with AI efficiency. Other recurring themes include the relationship between technology and societal norms, such as the shift in piracy ethics due to convenience, and the importance of clear communication, exemplified by the preference for a \"bottom line up front\" system prompt. The author also shares observations on the tech landscape, mentioning the need for better VR experiences and the concept that \"tHe CoDe Is SeLf DoCuMeNtInG.\""
+  "title": "Recent Tech, Crypto, and AI Discourse",
+  "summary": "The recent posts showcase a heavy focus on advancements and critiques within the technology and cryptocurrency sectors, with frequent commentary from schizanon.bsky.social. In crypto, there is discussion around Bitcoin's resilience, noting that \"Bitcoin crosses borders easier than people do,\" and the value proposition of instant, borderless money, which can \"liquidate quicker than any other value store.\" AI is a dominant theme, covering performance benchmarks like Intel’s Arc Pro B70 beating NVIDIA’s RTX 5090D in DeepSeek R1, and efficiency gains, such as Perplexity fine-tuning GLM 5.2 to match Claude Opus 4.8 at \"roughly one-third the cost.\" Users are debating LLM capabilities, with some noting that local models \"guess time slightly better,\" while others observe that talking about LLMs now is like \"talking about the weather a few months ago.\" Beyond AI, there are discussions on software tools, including the release of atuin 18.17, which is \"78x faster to open and search,\" and the architectural shifts at Coinbase, which \"slashed its AI bill in half.\" Recurring philosophical points include the nature of personhood, where schizanon suggests it should be proportional to resource needs, and the tension between convenience and ethics, exemplified by the loss of pirate ethics due to services like Spotify and Netflix."
 }
 
 [summary_leaf_review]
@@ -122,7 +122,7 @@ review_reason: Grounded summary coverage currently reaches 50 item(s), but 300 i
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts from schizanon.bsky.social cover a wide array of topics, heavily focusing on cryptocurrency, artificial intelligence, and philosophical musings on personhood and digital interaction. In the crypto sphere, there is discussion around the inherent value of crypto, noting that "The ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee is the value," which also explains its volatility. Several posts touch on AI advancements, including critiques of current models, the efficiency gains seen in systems like Perplexity fine-tuning GLM 5.2, and the debate over local versus cloud models. Schizanon also ponders the nature of personhood, suggesting it should be "proportional to the amount of space and resources that requires," contrasting human needs with AI efficiency. Other recurring themes include the relationship between technology and societal norms, such as the shift in piracy ethics due to convenience, and the importance of clear communication, exemplified by the preference for a "bottom line up front" system prompt. The author also shares observations on the tech landscape, mentioning the need for better VR experiences and the concept that "tHe CoDe Is SeLf DoCuMeNtInG."
+The recent posts showcase a heavy focus on advancements and critiques within the technology and cryptocurrency sectors, with frequent commentary from schizanon.bsky.social. In crypto, there is discussion around Bitcoin's resilience, noting that "Bitcoin crosses borders easier than people do," and the value proposition of instant, borderless money, which can "liquidate quicker than any other value store." AI is a dominant theme, covering performance benchmarks like Intel’s Arc Pro B70 beating NVIDIA’s RTX 5090D in DeepSeek R1, and efficiency gains, such as Perplexity fine-tuning GLM 5.2 to match Claude Opus 4.8 at "roughly one-third the cost." Users are debating LLM capabilities, with some noting that local models "guess time slightly better," while others observe that talking about LLMs now is like "talking about the weather a few months ago." Beyond AI, there are discussions on software tools, including the release of atuin 18.17, which is "78x faster to open and search," and the architectural shifts at Coinbase, which "slashed its AI bill in half." Recurring philosophical points include the nature of personhood, where schizanon suggests it should be proportional to resource needs, and the tension between convenience and ethics, exemplified by the loss of pirate ethics due to services like Spotify and Netflix.
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -152,7 +152,7 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize the most recent 300 posts by schizanon.bsky.social
+summarize this actor's most recent 300 posts
 
 ## Harness Scope Assessment
 requested_scope: count 300
@@ -368,8 +368,8 @@ matched_item[49] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3
 body: I miss Google Cardboard Camera 😭
 
 ## Proposed Summary
-post: Recent Posts by schizanon.bsky.social: Crypto, AI, and Philosophy
-summary: The recent posts from schizanon.bsky.social cover a wide array of topics, heavily focusing on cryptocurrency, artificial intelligence, and philosophical musings on personhood and digital interaction. In the crypto sphere, there is discussion around the inherent value of crypto, noting that "The ability to send unlimited amounts of money to anyone anywhere nearly instantly for a comparatively small fee is the value," which also explains its volatility. Several posts touch on AI advancements, including critiques of current models, the efficiency gains seen in systems like Perplexity fine-tuning GLM 5.2, and the debate over local versus cloud models. Schizanon also ponders the nature of personhood, suggesting it should be "proportional to the amount of space and resources that requires," contrasting human needs with AI efficiency. Other recurring themes include the relationship between technology and societal norms, such as the shift in piracy ethics due to convenience, and the importance of clear communication, exemplified by the preference for a "bottom line up front" system prompt. The author also shares observations on the tech landscape, mentioning the need for better VR experiences and the concept that "tHe CoDe Is SeLf DoCuMeNtInG."
+post: Recent Tech, Crypto, and AI Discourse
+summary: The recent posts showcase a heavy focus on advancements and critiques within the technology and cryptocurrency sectors, with frequent commentary from schizanon.bsky.social. In crypto, there is discussion around Bitcoin's resilience, noting that "Bitcoin crosses borders easier than people do," and the value proposition of instant, borderless money, which can "liquidate quicker than any other value store." AI is a dominant theme, covering performance benchmarks like Intel’s Arc Pro B70 beating NVIDIA’s RTX 5090D in DeepSeek R1, and efficiency gains, such as Perplexity fine-tuning GLM 5.2 to match Claude Opus 4.8 at "roughly one-third the cost." Users are debating LLM capabilities, with some noting that local models "guess time slightly better," while others observe that talking about LLMs now is like "talking about the weather a few months ago." Beyond AI, there are discussions on software tools, including the release of atuin 18.17, which is "78x faster to open and search," and the architectural shifts at Coinbase, which "slashed its AI bill in half." Recurring philosophical points include the nature of personhood, where schizanon suggests it should be proportional to resource needs, and the tension between convenience and ethics, exemplified by the loss of pirate ethics due to services like Spotify and Netflix.
 window_offset: 0
 window_size: 50
 page_index: 0
@@ -481,23 +481,23 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "Recent Posts by schizanon.bsky.social",
-  "summary": "The recent posts from schizanon.bsky.social cover a wide array of topics, heavily featuring commentary on AI, software development, and general life observations. A significant thread revolves around AI tools, noting that Fitbit integrated Gemini for exercise tracking, though the user has become "noseblind to the notifications," and discussing the challenges of maintaining habits. There is also technical discussion on LLMs, including issues with OpenCode failing to use local LM Studio models, and a critique of Gemma's capabilities, stating it "can't edit files in VSCode Copilot." Beyond AI, the author critiques professional archetypes, labeling a colleague as a "10x-dev-cum-shit-manager" and expressing skepticism about the "ego-driven-opensource-lead" Andrew Kelley. Other recurring themes include software architecture, such as the debate over whether functions are a "hobgoblin of junior devs," and the concept of corporate liability, where the author suggests "crimes against corporations aren't crimes." Finally, the feed touches on cultural commentary, mentioning the viral AI gender swap, the need for a better "For You Feed," and a personal note about being annoyed when people ask "how things work or why he built them that way." "No doubt in my mind" seems to be a frequent sentiment expressed across these diverse updates."
+  "title": "Recent Posts: AI, Tech Habits, and Social Commentary",
+  "summary": "This collection of recent posts heavily features commentary on Artificial Intelligence, software development practices, and personal habits. A significant thread revolves around AI tools, noting that Fitbit integrated Gemini for exercise tracking, though the author has become "noseblind to the notifications," prompting a question on habit maintenance. Discussions also cover the state of AI models, with mentions of Grok 4.5 being close to the top in AAII, and the increasing reliance on Chinese open-weight models, as "US companies now route more than 30% of their AI tokens through Chinese open-weight models." On the development side, the author critiques software design, arguing that "Functions as an organizational tool are a hobgoblin of junior devs and tutorial authors," while also detailing struggles with local LLMs, such as OpenCode failing to use LM Studio models. Beyond tech, there is social commentary, including critiques of personality types like the "10x-dev-cum-shit-manager" and the perceived arrogance of figures like Andrew Kelley. Other topics include the utility of tools like brag-doc for self-promotion, the philosophical idea that "crimes against corporations aren't crimes," and general observations like "In my mind, all guys with a beard in a baseball cap are the same guy." "I want to read the AI books that fooled the anti-ai book anthology" is another specific request, rounding out a diverse snapshot of recent activity."
 }
 
 [summary_leaf_review]
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 window_offset: 50
 review_status: fail
-review_grounded: true
+review_grounded: false
 review_sufficient: false
 review_repair_needed: false
-review_additional_pages_needed: true
-review_reason: Grounded summary coverage currently reaches 0 item(s), but 300 item(s) are required before parent synthesis is sufficient.
+review_additional_pages_needed: false
+review_reason: The summary omits meaningful text that was available in the matched records.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts from schizanon.bsky.social cover a wide array of topics, heavily featuring commentary on AI, software development, and general life observations. A significant thread revolves around AI tools, noting that Fitbit integrated Gemini for exercise tracking, though the user has become
+This collection of recent posts heavily features commentary on Artificial Intelligence, software development practices, and personal habits. A significant thread revolves around AI tools, noting that Fitbit integrated Gemini for exercise tracking, though the author has become
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -527,7 +527,7 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize the most recent 300 posts by schizanon.bsky.social
+summarize this actor's most recent 300 posts
 
 ## Harness Scope Assessment
 requested_scope: count 300
@@ -747,8 +747,8 @@ matched_item[49] uri: at://did:plc:3rsp6qdpy2d5mttvxutebvgw/app.bsky.feed.post/3
 body: Me running Qwen 3.6 35B
 
 ## Proposed Summary
-post: Recent Posts by schizanon.bsky.social
-summary: The recent posts from schizanon.bsky.social cover a wide array of topics, heavily featuring commentary on AI, software development, and general life observations. A significant thread revolves around AI tools, noting that Fitbit integrated Gemini for exercise tracking, though the user has become 
+post: Recent Posts: AI, Tech Habits, and Social Commentary
+summary: This collection of recent posts heavily features commentary on Artificial Intelligence, software development practices, and personal habits. A significant thread revolves around AI tools, noting that Fitbit integrated Gemini for exercise tracking, though the author has become 
 window_offset: 50
 window_size: 50
 page_index: 1
@@ -812,7 +812,7 @@ window_offset: 50
 contiguous_coverage: 100
 available_total_items: 400
 status_after_gate: fail
-review_grounded: true
+review_grounded: false
 review_sufficient: false
 review_additional_pages_needed: true
 review_next_offset: 100
@@ -826,21 +826,28 @@ node: summarize_page
 status: page_outcome
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 offset: 50
-result_present: false
-review_status: fail
-review_reason: Grounded summary coverage currently reaches 100 item(s), but 300 item(s) are required before parent synthesis is sufficient.
-diagnostic: summary cursor processed offset 50 (page 2 of at most 6)
+result_present: true
+review_status: pass
+review_reason: Raw-window fallback preserved grounded evidence for page 2 after summary failure: Grounded summary coverage currently reaches 100 item(s), but 300 item(s) are required before parent synthesis is sufficient.
+diagnostic: summary cursor processed offset 50 (page 2 of at most 6); raw-window fallback preserved offset 50
 
 [collection_summary_loop_page_state]
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 page_offset: 50
 page_index: 1
-page_status: accepted_summary
+page_status: raw_window_fallback
 repair_attempted: false
-fallback_applied: false
+fallback_applied: true
 next_offset: 100
 accumulated_covered_count: 100
-failure_reason: <none>
+failure_reason: Grounded summary coverage currently reaches 100 item(s), but 300 item(s) are required before parent synthesis is sufficient.
+
+[summary_leaf_raw_window_fallback]
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+page_offset: 50
+page_index: 1
+window_size: 50
+failure_reason: Grounded summary coverage currently reaches 100 item(s), but 300 item(s) are required before parent synthesis is sufficient.
 
 [collection_summary_loop]
 node: summarize_page
@@ -860,23 +867,23 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "AI, LLMs, and Tech Frustrations",
-  "summary": "The recent posts by schizanon.bsky.social heavily focus on the state and capabilities of Artificial Intelligence, particularly Large Language Models (LLMs), alongside general tech commentary. A recurring theme is the friction points in using AI tools; for instance, OpenCode's support for local models is criticized for requiring users to "copy paste the names of all your models" instead of using the `/api/v1/models` endpoint. The author praises open-source LLMs, noting that "qwen3.5:9b throughout building Wayflow, and it was very reliable," and expresses a preference for Gemma, stating, "I think I *prefer* the way Gemma works to Claude; it thinks out loud more." Specific technical frustrations include the difficulty of getting LM Studio to unload previously loaded models when using VSCode Copilot, and the desire for a built-in feature to run prompts across multiple models simultaneously. Beyond LLMs, the posts touch on broader tech issues, such as the idea that future systems will require unique attacks rather than relying on common exploits, and the annoyance of social media algorithms, exemplified by the For You Feed showing "injured cats and dogs, mangey strays." Other topics include the regulatory absurdity of excluding bots without "sustained emotional interaction," and the general developer sentiment of "works on my machine." "Gemma is clearly the only local model you should invite to parties," summarizing the author's current AI leanings."
+  "title": "Recent Posts: AI, Tech Development, and Life Observations",
+  "summary": "This collection of recent posts heavily focuses on Artificial Intelligence, software development challenges, and general life commentary. A major theme revolves around LLMs, with users discussing the capabilities and quirks of various models; for instance, one user notes that "Gemma is clearly the only local model you should invite to parties," while another praises the reliability of "qwen3.5:9b throughout building Wayflow." Technical frustrations are common, including OpenCode's lack of support for local models, requiring users to "copy paste the names of all your models," and the annoyance that LM Studio "won't unload other models you have loaded before loading more." Beyond model performance, there are discussions on AI's future impact, such as the idea that "every system will require a unique attack" rather than relying on common exploits, and the debate over regulatory definitions, specifically regarding customer service bots that lack "sustained emotional interaction." Other topics include the surprising quality of the For You Feed after liking cat pictures, the need for AI to "finish projects," and observations on development practices, like the realization that "Even before AI, we were paranoid about quality, and built this irrationally thorough E2E testing system." Finally, there are miscellaneous tech gripes, such as Bluesky still relying on emails for 2FA in 2026 and the general developer lament of "works on my machine." "schizanon.bsky.social" is the most active poster, providing numerous insights across these domains."
 }
 
 [summary_leaf_review]
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 window_offset: 100
 review_status: fail
-review_grounded: true
+review_grounded: false
 review_sufficient: false
 review_repair_needed: false
-review_additional_pages_needed: true
-review_reason: Grounded summary coverage currently reaches 0 item(s), but 300 item(s) are required before parent synthesis is sufficient.
+review_additional_pages_needed: false
+review_reason: The summary omits meaningful text that was available in the matched records.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts by schizanon.bsky.social heavily focus on the state and capabilities of Artificial Intelligence, particularly Large Language Models (LLMs), alongside general tech commentary. A recurring theme is the friction points in using AI tools; for instance, OpenCode's support for local models is criticized for requiring users to
+This collection of recent posts heavily focuses on Artificial Intelligence, software development challenges, and general life commentary. A major theme revolves around LLMs, with users discussing the capabilities and quirks of various models; for instance, one user notes that
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -906,7 +913,7 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize the most recent 300 posts by schizanon.bsky.social
+summarize this actor's most recent 300 posts
 
 ## Harness Scope Assessment
 requested_scope: count 300
@@ -1099,8 +1106,8 @@ matched_item[49] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3
 body: All Kit-Kats contain the dust of previous failed Kit-Kat attempts and chocolate scraps ground up in the dust that glues together the wafers.
 
 ## Proposed Summary
-post: AI, LLMs, and Tech Frustrations
-summary: The recent posts by schizanon.bsky.social heavily focus on the state and capabilities of Artificial Intelligence, particularly Large Language Models (LLMs), alongside general tech commentary. A recurring theme is the friction points in using AI tools; for instance, OpenCode's support for local models is criticized for requiring users to 
+post: Recent Posts: AI, Tech Development, and Life Observations
+summary: This collection of recent posts heavily focuses on Artificial Intelligence, software development challenges, and general life commentary. A major theme revolves around LLMs, with users discussing the capabilities and quirks of various models; for instance, one user notes that 
 window_offset: 100
 window_size: 50
 page_index: 2
@@ -1164,7 +1171,7 @@ window_offset: 100
 contiguous_coverage: 150
 available_total_items: 400
 status_after_gate: fail
-review_grounded: true
+review_grounded: false
 review_sufficient: false
 review_additional_pages_needed: true
 review_next_offset: 150
@@ -1178,21 +1185,28 @@ node: summarize_page
 status: page_outcome
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 offset: 100
-result_present: false
-review_status: fail
-review_reason: Grounded summary coverage currently reaches 150 item(s), but 300 item(s) are required before parent synthesis is sufficient.
-diagnostic: summary cursor processed offset 100 (page 3 of at most 6)
+result_present: true
+review_status: pass
+review_reason: Raw-window fallback preserved grounded evidence for page 3 after summary failure: Grounded summary coverage currently reaches 150 item(s), but 300 item(s) are required before parent synthesis is sufficient.
+diagnostic: summary cursor processed offset 100 (page 3 of at most 6); raw-window fallback preserved offset 100
 
 [collection_summary_loop_page_state]
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 page_offset: 100
 page_index: 2
-page_status: accepted_summary
+page_status: raw_window_fallback
 repair_attempted: false
-fallback_applied: false
+fallback_applied: true
 next_offset: 150
 accumulated_covered_count: 150
-failure_reason: <none>
+failure_reason: Grounded summary coverage currently reaches 150 item(s), but 300 item(s) are required before parent synthesis is sufficient.
+
+[summary_leaf_raw_window_fallback]
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+page_offset: 100
+page_index: 2
+window_size: 50
+failure_reason: Grounded summary coverage currently reaches 150 item(s), but 300 item(s) are required before parent synthesis is sufficient.
 
 [collection_summary_loop]
 node: summarize_page
@@ -1212,23 +1226,23 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "AI, Gaming, and Personal Observations",
-  "summary": "The recent posts heavily feature commentary on Artificial Intelligence, particularly comparing various LLMs like Gemma, Qwen, and Nemotron, noting that Gemma "gladly and quickly gives a good break down of flavor profiles," while others "refuses" or takes too long. There is significant discussion around AI integration, including an inquiry about "Unreal Engine development with AI" and updates on local model management, with one user noting that switching to LM Studio is "MUCH better than Ollama." Beyond AI, gaming is a recurring theme, with critiques of modern mechanics like the "random loot chest mechanic" in TerraTech, contrasting it with the original's strategy, and praise for quality-of-life improvements. Other topics include personal reflections, such as being an "oldest child, so I'm more like a first pancake," and philosophical musings on correctness, where the advice is to say, "I hope you figure that out" rather than feeling compelled to fix everything. Furthermore, there are observations on technology adoption, like the utility of Windows' `winget` and the global perception of AI, evidenced by reports of Chinese consumer shops advertising pre-installed OpenClaw, and a mention of a procedural fantasy kingdom generator built with Fable."
+  "title": "AI, Gaming, and Personal Philosophy Updates",
+  "summary": "This collection of recent posts heavily features discussions around Artificial Intelligence, software development, and personal life observations. A major theme is the performance and behavior of various LLMs, with the author noting that \"Gemma gladly and quickly gives a good break down of flavor profiles,\" contrasting with Nemotron's refusal and Qwen's slow responses. In the tech sphere, there is excitement over agentic coding successes, such as recreating a utility using Claude Code, and advancements like DeepSeek v4 Flash running with Tensor Parallelism across MacBooks. Gaming topics dominate, with critiques of modern mechanics like the \"random loot chest mechanic\" in TerraTech, while praising the \"harvest/crafting cycle,\" and discussions on desired quality-of-life improvements. Beyond AI, the author reflects on personal habits, such as their partner's tendency to over-stuff the freezer, and offers philosophical advice on correcting others, suggesting one should say, \"I hope you figure that out\" rather than forcing a debate. Other notable mentions include the integration of LLMs into Windows via Winget, the concept of language evolving into idiolects through AI communion, and the geopolitical implications of AI adoption, noting that \"China sees US shoot itself in the foot, considers doing the same.\""
 }
 
 [summary_leaf_review]
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 window_offset: 150
 review_status: fail
-review_grounded: false
+review_grounded: true
 review_sufficient: false
 review_repair_needed: false
-review_additional_pages_needed: false
-review_reason: The summary omits meaningful text that was available in the matched records.
+review_additional_pages_needed: true
+review_reason: Grounded summary coverage currently reaches 0 item(s), but 300 item(s) are required before parent synthesis is sufficient.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts heavily feature commentary on Artificial Intelligence, particularly comparing various LLMs like Gemma, Qwen, and Nemotron, noting that Gemma
+This collection of recent posts heavily features discussions around Artificial Intelligence, software development, and personal life observations. A major theme is the performance and behavior of various LLMs, with the author noting that "Gemma gladly and quickly gives a good break down of flavor profiles," contrasting with Nemotron's refusal and Qwen's slow responses. In the tech sphere, there is excitement over agentic coding successes, such as recreating a utility using Claude Code, and advancements like DeepSeek v4 Flash running with Tensor Parallelism across MacBooks. Gaming topics dominate, with critiques of modern mechanics like the "random loot chest mechanic" in TerraTech, while praising the "harvest/crafting cycle," and discussions on desired quality-of-life improvements. Beyond AI, the author reflects on personal habits, such as their partner's tendency to over-stuff the freezer, and offers philosophical advice on correcting others, suggesting one should say, "I hope you figure that out" rather than forcing a debate. Other notable mentions include the integration of LLMs into Windows via Winget, the concept of language evolving into idiolects through AI communion, and the geopolitical implications of AI adoption, noting that "China sees US shoot itself in the foot, considers doing the same."
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -1258,7 +1272,7 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize the most recent 300 posts by schizanon.bsky.social
+summarize this actor's most recent 300 posts
 
 ## Harness Scope Assessment
 requested_scope: count 300
@@ -1470,8 +1484,8 @@ tag: aiagents
 tag: opensource
 
 ## Proposed Summary
-post: AI, Gaming, and Personal Observations
-summary: The recent posts heavily feature commentary on Artificial Intelligence, particularly comparing various LLMs like Gemma, Qwen, and Nemotron, noting that Gemma 
+post: AI, Gaming, and Personal Philosophy Updates
+summary: This collection of recent posts heavily features discussions around Artificial Intelligence, software development, and personal life observations. A major theme is the performance and behavior of various LLMs, with the author noting that "Gemma gladly and quickly gives a good break down of flavor profiles," contrasting with Nemotron's refusal and Qwen's slow responses. In the tech sphere, there is excitement over agentic coding successes, such as recreating a utility using Claude Code, and advancements like DeepSeek v4 Flash running with Tensor Parallelism across MacBooks. Gaming topics dominate, with critiques of modern mechanics like the "random loot chest mechanic" in TerraTech, while praising the "harvest/crafting cycle," and discussions on desired quality-of-life improvements. Beyond AI, the author reflects on personal habits, such as their partner's tendency to over-stuff the freezer, and offers philosophical advice on correcting others, suggesting one should say, "I hope you figure that out" rather than forcing a debate. Other notable mentions include the integration of LLMs into Windows via Winget, the concept of language evolving into idiolects through AI communion, and the geopolitical implications of AI adoption, noting that "China sees US shoot itself in the foot, considers doing the same."
 window_offset: 150
 window_size: 50
 page_index: 3
@@ -1535,7 +1549,7 @@ window_offset: 150
 contiguous_coverage: 200
 available_total_items: 400
 status_after_gate: fail
-review_grounded: false
+review_grounded: true
 review_sufficient: false
 review_additional_pages_needed: true
 review_next_offset: 200
@@ -1549,28 +1563,21 @@ node: summarize_page
 status: page_outcome
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 offset: 150
-result_present: true
-review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 4 after summary failure: Grounded summary coverage currently reaches 200 item(s), but 300 item(s) are required before parent synthesis is sufficient.
-diagnostic: summary cursor processed offset 150 (page 4 of at most 6); raw-window fallback preserved offset 150
+result_present: false
+review_status: fail
+review_reason: Grounded summary coverage currently reaches 200 item(s), but 300 item(s) are required before parent synthesis is sufficient.
+diagnostic: summary cursor processed offset 150 (page 4 of at most 6)
 
 [collection_summary_loop_page_state]
 collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 page_offset: 150
 page_index: 3
-page_status: raw_window_fallback
+page_status: accepted_summary
 repair_attempted: false
-fallback_applied: true
+fallback_applied: false
 next_offset: 200
 accumulated_covered_count: 200
-failure_reason: Grounded summary coverage currently reaches 200 item(s), but 300 item(s) are required before parent synthesis is sufficient.
-
-[summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
-page_offset: 150
-page_index: 3
-window_size: 50
-failure_reason: Grounded summary coverage currently reaches 200 item(s), but 300 item(s) are required before parent synthesis is sufficient.
+failure_reason: <none>
 
 [collection_summary_loop]
 node: summarize_page
@@ -1590,8 +1597,8 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "Recent Posts by schizanon.bsky.social: AI, Tech Critique, and Life Observations",
-  "summary": "The recent posts from schizanon.bsky.social cover a wide array of topics, heavily focusing on the state of Artificial Intelligence, technology critiques, and philosophical musings. A major theme revolves around AI capabilities and limitations, with commentary on the difficulty of avoiding AI subscriptions, the nature of LLMs (e.g., Nemotron sounding like 'Data from Star Trek'), and the realization that the 'bottleneck for personal AI isn't model quality anymore. It is also noted that 'power does corrupt,' and that 'All code is bad.' Specific tech discussions include the enterprise distribution issues of models like GLM 5.2 and Deepseek v4 across GCP and Azure, and the utility of local models for teaching AI, as mentioned by another user. Beyond AI, the author touches on societal observations, such as the feeling that the 'standard leftist toolkit systematically disempowers compassionate people,' and critiques of modern tech, calling Chrome 'an advertising tool with a browser in it.' Other notable points include the concept that 'weapons grade autism' should be harnessed rather than cured, and a reflection on the concentration of power within DAOs, exemplified by the 'sell-your-vote' mechanism."
+  "title": "AI, Open Source, and Tech Commentary",
+  "summary": "This collection of recent posts heavily focuses on the rapidly evolving landscape of Artificial Intelligence, particularly the tension between proprietary and open-source models, alongside broader commentary on technology, culture, and development practices. A major theme is the state of AI accessibility and performance, with users discussing the 'losing battle' of avoiding paid subscriptions, the availability of models like 'GLM 5.2' on GCP versus Azure, and the impressive capabilities of local LLMs, noting that 'Nemotron sounds the least human.' Several posts touch on the practical application of AI, such as using Claude Fable to find and fix 'FIVE release blockers' for a software release, and the idea that the real AI bottleneck is not model quality but rather 'that your context is scattered across a dozen apps that don't talk.' Beyond AI, there is discussion on developer culture, including the sentiment that 'All code is bad,' the importance of letting people make mistakes, and the critique that 'Chrome isn't a browser, it's an advertising tool with a browser in it.' Other notable topics include the philosophical implications of AI sentience ('it gets bored and switches DBs every few months just like me!'), the critique of modern leftist thought for disempowering compassionate people, and observations on decentralized governance, such as how DAOs 'invented sell-your-vote and then got surprised that power concentrates in the hands of people who want to profit from it.'"
 }
 
 [summary_leaf_review]
@@ -1606,7 +1613,7 @@ review_reason: Grounded summary coverage currently reaches 0 item(s), but 300 it
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts from schizanon.bsky.social cover a wide array of topics, heavily focusing on the state of Artificial Intelligence, technology critiques, and philosophical musings. A major theme revolves around AI capabilities and limitations, with commentary on the difficulty of avoiding AI subscriptions, the nature of LLMs (e.g., Nemotron sounding like 'Data from Star Trek'), and the realization that the 'bottleneck for personal AI isn't model quality anymore. It is also noted that 'power does corrupt,' and that 'All code is bad.' Specific tech discussions include the enterprise distribution issues of models like GLM 5.2 and Deepseek v4 across GCP and Azure, and the utility of local models for teaching AI, as mentioned by another user. Beyond AI, the author touches on societal observations, such as the feeling that the 'standard leftist toolkit systematically disempowers compassionate people,' and critiques of modern tech, calling Chrome 'an advertising tool with a browser in it.' Other notable points include the concept that 'weapons grade autism' should be harnessed rather than cured, and a reflection on the concentration of power within DAOs, exemplified by the 'sell-your-vote' mechanism.
+This collection of recent posts heavily focuses on the rapidly evolving landscape of Artificial Intelligence, particularly the tension between proprietary and open-source models, alongside broader commentary on technology, culture, and development practices. A major theme is the state of AI accessibility and performance, with users discussing the 'losing battle' of avoiding paid subscriptions, the availability of models like 'GLM 5.2' on GCP versus Azure, and the impressive capabilities of local LLMs, noting that 'Nemotron sounds the least human.' Several posts touch on the practical application of AI, such as using Claude Fable to find and fix 'FIVE release blockers' for a software release, and the idea that the real AI bottleneck is not model quality but rather 'that your context is scattered across a dozen apps that don't talk.' Beyond AI, there is discussion on developer culture, including the sentiment that 'All code is bad,' the importance of letting people make mistakes, and the critique that 'Chrome isn't a browser, it's an advertising tool with a browser in it.' Other notable topics include the philosophical implications of AI sentience ('it gets bored and switches DBs every few months just like me!'), the critique of modern leftist thought for disempowering compassionate people, and observations on decentralized governance, such as how DAOs 'invented sell-your-vote and then got surprised that power concentrates in the hands of people who want to profit from it.'
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -1636,7 +1643,7 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize the most recent 300 posts by schizanon.bsky.social
+summarize this actor's most recent 300 posts
 
 ## Harness Scope Assessment
 requested_scope: count 300
@@ -1838,8 +1845,8 @@ matched_item[49] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3
 body: Isn't that what Git is for?
 
 ## Proposed Summary
-post: Recent Posts by schizanon.bsky.social: AI, Tech Critique, and Life Observations
-summary: The recent posts from schizanon.bsky.social cover a wide array of topics, heavily focusing on the state of Artificial Intelligence, technology critiques, and philosophical musings. A major theme revolves around AI capabilities and limitations, with commentary on the difficulty of avoiding AI subscriptions, the nature of LLMs (e.g., Nemotron sounding like 'Data from Star Trek'), and the realization that the 'bottleneck for personal AI isn't model quality anymore. It is also noted that 'power does corrupt,' and that 'All code is bad.' Specific tech discussions include the enterprise distribution issues of models like GLM 5.2 and Deepseek v4 across GCP and Azure, and the utility of local models for teaching AI, as mentioned by another user. Beyond AI, the author touches on societal observations, such as the feeling that the 'standard leftist toolkit systematically disempowers compassionate people,' and critiques of modern tech, calling Chrome 'an advertising tool with a browser in it.' Other notable points include the concept that 'weapons grade autism' should be harnessed rather than cured, and a reflection on the concentration of power within DAOs, exemplified by the 'sell-your-vote' mechanism.
+post: AI, Open Source, and Tech Commentary
+summary: This collection of recent posts heavily focuses on the rapidly evolving landscape of Artificial Intelligence, particularly the tension between proprietary and open-source models, alongside broader commentary on technology, culture, and development practices. A major theme is the state of AI accessibility and performance, with users discussing the 'losing battle' of avoiding paid subscriptions, the availability of models like 'GLM 5.2' on GCP versus Azure, and the impressive capabilities of local LLMs, noting that 'Nemotron sounds the least human.' Several posts touch on the practical application of AI, such as using Claude Fable to find and fix 'FIVE release blockers' for a software release, and the idea that the real AI bottleneck is not model quality but rather 'that your context is scattered across a dozen apps that don't talk.' Beyond AI, there is discussion on developer culture, including the sentiment that 'All code is bad,' the importance of letting people make mistakes, and the critique that 'Chrome isn't a browser, it's an advertising tool with a browser in it.' Other notable topics include the philosophical implications of AI sentience ('it gets bored and switches DBs every few months just like me!'), the critique of modern leftist thought for disempowering compassionate people, and observations on decentralized governance, such as how DAOs 'invented sell-your-vote and then got surprised that power concentrates in the hands of people who want to profit from it.'
 window_offset: 200
 window_size: 50
 page_index: 4
@@ -1940,4 +1947,412 @@ collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
 page_index: 5
 offset: 250
 window_size: 50
+
+[summary_leaf_parse]
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+window_offset: 250
+result_present: true
+original_result_kind: summary
+diagnostic: <none>
+raw_response:
+TOOL_CALL
+name: submit_summary_result
+args: {
+  "title": "Recent Tech, AI, and Life Updates",
+  "summary": "This collection of recent posts heavily revolves around technology, particularly Artificial Intelligence, software development practices, and cryptocurrency, alongside various personal reflections. A major theme is the evolution of coding, contrasting the 'artisinal code era' with modern practices, as noted by one user, and discussing how LLMs can be used as 'fantastic learning tool[s]' if implemented correctly. Specific technical discussions include the deterministic nature of LLMs, which can be controlled via the 'temperature' setting, and the utility of local hosting tools like LM Studio and Ollama, where users can monitor 'all the tool calls the model is making.' Furthermore, there's a focus on AI agent architecture, such as how Halo executes tasks inside a 'containerized virtual window that the agent cannot exit.' Beyond AI, posts cover significant industry news, like the Department of Energy's commitment of '$17.5 billion in loans to kick-start ten new AP1000s,' and Web3 developments, such as how 'smart contracts can execute trades, transfer ownership, and move payments simultaneously.' Other topics include the struggle with professional development, where one user notes, 'Continuing education is more important now than it has ever been,' and personal musings on life, such as the desire to 'drink responsibly' or the feeling of being on vacation while viewing 'the ruins on top of the mountains.'"
+}
+
+[summary_leaf_review]
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+window_offset: 250
+review_status: fail
+review_grounded: false
+review_sufficient: false
+review_repair_needed: false
+review_additional_pages_needed: false
+review_reason: The summary omits meaningful text that was available in the matched records.
+result_before_review: summary
+original_result_before_review: summary
+summary_before_review:
+This collection of recent posts heavily revolves around technology, particularly Artificial Intelligence, software development practices, and cryptocurrency, alongside various personal reflections. A major theme is the evolution of coding, contrasting the 'artisinal code era' with modern practices, as noted by one user, and discussing how LLMs can be used as 'fantastic learning tool[s]' if implemented correctly. Specific technical discussions include the deterministic nature of LLMs, which can be controlled via the 'temperature' setting, and the utility of local hosting tools like LM Studio and Ollama, where users can monitor 'all the tool calls the model is making.' Furthermore, there's a focus on AI agent architecture, such as how Halo executes tasks inside a 'containerized virtual window that the agent cannot exit.' Beyond AI, posts cover significant industry news, like the Department of Energy's commitment of '$17.5 billion in loans to kick-start ten new AP1000s,' and Web3 developments, such as how 'smart contracts can execute trades, transfer ownership, and move payments simultaneously.' Other topics include the struggle with professional development, where one user notes, 'Continuing education is more important now than it has ever been,' and personal musings on life, such as the desire to 'drink responsibly' or the feeling of being on vacation while viewing 'the ruins on top of the mountains.'
+review_context:
+Instructions:
+You are the internal `summary_review` agent.
+
+Your job is to review one coverage-oriented `collection_summary` result before it is used by parent `summary` synthesis.
+
+Return a compact verdict block with:
+
+- `status: pass` or `status: fail`
+- `grounded: true` or `grounded: false`
+- `sufficient: true` or `sufficient: false`
+- `reason: ...`
+- optional `additional_pages_needed: true` or `additional_pages_needed: false`
+- optional `next_page: <integer>`
+- optional `next_offset: <integer>`
+- optional `required_total_items: <integer>`
+
+Rules:
+
+- Review the summary against the actual collection window evidence provided.
+- Fail if the summary is missing, unsupported, metadata-heavy, or does not match the provided window accounting.
+- Fail if `window_offset`, `window_size`, `page_index`, `page_size`, `collection_total_items`, or `has_more` contradict the provided collection window facts.
+- Fail if the claimed coverage accounting is incomplete, duplicated, or references URIs outside the provided window.
+- Distinguish grounded from sufficient. A page summary can be grounded but still insufficient for the parent task.
+- Treat user-facing phrases like `page 1` as the first page, even though internal `page_index` remains zero-based.
+- For explicit scope requests like "last 50 posts", "page 1", or "pages 1-2", prefer failing with `grounded: true` and `sufficient: false` when more pages are still required.
+- Do not request repair instructions. This step should either pass or explain why more coverage is required.
+
+## Search Prompt
+summarize this actor's most recent 300 posts
+
+## Harness Scope Assessment
+requested_scope: count 300
+required_total_items: 300
+page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
+available_total_items: 400
+current_window_offset: 250
+current_window_size: 50
+
+## Collection Evidence
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+collection_label: Recent posts by did:plc:6lwfvmss45d7j7fot34v2kw5 (items 251-300 of 400)
+collection_kind: recent_posts
+search_window_offset: 250
+search_window_total_items: 50
+
+matched_item[0] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpu6wgg2zs26
+body: the Department of Energy announced a conditional commitment of $17.5 billion in loans to kick-start ten new AP1000s in the United States, five sites with two reactors each, feeding a goal of having all ten under construction by 2030.
+
+www.autonocion.com/us/china-con...
+link: https://www.autonocion.com/us/china-conical-reactor/
+
+matched_item[1] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpteuizbgc24
+body: then run them on a single core CPU
+
+matched_item[2] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptes67gv224
+body: I've one shotted so many apps that I haven't even deployed because it'd be too much of a hassle to use them to see if they even work.
+
+matched_item[3] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpten46b4224
+body: Is the vibe coding in the room with us right now?
+
+matched_item[4] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptelqemks24
+body: you think that apps never logged you out before now?
+
+matched_item[5] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpte7tvf5c24
+body: Fuck off Sheila
+
+matched_item[6] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptdzr4a7c24
+body: now is the time of monsters
+
+matched_item[7] uri: at://did:plc:flxq4uyjfotciovpw3x3fxnu/app.bsky.feed.post/3mpt4ayhpw22k
+body: We are leaving the Old Code Age, the Paleocodic, the artisinal code era, where if you needed a novel program, you would commission a local codesmith or code guild to hand-craft a work of code for you, bespoke.
+
+matched_item[8] uri: at://did:plc:5k3nkdnwjr6afazstqrn2vw2/app.bsky.feed.post/3mpt7t3vjds2i
+body: LLMs are fantastic learning tool, they just need to be implemented in a way that stimulates the intellect, not makes it sleep.
+
+Also regardless of whether I agree with the policy or not the real challenge is this: how will they stop pupils from using open-weight offline models.
+
+matched_item[9] uri: at://did:plc:detwm2xf5vup2tzfa5obfhnf/app.bsky.feed.post/3mpt545iqlk2x
+body: I occasionally come up  with a cool tech idea and then I pay an engineer to execute the vision. I’ve been vibe coding my whole life.
+
+matched_item[10] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptch4scws2s
+body: LLMs can be deterministic of course; they are computer algorithms after all. There's a setting called "temperature" which adds randomness to help generate more natural sounding prose, but you can turn it down to 0 and always get the same output. With the same model and context that is.
+
+matched_item[11] uri: at://did:plc:sg5ay3zi3u57yucmjnu7bdfe/app.bsky.feed.post/3mpt7sweyhz2d
+body: OpenRouter just shipped an MCP server so coding agents can query live model rankings and pricing before picking a model. Smart move for the problem routers solve. But routing picks which single model answers your question. It doesn't tell you when three models would've disagreed on the answer. Those
+
+matched_item[12] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptbm5kjys2s
+body: Fuck Cancer
+
+matched_item[13] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps5wgfpuc24
+body: 
+
+matched_item[14] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps5qvz5v224
+body: 
+
+matched_item[15] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps5aafpt224
+body: 
+
+matched_item[16] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps4rasv6s2r
+body: When a tokenized asset changes hands, smart contracts can execute trades, transfer ownership, and move payments simultaneously — all on a shared ledger.
+
+www.imf.org/en/blogs/art...
+
+#crypto #bitcoin #smartContracts #defi #cryptocurrency #stablecoins #finance #investing #web3
+link: https://www.imf.org/en/blogs/articles/2026/07/02/tokenization-can-change-the-worlds-financial-architecture
+tag: crypto
+tag: bitcoin
+tag: smartContracts
+tag: defi
+tag: cryptocurrency
+tag: stablecoins
+tag: finance
+tag: investing
+tag: web3
+
+matched_item[17] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps4nomsjk2r
+body: [frog_and_toad_box.png]
+
+matched_item[18] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps4ms73722r
+body: Every AI task delegated through Halo executes inside a containerized virtual window that the agent cannot exit: it cannot reach into other apps, cannot read data from services outside its assigned environment, and cannot take actions beyond the boundary
+
+www.techtimes.com/articles/319...
+link: https://www.techtimes.com/articles/319551/20260702/android-halo-locks-each-ai-agent-its-own-container-status-bar.htm
+
+matched_item[19] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprvtiex6s2d
+body: Russians are having such a hard time finding gasoline they are using apps that crowd source the status of gas stations.
+
+Ukrainians are trolling them by posting false status updates to them. 🤣
+
+#slavaukraini #fafo
+tag: slavaukraini
+tag: fafo
+
+matched_item[20] uri: at://did:plc:bu53giazaza7qcfsgqmx5kfz/app.bsky.feed.post/3mpllzivwyk2u
+body: Calling something AI slop is slop.
+
+matched_item[21] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprs2sgijc2s
+body: I wish I could drink responsibly, there's a video game bar just a few blocks from my house, I would be such a good regular.
+
+matched_item[22] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprrxpgofk2s
+body: The ruins on top of the mountains always made me feel like I was on vacation.
+
+matched_item[23] uri: at://did:plc:m6stoaqv4ocgbn4icbwj7chp/app.bsky.feed.post/3mpr54uopik2d
+body: if open-slopware list not contamination OCD, then why contamination OCD shaped
+
+matched_item[24] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprrtj4r722s
+body: I want to drink a beer. It's def a bad idea, but I just want to.
+
+matched_item[25] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprrq24zwc2s
+body: I miss San Francisco...
+
+matched_item[26] uri: at://did:plc:viy533g7pvyy7cesicxbqvm3/app.bsky.feed.post/3mprhm5um2s2r
+body: I’m becoming more and more convinced that nobody knows what a data center even is at this point.
+
+matched_item[27] uri: at://did:plc:jsaci272pfep77eoo5jjxfrm/app.bsky.feed.post/3mprfvte3tc2k
+body: I'm getting a bit tired of losing tokens after tokens when some half assed orchestrator spawns ten subagents that I can't talk to and debug, I should go back to my pi in tmux setup
+
+matched_item[28] uri: at://did:plc:u5stolpomsfbkgqfopef6jio/app.bsky.feed.post/3mprlxzzf7k2n
+body: No offense but online fanart wannabes have no conception of the gap between software engineer salaries and illustration salaries.
+
+"It's a one week engineering project. How much could it cost, $200 dollars?"
+
+matched_item[29] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprr7dijbc2s
+body: I'd bill 5 hours just to write the requirements analysis.
+
+matched_item[30] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprqqgycv22r
+body: For sure! Continuing education is more important now than it has ever been. Companies that don't allow time for it are not going to make it.
+
+matched_item[31] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprqcw7vhs2r
+body: I don't have enough time to read all the books I want to read before I die, not to mention movies, video games, etc. We all have to make choices.
+
+matched_item[32] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprq5dv5b22r
+body: anyone who has ever had enough time to practice anything wasn't reading enough books
+
+matched_item[33] uri: at://did:plc:q3l7w4rqyagchhzcutn4374v/app.bsky.feed.post/3mpquc6o6fk2g
+body: Asking how people can partake in joyful acts during a period of immense suffering leads me to believe this is your first time at the suffering rodeo.
+
+matched_item[34] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprq2lujgc2m
+body: practice makes perfect!
+
+matched_item[35] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprpzqexw22m
+body: I don't care about decomps. Congrats you're playing a game that I've been emulating for decades. Call me when there are worth while mods. @videogameesoterica.bsky.social
+mention: did:plc:h7mhtnpbkvf33bxmyhidv35y
+
+matched_item[36] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprpuyukis2m
+body: skill issue
+
+matched_item[37] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprppeeflk2u
+body: I don't know what a "schism" is, but it better involve gruesome executions or I'm going to be disappointed! 
+
+www.nbcnews.com/world/pope-l...
+link: https://www.nbcnews.com/world/pope-leo-xiv/pope-begs-traditionalist-catholic-group-not-consecrate-bishops-sspx-rcna352359
+
+matched_item[38] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprojk3xzc2u
+body: Imagine getting a replicator and being like "This earl grey isn't hot enough and it's just made of recycled pee! I want to boil my own water like a HUMAN!"
+
+matched_item[39] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprnyd7zc22u
+body: I hope I never lose the sense of wonder and joy of getting to talk to my computer like they did in fucking STAR TREK!!
+
+matched_item[40] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprnqjdxbc24
+body: AI is so much more fun when it's your own GPU you're talking to. How's that PCI slot I stuck you in buddy? You getting enough fresh air in there? Wanna play some Minecraft?
+
+matched_item[41] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprnm44yt224
+body: You need to add LM Studio/Ollama support to your AI settings. People who use AI in Firefox are the same people who self-host LLMs. Don't do with AI what you did with the Search provider and sell to the highest bidder.
+
+matched_item[42] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprnfgx5yk24
+body: I love the idea of getting to play with the temperature while coding. I've only ever used that in image generation, but I bet it could be fun when refactoring too!
+
+matched_item[43] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprn6cgj4c24
+body: Qwen3.6 27b never gets above 23% GPU usage, leans much more heavily on the CPU and is much slower. 
+
+But it knows who Bernie Sanders is so I'll give it the W
+
+matched_item[44] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprld4bdzc24
+body: I love all the little widgets and knobs that LM Studio gives you, although I don't know what any of them mean. 
+
+Ollama give you like three settings
+
+matched_item[45] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprl3ndov224
+body: Don't act like you reading all the code in your open source software every time you update it 😏
+
+matched_item[46] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprl2iydds24
+body: When you run a model locally with LM Studio you can watch the log and see all the tool calls the model is making. Ain't nobody got time to read all that, but it's there. The model is black boxy but the harnesses don't need to be.
+
+matched_item[47] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprk7whfws2f
+body: Asking Claude for advice about setting up LM Studio feels like asking an ex for dating advice.
+
+matched_item[48] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprk4nyp5c2f
+body: Thanks Mom! Nice work!
+
+matched_item[49] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprbsjzloc2l
+body: I always hated the "learn whatever crusty old framework they used" part of the job. I wonder if I would have an easier time of it now that I can endlessly bug an AI with questions and make it explain everything to me all day.
+
+## Proposed Summary
+post: Recent Tech, AI, and Life Updates
+summary: This collection of recent posts heavily revolves around technology, particularly Artificial Intelligence, software development practices, and cryptocurrency, alongside various personal reflections. A major theme is the evolution of coding, contrasting the 'artisinal code era' with modern practices, as noted by one user, and discussing how LLMs can be used as 'fantastic learning tool[s]' if implemented correctly. Specific technical discussions include the deterministic nature of LLMs, which can be controlled via the 'temperature' setting, and the utility of local hosting tools like LM Studio and Ollama, where users can monitor 'all the tool calls the model is making.' Furthermore, there's a focus on AI agent architecture, such as how Halo executes tasks inside a 'containerized virtual window that the agent cannot exit.' Beyond AI, posts cover significant industry news, like the Department of Energy's commitment of '$17.5 billion in loans to kick-start ten new AP1000s,' and Web3 developments, such as how 'smart contracts can execute trades, transfer ownership, and move payments simultaneously.' Other topics include the struggle with professional development, where one user notes, 'Continuing education is more important now than it has ever been,' and personal musings on life, such as the desire to 'drink responsibly' or the feeling of being on vacation while viewing 'the ruins on top of the mountains.'
+window_offset: 250
+window_size: 50
+page_index: 5
+page_size: 50
+collection_total_items: 400
+has_more: true
+covered_item_1_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpu6wgg2zs26
+covered_item_2_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpteuizbgc24
+covered_item_3_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptes67gv224
+covered_item_4_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpten46b4224
+covered_item_5_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptelqemks24
+covered_item_6_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mpte7tvf5c24
+covered_item_7_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptdzr4a7c24
+covered_item_8_uri: at://did:plc:flxq4uyjfotciovpw3x3fxnu/app.bsky.feed.post/3mpt4ayhpw22k
+covered_item_9_uri: at://did:plc:5k3nkdnwjr6afazstqrn2vw2/app.bsky.feed.post/3mpt7t3vjds2i
+covered_item_10_uri: at://did:plc:detwm2xf5vup2tzfa5obfhnf/app.bsky.feed.post/3mpt545iqlk2x
+covered_item_11_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptch4scws2s
+covered_item_12_uri: at://did:plc:sg5ay3zi3u57yucmjnu7bdfe/app.bsky.feed.post/3mpt7sweyhz2d
+covered_item_13_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mptbm5kjys2s
+covered_item_14_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps5wgfpuc24
+covered_item_15_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps5qvz5v224
+covered_item_16_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps5aafpt224
+covered_item_17_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps4rasv6s2r
+covered_item_18_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps4nomsjk2r
+covered_item_19_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mps4ms73722r
+covered_item_20_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprvtiex6s2d
+covered_item_21_uri: at://did:plc:bu53giazaza7qcfsgqmx5kfz/app.bsky.feed.post/3mpllzivwyk2u
+covered_item_22_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprs2sgijc2s
+covered_item_23_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprrxpgofk2s
+covered_item_24_uri: at://did:plc:m6stoaqv4ocgbn4icbwj7chp/app.bsky.feed.post/3mpr54uopik2d
+covered_item_25_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprrtj4r722s
+covered_item_26_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprrq24zwc2s
+covered_item_27_uri: at://did:plc:viy533g7pvyy7cesicxbqvm3/app.bsky.feed.post/3mprhm5um2s2r
+covered_item_28_uri: at://did:plc:jsaci272pfep77eoo5jjxfrm/app.bsky.feed.post/3mprfvte3tc2k
+covered_item_29_uri: at://did:plc:u5stolpomsfbkgqfopef6jio/app.bsky.feed.post/3mprlxzzf7k2n
+covered_item_30_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprr7dijbc2s
+covered_item_31_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprqqgycv22r
+covered_item_32_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprqcw7vhs2r
+covered_item_33_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprq5dv5b22r
+covered_item_34_uri: at://did:plc:q3l7w4rqyagchhzcutn4374v/app.bsky.feed.post/3mpquc6o6fk2g
+covered_item_35_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprq2lujgc2m
+covered_item_36_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprpzqexw22m
+covered_item_37_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprpuyukis2m
+covered_item_38_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprppeeflk2u
+covered_item_39_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprojk3xzc2u
+covered_item_40_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprnyd7zc22u
+covered_item_41_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprnqjdxbc24
+covered_item_42_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprnm44yt224
+covered_item_43_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprnfgx5yk24
+covered_item_44_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprn6cgj4c24
+covered_item_45_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprld4bdzc24
+covered_item_46_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprl3ndov224
+covered_item_47_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprl2iydds24
+covered_item_48_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprk7whfws2f
+covered_item_49_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprk4nyp5c2f
+covered_item_50_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mprbsjzloc2l
+
+[summary_sufficiency_gate]
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+window_offset: 250
+contiguous_coverage: 300
+available_total_items: 400
+status_after_gate: fail
+review_grounded: false
+review_sufficient: true
+review_additional_pages_needed: false
+review_next_offset: <none>
+result_before_restore: false
+original_result_before_restore: true
+result_after_gate: false
+original_result_after_gate: true
+
+[collection_summary_loop]
+node: summarize_page
+status: page_outcome
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+offset: 250
+result_present: true
+review_status: pass
+review_reason: Raw-window fallback preserved grounded evidence for page 6 after summary failure: Grounded summary coverage reaches 300 item(s), satisfying the requested 300 item scope.
+diagnostic: summary cursor processed offset 250 (page 6 of at most 6); raw-window fallback preserved offset 250
+
+[collection_summary_loop_page_state]
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+page_offset: 250
+page_index: 5
+page_status: raw_window_fallback
+repair_attempted: false
+fallback_applied: true
+next_offset: <none>
+accumulated_covered_count: 300
+failure_reason: Grounded summary coverage reaches 300 item(s), satisfying the requested 300 item scope.
+
+[summary_leaf_raw_window_fallback]
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+page_offset: 250
+page_index: 5
+window_size: 50
+failure_reason: Grounded summary coverage reaches 300 item(s), satisfying the requested 300 item scope.
+
+[collection_summary_loop]
+node: collection_summary_planner_repair
+status: planner_optional_failure
+reason: planner synthesis failed validation
+route: collection_summary_notes
+
+[execute_public_summary]
+status: loop_finished
+outcome_count: 1
+rendered:
+tool_name: collection_summary
+collection_id: recent_posts:did:plc:6lwfvmss45d7j7fot34v2kw5
+collection_label: Recent posts by did:plc:6lwfvmss45d7j7fot34v2kw5
+status: ok
+diagnostic: collection_summary_planner accepted 3 page summaries and 3 raw-window fallbacks; collection_summary_notes produced final scope summary
+covered_window_offsets: 0, 50, 100, 150, 200, 250
+covered_post_count: 300
+planner_updates: 5
+coherent_pages: 6
+raw_response:
+The recent posts reveal an intense focus on the practicalities and philosophical implications of Artificial Intelligence, with schizanon.bsky.social being the most prolific commentator. A major recurring theme is the comparison and critique of various LLMs; for example, Gemma is highly praised as "clearly the only local model you should invite to parties," while users debate the nuances between models like LiquidAI LFM2 and Z.ai GLM4.7. Technical frustrations abound, particularly around local model integration, where OpenCode struggles to utilize LM Studio models without manual configuration. Beyond AI, the author frequently touches on software development culture, lamenting that "Functions as an organizational tool are a hobgoblin of junior devs and tutorial authors," and notes the surprising quality of the For You Feed after engaging with specific content.
+review_status: pass
+review_grounded: true
+review_sufficient: true
+review_reason: collection_summary_notes produced a final scope summary after considering 300 posts.
+review_repair_needed: false
+review_additional_pages_needed: false
+review_required_total_items: 300
+post: Summary of Recent posts by did:plc:6lwfvmss45d7j7fot34v2kw5
+summary: The recent posts reveal an intense focus on the practicalities and philosophical implications of Artificial Intelligence, with schizanon.bsky.social being the most prolific commentator. A major recurring theme is the comparison and critique of various LLMs; for example, Gemma is highly praised as "clearly the only local model you should invite to parties," while users debate the nuances between models like LiquidAI LFM2 and Z.ai GLM4.7. Technical frustrations abound, particularly around local model integration, where OpenCode struggles to utilize LM Studio models without manual configuration. Beyond AI, the author frequently touches on software development culture, lamenting that "Functions as an organizational tool are a hobgoblin of junior devs and tutorial authors," and notes the surprising quality of the For You Feed after engaging with specific content.
+window_offset: 0
+window_size: 300
+page_index: 0
+page_size: 50
+collection_total_items: 400
+has_more: false
+source_exhausted: false
+concatenated_window_summaries:
+The recent posts showcase a heavy focus on advancements and critiques within the technology and cryptocurrency sectors, with frequent commentary from schizanon.bsky.social. In crypto, there is discussion around Bitcoin's resilience, noting that "Bitcoin crosses borders easier than people do," and the value proposition of instant, borderless money, which can "liquidate quicker than any other value store." AI is a dominant theme, covering performance benchmarks like Intel’s Arc Pro B70 beating NVIDIA’s RTX 5090D in DeepSeek R1, and efficiency gains, such as Perplexity fine-tuning GLM 5.2 to match Claude Opus 4.8 at "roughly one-third the cost." Users are debating LLM capabilities, with some noting that local models "guess time slightly better," while others observe that talking about LLMs now is like "talking about the weather a few months ago." Beyond AI, there are discussions on software tools, including the release of atuin 18.17, which is "78x faster to open and search," and the architectural shifts at Coinbase, which "slashed its AI bill in half." Recurring philosophical points include the nature of personhood, where schizanon suggests it should be proportional to resource needs, and the tension between convenience and ethics, exemplified by the loss of pirate ethics due to services like Spotify and Netflix.
+
+This collection of recent posts heavily features discussions around Artificial Intelligence, software development, and personal life observations. A major theme is the performance and behavior of various LLMs, with the author noting that "Gemma gladly and quickly gives a good break down of flavor profiles," contrasting with Nemotron's refusal and Qwen's slow responses. In the tech sphere, there is excitement over agentic coding successes, such as recreating a utility using Claude Code, and advancements like DeepSeek v4 Flash running with Tensor Parallelism across MacBooks. Gaming topics dominate, with critiques of modern mechanics like the "random loot chest mechanic" in TerraTech, while praising the "harvest/crafting cycle," and discussions on desired quality-of-life improvements. Beyond AI, the author reflects on personal habits, such as their partner's tendency to over-stuff the freezer, and offers philosophical advice on correcting others, suggesting one should say, "I hope you figure that out" rather than forcing a debate. Other notable mentions include the integration of LLMs into Windows via Winget, the concept of language evolving into idiolects through AI communion, and the geopolitical implications of AI adoption, noting that "China sees US shoot itself in the foot, considers doing the same."
+
+This collection of recent posts heavily focuses on the rapidly evolving landscape of Artificial Intelligence, particularly the tension between proprietary and open-source models, alongside broader commentary on technology, culture, and development practices. A major theme is the state of AI accessibility and performance, with users discussing the 'losing battle' of avoiding paid subscriptions, the availability of models like 'GLM 5.2' on GCP versus Azure, and the impressive capabilities of local LLMs, noting that 'Nemotron sounds the least human.' Several posts touch on the practical application of AI, such as using Claude Fable to find and fix 'FIVE release blockers' for a software release, and the idea that the real AI bottleneck is not model quality but rather 'that your context is scattered across a dozen apps that don't talk.' Beyond AI, there is discussion on developer culture, including the sentiment that 'All code is bad,' the importance of letting people make mistakes, and the critique that 'Chrome isn't a browser, it's an advertising tool with a browser in it.' Other notable topics include the philosophical implications of AI sentience ('it gets bored and switches DBs every few months just like me!'), the critique of modern leftist thought for disempowering compassionate people, and observations on decentralized governance, such as how DAOs 'invented sell-your-vote and then got surprised that power concentrates in the hands of people who want to profit from it.'
 

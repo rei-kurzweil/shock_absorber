@@ -289,6 +289,15 @@ pub async fn run_root_query_task(
                 blocked_root_rerun.is_none(),
                 Some(tool_output.clone()),
             );
+            if should_directly_return_summary_result(
+                &tool_name,
+                blocked_root_rerun.is_none(),
+                hard_tool_failure_answer.is_none(),
+                &tool_output,
+            ) {
+                response = tool_output;
+                break;
+            }
             if let Some(failure_answer) = hard_tool_failure_answer {
                 response = fallback_or_failure_answer(
                     root_run.latest_successful_tool_run(&tool_name),
@@ -420,7 +429,8 @@ pub async fn run_root_query_task(
 
 pub fn compact_tool_result_for_root_context(tool_name: &str, tool_output: &str) -> String {
     match tool_name {
-        "search" | "summary" => compact_search_like_result_for_root_context(tool_output),
+        "search" => compact_search_like_result_for_root_context(tool_output),
+        "summary" => compact_summary_result_for_root_context(tool_output),
         _ => truncate_for_root_context(tool_output, 24),
     }
 }
@@ -488,6 +498,21 @@ fn compact_search_like_result_for_root_context(tool_output: &str) -> String {
         return truncate_for_root_context(tool_output, 24);
     }
     kept.join("\n")
+}
+
+fn compact_summary_result_for_root_context(tool_output: &str) -> String {
+    let trimmed = tool_output.trim();
+    if trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+
+    if trimmed.starts_with("Overall commentary across ")
+        || trimmed.starts_with("Concatenated page summaries for ")
+    {
+        return truncate_for_root_context(trimmed, 120);
+    }
+
+    compact_search_like_result_for_root_context(tool_output)
 }
 
 fn truncate_line_for_root_context(text: &str, max_chars: usize) -> String {
@@ -842,11 +867,7 @@ fn extract_successful_root_tool_record(
         return None;
     }
     let query = tool_call.args.get("query")?.as_str()?.to_string();
-    let summary = tool_output
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("summary:").map(str::trim))
-        .filter(|summary| !summary.is_empty())?
-        .to_string();
+    let summary = extract_root_tool_summary(tool_call.name.as_str(), tool_output)?;
     Some(SuccessfulRootToolRun {
         tool_name: tool_call.name.clone(),
         query: query.clone(),
@@ -859,20 +880,50 @@ fn extract_successful_root_tool_record(
     })
 }
 
+fn extract_root_tool_summary(tool_name: &str, tool_output: &str) -> Option<String> {
+    if tool_name == "summary"
+        && tool_output
+            .trim_start()
+            .starts_with("Overall commentary across ")
+    {
+        let mut lines = tool_output.lines();
+        let first = lines.next()?.trim();
+        if !first.starts_with("Overall commentary across ") {
+            return None;
+        }
+        let mut body = Vec::new();
+        for line in lines {
+            if line.trim().starts_with("Concatenated page summaries for ") {
+                break;
+            }
+            body.push(line);
+        }
+        let summary = body.join("\n").trim().to_string();
+        return (!summary.is_empty()).then_some(summary);
+    }
+
+    tool_output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("summary:").map(str::trim))
+        .filter(|summary| !summary.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 fn tool_output_is_grounded(tool_name: &str, tool_output: &str) -> bool {
-    let has_summary = tool_output.lines().any(|line| {
-        line.trim()
-            .strip_prefix("summary:")
-            .map(|value| !value.trim().is_empty())
-            .unwrap_or(false)
-    });
+    let has_summary = extract_root_tool_summary(tool_name, tool_output).is_some();
     let has_search_anchor = tool_output.lines().any(|line| {
         let trimmed = line.trim();
         trimmed.starts_with("search_result_") || trimmed.starts_with("selected_result_")
     });
-    let has_summary_anchor = tool_output
-        .lines()
-        .any(|line| line.trim().starts_with("covered_item_"));
+    let has_summary_anchor = if tool_name == "summary" {
+        tool_output
+            .trim_start()
+            .starts_with("Overall commentary across ")
+    } else {
+        tool_output
+            .lines()
+            .any(|line| line.trim().starts_with("covered_item_"))
+    };
     let success_blocks = tool_output
         .lines()
         .filter(|line| line.trim() == "status: ok")
@@ -882,7 +933,12 @@ fn tool_output_is_grounded(tool_name: &str, tool_output: &str) -> bool {
     } else {
         has_search_anchor
     };
-    has_summary && has_anchor && success_blocks >= 1
+    let success_ok = if tool_name == "summary" {
+        has_summary_anchor
+    } else {
+        success_blocks >= 1
+    };
+    has_summary && has_anchor && success_ok
 }
 
 fn extract_collection_ids_from_llm_output(tool_output: &str) -> Vec<String> {
@@ -974,6 +1030,18 @@ fn detect_collection_targets_in_query(query: &str) -> Vec<String> {
     .filter(|target| lower.contains(**target))
     .map(|target| target.to_string())
     .collect()
+}
+
+fn should_directly_return_summary_result(
+    tool_name: &str,
+    tool_executed: bool,
+    tool_succeeded: bool,
+    tool_output: &str,
+) -> bool {
+    tool_name == "summary"
+        && tool_executed
+        && tool_succeeded
+        && tool_output.trim_start().starts_with("Overall commentary across ")
 }
 
 fn fallback_or_failure_answer(
@@ -1139,7 +1207,9 @@ fn requested_post_window_size(query: &str) -> Option<usize> {
 mod tests {
     use super::{
         blocked_root_tool_rerun, classify_root_search_intent,
-        compact_search_like_result_for_root_context, extract_successful_root_tool_record,
+        compact_search_like_result_for_root_context,
+        compact_summary_result_for_root_context, extract_successful_root_tool_record,
+        should_directly_return_summary_result,
         fallback_or_failure_answer, planned_recent_post_refresh_requirements,
         planned_tool_call_refresh_targets, requested_post_window_size,
     };
@@ -1296,5 +1366,59 @@ selected_result_uri: at://one",
         let compact = compact_search_like_result_for_root_context(tool_output);
 
         assert!(compact.contains("collection_failures: Recent replies"));
+    }
+
+    #[test]
+    fn compact_summary_preserves_commentary_and_concatenated_page_blocks() {
+        let tool_output = "Overall commentary across Recent posts by did:plc:test:\nFinal cross-page commentary.\n\nConcatenated page summaries for Recent posts by did:plc:test:\nPage one summary.\n\nPage two summary.";
+
+        let compact = compact_summary_result_for_root_context(tool_output);
+
+        assert!(compact.contains("Overall commentary across Recent posts by did:plc:test:"));
+        assert!(compact.contains("Final cross-page commentary."));
+        assert!(compact.contains("Concatenated page summaries for Recent posts by did:plc:test:"));
+        assert!(compact.contains("Page one summary."));
+        assert!(compact.contains("Page two summary."));
+    }
+
+    #[test]
+    fn extracts_successful_root_summary_record_from_public_summary_output() {
+        let tool_call = PromptToolCall {
+            name: "summary".to_string(),
+            args: json!({"query":"summarize the last 50 posts by mara.x0f.nl"}),
+        };
+        let output = "Overall commentary across Recent posts by did:plc:test:\nFinal cross-page commentary.\n\nConcatenated page summaries for Recent posts by did:plc:test:\nPage one summary.\n\nPage two summary.";
+
+        let record = extract_successful_root_tool_record(&tool_call, output)
+            .expect("expected successful summary record");
+
+        assert_eq!(record.tool_name, "summary");
+        assert_eq!(record.summary, "Final cross-page commentary.");
+        assert_eq!(record.actor_refs, vec!["mara.x0f.nl"]);
+        assert_eq!(record.requested_post_count, Some(50));
+    }
+
+    #[test]
+    fn directly_returns_grounded_public_summary_results() {
+        let tool_output = "Overall commentary across Recent posts by did:plc:test:\nFinal cross-page commentary.\n\nConcatenated page summaries for Recent posts by did:plc:test:\nPage one summary.";
+
+        assert!(should_directly_return_summary_result(
+            "summary",
+            true,
+            true,
+            tool_output
+        ));
+        assert!(!should_directly_return_summary_result(
+            "summary",
+            true,
+            false,
+            tool_output
+        ));
+        assert!(!should_directly_return_summary_result(
+            "search",
+            true,
+            true,
+            tool_output
+        ));
     }
 }

@@ -55,6 +55,15 @@ The root agent only supplies high-level intent. The harness owns:
 - pagination
 - grounding and sufficiency checks
 
+For `summary`, the public return path is intentionally more deterministic than `search`:
+
+- `collection_summary` produces the grounded multi-window payload
+- the public `summary` tool formats that payload as:
+  - one scope-level commentary block
+  - one concatenated per-window summaries block
+- root context compaction preserves that block shape
+- the root run returns that `summary` result directly when it is the latest grounded answer, instead of asking the root model to paraphrase it again
+
 ### Internal tools
 
 Inside `llm_search`, the planner can request a narrower internal tool set.
@@ -129,6 +138,12 @@ The root model either:
 - emits a final answer
 - or gets repaired if it breaks the expected protocol
 
+When a grounded public `summary` result already answers the query, the harness now short-circuits the last step:
+
+- the root transcript still records the tool call and tool result
+- but the final answer reuses the grounded `summary` result directly
+- this avoids a second lossy root-level paraphrase over an already-complete coverage summary
+
 ### Internal `search` loop
 
 The internal planner loop for `llm_search` decides which harness-owned internal tool to run next.
@@ -179,6 +194,15 @@ With repairs and reviews included, the real loop has dedicated states for:
 - final notes repair
 
 The default page size is 25 items.
+
+The public output contract for that loop is now:
+
+- `Overall commentary across <collection label>:`
+- one grounded scope-level synthesis paragraph block
+- `Concatenated page summaries for <collection label>:`
+- the accepted per-window summaries concatenated in coverage order
+
+That is the block shape root sees and preserves.
 
 ## Context Window Model
 

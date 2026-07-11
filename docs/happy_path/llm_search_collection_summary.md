@@ -29,7 +29,7 @@ The happy path is ready when one root query can reliably do all of the following
 9. run a terminal harness-managed `collection_summary_notes` inner review/repair subloop only after the source is exhausted or the requested scope has actually been covered by accepted windows
 10. merge them into one combined child result
 11. send that combined result back to parent `llm_search`
-12. let `llm_search` produce a grounded final answer without inventing any extra evidence
+12. let the public `summary` path expose that grounded combined result directly without inventing any extra evidence
 
 ## Current State
 
@@ -80,13 +80,14 @@ It should:
 - choose the actor-authored recent-posts collection
 - start one `collection_summary` run for that collection
 - receive one combined child result back
-- synthesize a final answer from that combined result
+- expose that combined child result as the final public answer by default
 
 It should not need to:
 
 - manually issue page 0 and page 1 as separate planner choices
 - infer progress from LLM prose
 - stitch together raw page summaries itself
+- paraphrase a complete child summary into a shorter root-level answer
 
 That page traversal belongs in the harness-owned `collection_summary` loop.
 
@@ -214,6 +215,21 @@ collection_total_items: <n>
 coverage_complete: true
 source_exhausted: false
 ```
+
+The public `summary` tool should then render that payload into a deterministic root-facing block:
+
+```text
+Overall commentary across <collection label>:
+<final scope-level summary>
+
+Concatenated page summaries for <collection label>:
+<accepted page summary 1>
+
+<accepted page summary 2>
+...
+```
+
+The root run should preserve that block and, when it is already grounded and sufficient, return it directly instead of asking the root model to compress it again.
 
 The exact Rust field names can vary, but the payload must express both:
 
