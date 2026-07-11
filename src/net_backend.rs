@@ -519,9 +519,7 @@ pub async fn ensure_recent_posts_cached(
         store.get_recent_replies_sent_collection(did),
     ) {
         let cached_total = all_posts.posts.len();
-        if posts.posts.len() >= min_top_level_posts
-            || cached_total >= feed_fetch_limit
-        {
+        if posts.posts.len() >= min_top_level_posts || cached_total >= feed_fetch_limit {
             return Ok(());
         }
     }

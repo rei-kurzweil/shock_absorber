@@ -732,10 +732,7 @@ impl App {
             }
             "model" | "/model" => {
                 let Some(model_name) = parts.next() else {
-                    self.set_command_output(
-                        "/model",
-                        vec!["usage: /model model-name".to_string()],
-                    );
+                    self.set_command_output("/model", vec!["usage: /model model-name".to_string()]);
                     return Ok(());
                 };
                 if self.active_root_run.is_some() {
@@ -752,9 +749,12 @@ impl App {
 
                 let available_models = evil_gemma.client.fetch_available_models().await?;
                 if !available_models.iter().any(|model| model == model_name) {
-                    let mut lines = vec![format!("Model `{model_name}` was not returned by the inference server.")];
+                    let mut lines = vec![format!(
+                        "Model `{model_name}` was not returned by the inference server."
+                    )];
                     if available_models.is_empty() {
-                        lines.push("The inference server reported no available models.".to_string());
+                        lines
+                            .push("The inference server reported no available models.".to_string());
                     } else {
                         lines.push(String::new());
                         lines.push("Available models:".to_string());

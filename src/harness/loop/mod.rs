@@ -1,7 +1,7 @@
 pub mod collection_summary;
+pub mod root;
 pub mod search;
 pub mod summary;
-pub mod root;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoopKind {

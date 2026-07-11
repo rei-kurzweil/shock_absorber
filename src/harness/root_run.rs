@@ -576,10 +576,12 @@ async fn prepare_root_tool_input_loop(
                 ));
 
                 let should_refresh = attempt < MAX_TOOL_PREP_ATTEMPTS
-                    && failure
-                        .missing
-                        .iter()
-                        .any(|item| matches!(item, crate::harness::tools::ToolPrepMissingPrerequisite::CollectionTarget));
+                    && failure.missing.iter().any(|item| {
+                        matches!(
+                            item,
+                            crate::harness::tools::ToolPrepMissingPrerequisite::CollectionTarget
+                        )
+                    });
                 if should_refresh {
                     if let Some(anchor_did) = planned_tool_call_refresh_targets(
                         store,

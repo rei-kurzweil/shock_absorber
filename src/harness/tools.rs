@@ -1,8 +1,8 @@
-use crate::harness::context_window_logger::append_debug_trace;
 use crate::harness::agents::{AgentNodeKind, AgentNodeStatus, AgentNodeTemplate};
 use crate::harness::context_window::{
     BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
 };
+use crate::harness::context_window_logger::append_debug_trace;
 use crate::harness::llm_api::{ChatCompletionResponseFormat, ChatMessage, LlmApiClient};
 use crate::harness::r#loop::collection_summary::render_summary_collection_loop_result;
 use crate::harness::prompts::{AgentKind, tool_prompt};
@@ -573,6 +573,82 @@ struct PreparedSummaryRequest {
     collection_target_hint: SummaryCollectionTargetHint,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SummarySelectionReviewStatus {
+    Accepted,
+    Repaired,
+    Rejected,
+}
+
+impl SummarySelectionReviewStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Repaired => "repaired",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExplicitRepliesTarget {
+    Sent,
+    Received,
+    Any,
+}
+
+impl ExplicitRepliesTarget {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Sent => "recent_replies_sent",
+            Self::Received => "recent_replies_received",
+            Self::Any => "replies",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExplicitSummaryCollectionIntent {
+    RecentPosts,
+    Replies(ExplicitRepliesTarget),
+    PinnedPosts,
+    Profile,
+    Lists,
+    Ambiguous,
+}
+
+impl ExplicitSummaryCollectionIntent {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::RecentPosts => "recent_posts",
+            Self::Replies(target) => target.as_str(),
+            Self::PinnedPosts => "pinned_posts",
+            Self::Profile => "actor_profile",
+            Self::Lists => "clearsky_lists",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SummaryCollectionSelectionReview {
+    status: SummarySelectionReviewStatus,
+    reason: String,
+    original_collection_id: String,
+    original_collection_kind: String,
+    final_collection_id: String,
+    final_collection_kind: String,
+    deterministic_repair_applied: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct SummaryCollectionSelectionReviewPayload {
+    status: String,
+    #[serde(default)]
+    final_collection_id: Option<String>,
+    reason: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct SummaryPrepScopePayload {
     kind: String,
@@ -806,16 +882,15 @@ impl BlueskyTools {
     ) -> Result<PreparedPromptToolInput, ToolPrepFailure> {
         match tool_call.name.as_str() {
             "search" => {
-                let query = require_string_arg(&tool_call.args, "query")
-                    .map_err(|_| ToolPrepFailure {
+                let query =
+                    require_string_arg(&tool_call.args, "query").map_err(|_| ToolPrepFailure {
                         tool_name: "search".to_string(),
                         attempt_count: 1,
                         missing: vec![ToolPrepMissingPrerequisite::Query],
                         actor_anchor_source: None,
                         tried: vec!["validate_query".to_string()],
                     })?;
-                let actor_anchor =
-                    resolve_prepared_actor_anchor(&query, selected_actor_did, store);
+                let actor_anchor = resolve_prepared_actor_anchor(&query, selected_actor_did, store);
                 let mut scope_hints = Vec::new();
                 if let Some(anchor) = actor_anchor.as_ref() {
                     scope_hints.push(format!("prepared_actor_did: {}", anchor.actor_did.as_str()));
@@ -834,24 +909,24 @@ impl BlueskyTools {
                 }))
             }
             "summary" => {
-                let query = require_string_arg(&tool_call.args, "query")
-                    .map_err(|_| ToolPrepFailure {
+                let query =
+                    require_string_arg(&tool_call.args, "query").map_err(|_| ToolPrepFailure {
                         tool_name: "summary".to_string(),
                         attempt_count: 1,
                         missing: vec![ToolPrepMissingPrerequisite::Query],
                         actor_anchor_source: None,
                         tried: vec!["validate_query".to_string()],
                     })?;
-                let resolved_summary_request =
-                    self.resolve_summary_prep_request(&query, llm_client)
-                        .await
-                        .map_err(|message| ToolPrepFailure {
-                            tool_name: "summary".to_string(),
-                            attempt_count: 1,
-                            missing: vec![ToolPrepMissingPrerequisite::SummaryScope],
-                            actor_anchor_source: None,
-                            tried: vec![format!("resolve_summary_request: {message}")],
-                        })?;
+                let resolved_summary_request = self
+                    .resolve_summary_prep_request(&query, llm_client)
+                    .await
+                    .map_err(|message| ToolPrepFailure {
+                        tool_name: "summary".to_string(),
+                        attempt_count: 1,
+                        missing: vec![ToolPrepMissingPrerequisite::SummaryScope],
+                        actor_anchor_source: None,
+                        tried: vec![format!("resolve_summary_request: {message}")],
+                    })?;
                 let Some(actor_anchor) =
                     resolve_prepared_actor_anchor(&query, selected_actor_did, store)
                 else {
@@ -1558,10 +1633,14 @@ impl BlueskyTools {
             } else {
                 actor_collections
                     .iter()
-                    .map(|collection| format!(
-                        "{} | kind={} | posts={}",
-                        collection.id, collection.collection_kind, collection.posts.len()
-                    ))
+                    .map(|collection| {
+                        format!(
+                            "{} | kind={} | posts={}",
+                            collection.id,
+                            collection.collection_kind,
+                            collection.posts.len()
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("\n")
             }
@@ -1601,6 +1680,12 @@ impl BlueskyTools {
         )
         .ok_or("summary could not find a hydrated actor-backed collection to summarize")?;
         let requested_summary_scope = prepared_input.requested_summary_scope;
+        let selection_review = review_summary_collection_selection(
+            query,
+            requested_summary_scope,
+            &actor_collections,
+            &collection,
+        );
         append_summary_trace(format!(
             "[execute_public_summary]\nstatus: collection_selected\ncollection_id: {}\ncollection_label: {}\ncollection_kind: {}\npost_count: {}\nrequested_scope: {:?}",
             collection.id,
@@ -1608,6 +1693,20 @@ impl BlueskyTools {
             collection.collection_kind,
             collection.posts.len(),
             requested_summary_scope
+        ));
+        append_summary_trace(format!(
+            "[summary_collection_selection_review]\nquery: {}\nrequested_scope: {:?}\nrequested_target: {}\nhydrated_candidate_collections:\n{}\noriginal_collection_id: {}\noriginal_collection_kind: {}\nreview_status: {}\nfinal_collection_id: {}\nfinal_collection_kind: {}\ndeterministic_repair_applied: {}\nreason: {}",
+            query,
+            requested_summary_scope,
+            detect_explicit_summary_collection_intent(query, requested_summary_scope).as_str(),
+            render_summary_selection_inventory(&actor_collections),
+            selection_review.original_collection_id,
+            selection_review.original_collection_kind,
+            selection_review.status.as_str(),
+            selection_review.final_collection_id,
+            selection_review.final_collection_kind,
+            selection_review.deterministic_repair_applied,
+            selection_review.reason
         ));
         if let Some(observer) = observer.as_ref() {
             let _ = observer.send(ToolProgressEvent::AgentUpdate {
@@ -1622,7 +1721,131 @@ impl BlueskyTools {
                     requested_summary_scope
                 ),
             });
+            let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                label: "summary_collection_selection_review".to_string(),
+                depth: 2,
+                content: format!(
+                    "status: {}\noriginal_collection_id: {}\noriginal_collection_kind: {}\nfinal_collection_id: {}\nfinal_collection_kind: {}\ndeterministic_repair_applied: {}\nreason: {}",
+                    selection_review.status.as_str(),
+                    selection_review.original_collection_id,
+                    selection_review.original_collection_kind,
+                    selection_review.final_collection_id,
+                    selection_review.final_collection_kind,
+                    selection_review.deterministic_repair_applied,
+                    selection_review.reason
+                ),
+            });
         }
+        if selection_review.status == SummarySelectionReviewStatus::Rejected {
+            return Err(selection_review.reason.into());
+        }
+        let collection = if selection_review.final_collection_id == collection.id {
+            collection
+        } else {
+            let repaired = actor_collections
+                .iter()
+                .find(|candidate| candidate.id == selection_review.final_collection_id)
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "summary selection repair chose missing collection `{}`",
+                        selection_review.final_collection_id
+                    )
+                })?;
+            append_summary_trace(format!(
+                "[summary_collection_selection_repair]\nstatus: applied\noriginal_collection_id: {}\noriginal_collection_kind: {}\nfinal_collection_id: {}\nfinal_collection_kind: {}\nreason: {}",
+                selection_review.original_collection_id,
+                selection_review.original_collection_kind,
+                repaired.id,
+                repaired.collection_kind,
+                selection_review.reason
+            ));
+            repaired
+        };
+        let collection = if selection_review.status == SummarySelectionReviewStatus::Accepted {
+            let llm_review = llm_review_summary_collection_selection(
+                query,
+                requested_summary_scope,
+                &actor_collections,
+                &collection,
+                llm_client,
+            )
+            .await?;
+            append_summary_trace(format!(
+                "[summary_collection_selection_llm_review]\nquery: {}\nrequested_scope: {:?}\nproposed_collection_id: {}\nproposed_collection_kind: {}\nreview_status: {}\nfinal_collection_id: {}\nfinal_collection_kind: {}\nreason: {}",
+                query,
+                requested_summary_scope,
+                llm_review.original_collection_id,
+                llm_review.original_collection_kind,
+                llm_review.status.as_str(),
+                llm_review.final_collection_id,
+                llm_review.final_collection_kind,
+                llm_review.reason
+            ));
+            if let Some(observer) = observer.as_ref() {
+                let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                    label: "summary_collection_selection_llm_review".to_string(),
+                    depth: 2,
+                    content: format!(
+                        "status: {}\noriginal_collection_id: {}\noriginal_collection_kind: {}\nfinal_collection_id: {}\nfinal_collection_kind: {}\nreason: {}",
+                        llm_review.status.as_str(),
+                        llm_review.original_collection_id,
+                        llm_review.original_collection_kind,
+                        llm_review.final_collection_id,
+                        llm_review.final_collection_kind,
+                        llm_review.reason
+                    ),
+                });
+            }
+            if llm_review.status == SummarySelectionReviewStatus::Rejected {
+                return Err(llm_review.reason.into());
+            }
+            let llm_selected = actor_collections
+                .iter()
+                .find(|candidate| candidate.id == llm_review.final_collection_id)
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "summary selection llm review chose missing collection `{}`",
+                        llm_review.final_collection_id
+                    )
+                })?;
+            let final_review = review_summary_collection_selection(
+                query,
+                requested_summary_scope,
+                &actor_collections,
+                &llm_selected,
+            );
+            append_summary_trace(format!(
+                "[summary_collection_selection_llm_enforcement]\nreview_status: {}\noriginal_collection_id: {}\noriginal_collection_kind: {}\nfinal_collection_id: {}\nfinal_collection_kind: {}\ndeterministic_repair_applied: {}\nreason: {}",
+                final_review.status.as_str(),
+                final_review.original_collection_id,
+                final_review.original_collection_kind,
+                final_review.final_collection_id,
+                final_review.final_collection_kind,
+                final_review.deterministic_repair_applied,
+                final_review.reason
+            ));
+            if final_review.status == SummarySelectionReviewStatus::Rejected {
+                return Err(final_review.reason.into());
+            }
+            if final_review.final_collection_id == collection.id {
+                collection
+            } else {
+                actor_collections
+                    .iter()
+                    .find(|candidate| candidate.id == final_review.final_collection_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!(
+                            "summary selection enforcement chose missing collection `{}`",
+                            final_review.final_collection_id
+                        )
+                    })?
+            }
+        } else {
+            collection
+        };
         let outcomes = self
             .run_collection_summary_loop(
                 &collection,
@@ -2935,11 +3158,296 @@ fn pick_summary_collection_for_hint(
     preferred_kinds
         .iter()
         .find_map(|kind| {
-            collections
-                .iter()
-                .find(|collection| collection.collection_kind == *kind || collection.id.starts_with(kind))
+            collections.iter().find(|collection| {
+                collection.collection_kind == *kind || collection.id.starts_with(kind)
+            })
         })
         .cloned()
+}
+
+fn render_summary_selection_inventory(collections: &[LabeledPostCollection]) -> String {
+    if collections.is_empty() {
+        return "<none>".to_string();
+    }
+
+    collections
+        .iter()
+        .map(|collection| {
+            format!(
+                "{} | kind={} | posts={}",
+                collection.id,
+                collection.collection_kind,
+                collection.posts.len()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+async fn llm_review_summary_collection_selection(
+    query: &str,
+    requested_summary_scope: RequestedSummaryScope,
+    collections: &[LabeledPostCollection],
+    selected: &LabeledPostCollection,
+    llm_client: &LlmApiClient,
+) -> Result<SummaryCollectionSelectionReview, Box<dyn std::error::Error>> {
+    let response = llm_client
+        .complete_chat_with_response_format(
+            vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "You review a proposed public `summary` collection selection. Return only JSON. Use `status` as one of `accepted`, `repaired`, or `rejected`. Use `final_collection_id` as an exact id from the provided collection inventory for accepted or repaired results. Reject when none of the available collections fit the query. Do not invent collection ids.".to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: format!(
+                        "Query:\n{query}\n\nRequested summary scope:\n{}\n\nProposed collection:\ncollection_id: {}\ncollection_label: {}\ncollection_kind: {}\nitem_count: {}\n\nAvailable hydrated collections:\n{}\n\nReturn JSON with this shape:\n{{\"status\":\"accepted\",\"final_collection_id\":\"{}\",\"reason\":\"...\"}}",
+                        requested_summary_scope.render_for_planner(),
+                        selected.id,
+                        selected.label,
+                        selected.collection_kind,
+                        selected.posts.len(),
+                        render_summary_selection_inventory(collections),
+                        selected.id
+                    ),
+                },
+            ],
+            256,
+            Some(ChatCompletionResponseFormat::JsonObject),
+        )
+        .await?;
+    parse_llm_summary_collection_selection_review(collections, selected, &response)
+}
+
+fn parse_llm_summary_collection_selection_review(
+    collections: &[LabeledPostCollection],
+    selected: &LabeledPostCollection,
+    response: &str,
+) -> Result<SummaryCollectionSelectionReview, Box<dyn std::error::Error>> {
+    let payload: SummaryCollectionSelectionReviewPayload = serde_json::from_str(response)
+        .map_err(|err| format!("invalid summary selection review json: {err}"))?;
+    let status = match payload.status.trim() {
+        "accepted" => SummarySelectionReviewStatus::Accepted,
+        "repaired" => SummarySelectionReviewStatus::Repaired,
+        "rejected" => SummarySelectionReviewStatus::Rejected,
+        other => {
+            return Err(
+                format!("summary selection review returned unknown status `{other}`").into(),
+            );
+        }
+    };
+
+    let (final_collection_id, final_collection_kind) = match status {
+        SummarySelectionReviewStatus::Rejected => {
+            (selected.id.clone(), selected.collection_kind.clone())
+        }
+        SummarySelectionReviewStatus::Accepted | SummarySelectionReviewStatus::Repaired => {
+            let final_collection_id = payload
+                .final_collection_id
+                .filter(|value| !value.trim().is_empty())
+                .ok_or("summary selection review omitted final_collection_id")?;
+            let final_collection = collections
+                .iter()
+                .find(|candidate| candidate.id == final_collection_id)
+                .ok_or_else(|| {
+                    format!(
+                        "summary selection review chose unknown collection `{final_collection_id}`"
+                    )
+                })?;
+            (
+                final_collection.id.clone(),
+                final_collection.collection_kind.clone(),
+            )
+        }
+    };
+
+    Ok(SummaryCollectionSelectionReview {
+        status,
+        reason: payload.reason,
+        original_collection_id: selected.id.clone(),
+        original_collection_kind: selected.collection_kind.clone(),
+        final_collection_id,
+        final_collection_kind,
+        deterministic_repair_applied: false,
+    })
+}
+
+fn review_summary_collection_selection(
+    query: &str,
+    requested_summary_scope: RequestedSummaryScope,
+    collections: &[LabeledPostCollection],
+    selected: &LabeledPostCollection,
+) -> SummaryCollectionSelectionReview {
+    let intent = detect_explicit_summary_collection_intent(query, requested_summary_scope);
+    let original_collection_id = selected.id.clone();
+    let original_collection_kind = selected.collection_kind.clone();
+
+    if matches!(intent, ExplicitSummaryCollectionIntent::Ambiguous) {
+        return SummaryCollectionSelectionReview {
+            status: SummarySelectionReviewStatus::Accepted,
+            reason: "query leaves the summary collection target ambiguous, so the initial selection was kept".to_string(),
+            original_collection_id: original_collection_id.clone(),
+            original_collection_kind: original_collection_kind.clone(),
+            final_collection_id: original_collection_id,
+            final_collection_kind: original_collection_kind,
+            deterministic_repair_applied: false,
+        };
+    }
+
+    let preferred_kinds = explicit_summary_collection_preferred_kinds(intent);
+    if preferred_kinds
+        .iter()
+        .any(|kind| selected.collection_kind == *kind || selected.id.starts_with(kind))
+    {
+        return SummaryCollectionSelectionReview {
+            status: SummarySelectionReviewStatus::Accepted,
+            reason: format!(
+                "selected collection kind `{}` matches explicit request target `{}`",
+                selected.collection_kind,
+                intent.as_str()
+            ),
+            original_collection_id: original_collection_id.clone(),
+            original_collection_kind: original_collection_kind.clone(),
+            final_collection_id: original_collection_id,
+            final_collection_kind: original_collection_kind,
+            deterministic_repair_applied: false,
+        };
+    }
+
+    if let Some(repaired) = preferred_kinds.iter().find_map(|kind| {
+        collections
+            .iter()
+            .find(|candidate| candidate.collection_kind == *kind || candidate.id.starts_with(kind))
+    }) {
+        return SummaryCollectionSelectionReview {
+            status: SummarySelectionReviewStatus::Repaired,
+            reason: format!(
+                "replaced incompatible collection kind `{}` with explicit request target `{}`",
+                selected.collection_kind, repaired.collection_kind
+            ),
+            original_collection_id,
+            original_collection_kind,
+            final_collection_id: repaired.id.clone(),
+            final_collection_kind: repaired.collection_kind.clone(),
+            deterministic_repair_applied: true,
+        };
+    }
+
+    SummaryCollectionSelectionReview {
+        status: SummarySelectionReviewStatus::Rejected,
+        reason: format!(
+            "summary query explicitly targets `{}`, but no compatible hydrated collection was available",
+            intent.as_str()
+        ),
+        original_collection_id: original_collection_id.clone(),
+        original_collection_kind: original_collection_kind.clone(),
+        final_collection_id: original_collection_id,
+        final_collection_kind: original_collection_kind,
+        deterministic_repair_applied: false,
+    }
+}
+
+fn explicit_summary_collection_preferred_kinds(
+    intent: ExplicitSummaryCollectionIntent,
+) -> &'static [&'static str] {
+    match intent {
+        ExplicitSummaryCollectionIntent::RecentPosts => {
+            &["recent_posts", "recent_posts_unaddressed", "pinned_posts"]
+        }
+        ExplicitSummaryCollectionIntent::Replies(ExplicitRepliesTarget::Sent) => &[
+            "recent_replies_sent",
+            "recent_replies_received",
+            "replies_to_actor",
+        ],
+        ExplicitSummaryCollectionIntent::Replies(ExplicitRepliesTarget::Received) => &[
+            "recent_replies_received",
+            "replies_to_actor",
+            "recent_replies_sent",
+        ],
+        ExplicitSummaryCollectionIntent::Replies(ExplicitRepliesTarget::Any) => &[
+            "recent_replies_received",
+            "recent_replies_sent",
+            "replies_to_actor",
+        ],
+        ExplicitSummaryCollectionIntent::PinnedPosts => &["pinned_posts", "recent_posts"],
+        ExplicitSummaryCollectionIntent::Profile => &["actor_profile"],
+        ExplicitSummaryCollectionIntent::Lists => &["clearsky_lists"],
+        ExplicitSummaryCollectionIntent::Ambiguous => &[],
+    }
+}
+
+fn detect_explicit_summary_collection_intent(
+    query: &str,
+    requested_summary_scope: RequestedSummaryScope,
+) -> ExplicitSummaryCollectionIntent {
+    let lower = query.to_ascii_lowercase();
+
+    if [
+        " list",
+        "lists",
+        "listed",
+        "placed on",
+        "moderation",
+        "block list",
+        "blocklist",
+        "follow graph",
+        "follow list",
+        "reputation",
+        "sentiment",
+        "known for",
+        "known on",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+    {
+        return ExplicitSummaryCollectionIntent::Lists;
+    }
+
+    if lower.contains("pinned") {
+        return ExplicitSummaryCollectionIntent::PinnedPosts;
+    }
+
+    if lower.contains("repl") {
+        if lower.contains("sent") || lower.contains("from them") || lower.contains("by them") {
+            return ExplicitSummaryCollectionIntent::Replies(ExplicitRepliesTarget::Sent);
+        }
+        if lower.contains("received")
+            || lower.contains("to them")
+            || lower.contains("replies to")
+            || lower.contains("people replying")
+        {
+            return ExplicitSummaryCollectionIntent::Replies(ExplicitRepliesTarget::Received);
+        }
+        return ExplicitSummaryCollectionIntent::Replies(ExplicitRepliesTarget::Any);
+    }
+
+    if lower.contains("profile")
+        || lower.contains("bio")
+        || lower.contains("who is")
+        || lower.contains("who are they")
+        || lower.contains("what does their profile say")
+    {
+        return ExplicitSummaryCollectionIntent::Profile;
+    }
+
+    let explicit_post_count =
+        matches!(requested_summary_scope, RequestedSummaryScope::Count { .. })
+            && lower.contains("post");
+    let explicit_recent_posts = [
+        "recent posts",
+        "recent post",
+        "most recent posts",
+        "latest posts",
+        "last posts",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle));
+
+    if explicit_post_count || explicit_recent_posts {
+        return ExplicitSummaryCollectionIntent::RecentPosts;
+    }
+
+    ExplicitSummaryCollectionIntent::Ambiguous
 }
 
 fn summary_hydration_args_for_hint(
@@ -5754,12 +6262,12 @@ pub(crate) fn apply_summary_sufficiency_gates(
     prior_outcomes: &[CollectionToolOutcome],
     execution: &mut LlmSearchExecution,
 ) {
-        let original_summary_result = execution
-            .result
-            .as_ref()
-            .or(execution.original_result.as_ref())
-            .and_then(CollectionLeafResult::as_summary)
-            .cloned();
+    let original_summary_result = execution
+        .result
+        .as_ref()
+        .or(execution.original_result.as_ref())
+        .and_then(CollectionLeafResult::as_summary)
+        .cloned();
     let Some(result) = original_summary_result.as_ref() else {
         append_summary_trace(format!(
             "[summary_sufficiency_gate]\ncollection_id: {}\nstatus: skipped\nreason: missing_summary_result\nresult_present: {}\noriginal_result_present: {}\nreview_status: {}",
@@ -6321,7 +6829,11 @@ fn render_collection_outcome_progress_result(
         format!("collection_label: {collection_label}"),
         format!(
             "status: {}",
-            if execution.is_usable() { "ok" } else { "failed" }
+            if execution.is_usable() {
+                "ok"
+            } else {
+                "failed"
+            }
         ),
     ];
 
@@ -6329,7 +6841,9 @@ fn render_collection_outcome_progress_result(
         lines.push(format!("review_status: {}", verdict.status.as_str()));
         lines.push(format!("review_reason: {}", verdict.reason));
         if let Some(required_total_items) = verdict.required_total_items {
-            lines.push(format!("review_required_total_items: {required_total_items}"));
+            lines.push(format!(
+                "review_required_total_items: {required_total_items}"
+            ));
         }
     }
 
@@ -6833,23 +7347,24 @@ mod tests {
         ActorAnchorSource, BlueskyTools, CollectionLeafResult, CollectionLeafToolKind,
         CollectionReviewStatus, LlmSearchExecution, LlmSearchResult, LlmSearchResultItem,
         LlmSummaryResult, PreparedPromptToolInput, PromptToolCall, RequestedSummaryScope,
-        SearchIntent, SummaryCollectionTargetHint, ToolPrepMissingPrerequisite, ToolRegistry,
-        choose_deterministic_collection_id_for_actor, collection_search_offset, detect_actor_refs,
-        detect_post_uri, detect_summary_collection_target_hint,
-        deterministic_repair_internal_search_tool_call, deterministic_repair_summary,
-        fallback_llm_search_summary, heuristic_collection_review, merged_collection_from_refs,
+        SearchIntent, SummaryCollectionTargetHint, SummarySelectionReviewStatus,
+        ToolPrepMissingPrerequisite, ToolRegistry, choose_deterministic_collection_id_for_actor,
+        collection_search_offset, detect_actor_refs, detect_post_uri,
+        detect_summary_collection_target_hint, deterministic_repair_internal_search_tool_call,
+        deterministic_repair_summary, fallback_llm_search_summary, heuristic_collection_review,
+        llm_review_summary_collection_selection, merged_collection_from_refs,
         paged_search_collection, parse_collection_review_verdict, parse_collection_tool_result,
-        parse_internal_tool_repair_response, parse_llm_search_result, parse_prompt_tool_call,
+        parse_internal_tool_repair_response, parse_llm_search_result,
+        parse_llm_summary_collection_selection_review, parse_prompt_tool_call,
         parse_requested_summary_scope_args, pick_summary_collection_for_hint,
         reduced_search_collection, render_internal_search_tool_protocol, render_llm_result,
-        render_post_details, serialize_collection, source_collection_id_from_post,
-        summary_hydration_args_for_hint, validate_collection_id, validate_internal_tool_response,
-    };
-    use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
-    use crate::harness::llm_api::{
-        ChatCompletionResponseFormat, LlmApiClient, OpenAiRestConfig,
+        render_post_details, review_summary_collection_selection, serialize_collection,
+        source_collection_id_from_post, summary_hydration_args_for_hint, validate_collection_id,
+        validate_internal_tool_response,
     };
     use crate::app::EvilGemmaConfig;
+    use crate::harness::context_window::{BuiltContextWindow, ProviderContextLimits};
+    use crate::harness::llm_api::{ChatCompletionResponseFormat, LlmApiClient, OpenAiRestConfig};
     use crate::model::{LabeledPostCollection, PostRecord};
     use crate::net_backend::{
         NotificationStore, PostDetails, PostFacet, ensure_actor_profile_cached,
@@ -6870,11 +7385,15 @@ mod tests {
         Ok((agent, handle))
     }
 
-    fn summary_prep_llm_for_tests(response: &str) -> LlmApiClient {
+    fn scripted_llm_for_tests(responses: Vec<&str>) -> LlmApiClient {
         LlmApiClient::scripted_for_tests(
             OpenAiRestConfig::llama_cpp("http://example.test", "test-model"),
-            vec![response.to_string()],
+            responses.into_iter().map(str::to_string).collect(),
         )
+    }
+
+    fn summary_prep_llm_for_tests(response: &str) -> LlmApiClient {
+        scripted_llm_for_tests(vec![response])
     }
 
     fn search_leaf_result(result: LlmSearchResult) -> CollectionLeafResult {
@@ -7162,7 +7681,10 @@ mod tests {
             .iter()
             .find(|outcome| outcome.tool_kind == CollectionLeafToolKind::Summary)
             .expect(&format!("expected summary outcome\nrendered:\n{rendered}"));
-        let execution = outcome.execution.as_ref().expect("successful summary execution");
+        let execution = outcome
+            .execution
+            .as_ref()
+            .expect("successful summary execution");
         let result = execution
             .result
             .as_ref()
@@ -7773,7 +8295,10 @@ mod tests {
             .await
             .expect_err("expected prep failure");
 
-        assert_eq!(failure.missing, vec![ToolPrepMissingPrerequisite::ActorAnchor]);
+        assert_eq!(
+            failure.missing,
+            vec![ToolPrepMissingPrerequisite::ActorAnchor]
+        );
     }
 
     #[tokio::test]
@@ -8399,7 +8924,8 @@ mod tests {
     }
 
     #[test]
-    fn apply_summary_sufficiency_gates_preserves_grounded_page_result_while_more_pages_are_needed() {
+    fn apply_summary_sufficiency_gates_preserves_grounded_page_result_while_more_pages_are_needed()
+    {
         let original_result = LlmSummaryResult {
             title: "page 0".to_string(),
             summary: "grounded page 0".to_string(),
@@ -8776,13 +9302,9 @@ mod tests {
     #[test]
     fn pick_summary_collection_for_hint_prefers_clearsky_lists() {
         let collections = vec![
-            LabeledPostCollection::new(
-                "recent_posts:did:plc:test",
-                "Recent posts",
-                Vec::new(),
-            )
-            .with_collection_kind("recent_posts")
-            .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new("recent_posts:did:plc:test", "Recent posts", Vec::new())
+                .with_collection_kind("recent_posts")
+                .with_actor_did("did:plc:test"),
             LabeledPostCollection::new(
                 "clearsky_lists:did:plc:test",
                 "Clearsky moderation lists",
@@ -8792,11 +9314,9 @@ mod tests {
             .with_actor_did("did:plc:test"),
         ];
 
-        let selected = pick_summary_collection_for_hint(
-            &collections,
-            &SummaryCollectionTargetHint::Lists,
-        )
-        .expect("expected lists collection");
+        let selected =
+            pick_summary_collection_for_hint(&collections, &SummaryCollectionTargetHint::Lists)
+                .expect("expected lists collection");
 
         assert_eq!(selected.collection_kind, "clearsky_lists");
         assert_eq!(selected.id, "clearsky_lists:did:plc:test");
@@ -8805,20 +9325,12 @@ mod tests {
     #[test]
     fn pick_summary_collection_for_hint_prefers_recent_posts_over_profile() {
         let collections = vec![
-            LabeledPostCollection::new(
-                "actor_profile:did:plc:test",
-                "Profile",
-                Vec::new(),
-            )
-            .with_collection_kind("actor_profile")
-            .with_actor_did("did:plc:test"),
-            LabeledPostCollection::new(
-                "recent_posts:did:plc:test",
-                "Recent posts",
-                Vec::new(),
-            )
-            .with_collection_kind("recent_posts")
-            .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new("actor_profile:did:plc:test", "Profile", Vec::new())
+                .with_collection_kind("actor_profile")
+                .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new("recent_posts:did:plc:test", "Recent posts", Vec::new())
+                .with_collection_kind("recent_posts")
+                .with_actor_did("did:plc:test"),
         ];
 
         let selected = pick_summary_collection_for_hint(
@@ -8832,10 +9344,167 @@ mod tests {
     }
 
     #[test]
+    fn review_summary_collection_selection_repairs_post_query_to_recent_posts() {
+        let collections = vec![
+            LabeledPostCollection::new("actor_profile:did:plc:test", "Profile", Vec::new())
+                .with_collection_kind("actor_profile")
+                .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new("recent_posts:did:plc:test", "Recent posts", Vec::new())
+                .with_collection_kind("recent_posts")
+                .with_actor_did("did:plc:test"),
+        ];
+
+        let review = review_summary_collection_selection(
+            "summarize the last 300 posts by schizanon.bsky.social",
+            RequestedSummaryScope::Count {
+                requested_items: 300,
+            },
+            &collections,
+            &collections[0],
+        );
+
+        assert_eq!(review.status, SummarySelectionReviewStatus::Repaired);
+        assert!(review.deterministic_repair_applied);
+        assert_eq!(review.original_collection_kind, "actor_profile");
+        assert_eq!(review.final_collection_kind, "recent_posts");
+        assert_eq!(review.final_collection_id, "recent_posts:did:plc:test");
+    }
+
+    #[test]
+    fn review_summary_collection_selection_repairs_replies_query_to_sent_replies() {
+        let collections = vec![
+            LabeledPostCollection::new("recent_posts:did:plc:test", "Recent posts", Vec::new())
+                .with_collection_kind("recent_posts")
+                .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new(
+                "recent_replies_sent:did:plc:test",
+                "Recent replies sent",
+                Vec::new(),
+            )
+            .with_collection_kind("recent_replies_sent")
+            .with_actor_did("did:plc:test"),
+        ];
+
+        let review = review_summary_collection_selection(
+            "summarize the last 50 replies sent by schizanon.bsky.social",
+            RequestedSummaryScope::Count {
+                requested_items: 50,
+            },
+            &collections,
+            &collections[0],
+        );
+
+        assert_eq!(review.status, SummarySelectionReviewStatus::Repaired);
+        assert!(review.deterministic_repair_applied);
+        assert_eq!(review.final_collection_kind, "recent_replies_sent");
+        assert_eq!(
+            review.final_collection_id,
+            "recent_replies_sent:did:plc:test"
+        );
+    }
+
+    #[test]
+    fn review_summary_collection_selection_accepts_profile_query_for_actor_profile() {
+        let collections = vec![
+            LabeledPostCollection::new("actor_profile:did:plc:test", "Profile", Vec::new())
+                .with_collection_kind("actor_profile")
+                .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new("recent_posts:did:plc:test", "Recent posts", Vec::new())
+                .with_collection_kind("recent_posts")
+                .with_actor_did("did:plc:test"),
+        ];
+
+        let review = review_summary_collection_selection(
+            "what does their profile say?",
+            RequestedSummaryScope::CurrentWindow,
+            &collections,
+            &collections[0],
+        );
+
+        assert_eq!(review.status, SummarySelectionReviewStatus::Accepted);
+        assert!(!review.deterministic_repair_applied);
+        assert_eq!(review.final_collection_kind, "actor_profile");
+    }
+
+    #[test]
+    fn review_summary_collection_selection_rejects_explicit_post_query_without_posts_collection() {
+        let collections = vec![
+            LabeledPostCollection::new("actor_profile:did:plc:test", "Profile", Vec::new())
+                .with_collection_kind("actor_profile")
+                .with_actor_did("did:plc:test"),
+        ];
+
+        let review = review_summary_collection_selection(
+            "summarize the last 300 posts by schizanon.bsky.social",
+            RequestedSummaryScope::Count {
+                requested_items: 300,
+            },
+            &collections,
+            &collections[0],
+        );
+
+        assert_eq!(review.status, SummarySelectionReviewStatus::Rejected);
+        assert!(!review.deterministic_repair_applied);
+        assert!(review.reason.contains("recent_posts"));
+    }
+
+    #[tokio::test]
+    async fn llm_review_summary_collection_selection_can_repair_ambiguous_query() {
+        let llm_client = scripted_llm_for_tests(vec![
+            r#"{"status":"repaired","final_collection_id":"recent_posts:did:plc:test","reason":"The query asks about posting activity lately, so recent posts are the better fit."}"#,
+        ]);
+        let collections = vec![
+            LabeledPostCollection::new("actor_profile:did:plc:test", "Profile", Vec::new())
+                .with_collection_kind("actor_profile")
+                .with_actor_did("did:plc:test"),
+            LabeledPostCollection::new("recent_posts:did:plc:test", "Recent posts", Vec::new())
+                .with_collection_kind("recent_posts")
+                .with_actor_did("did:plc:test"),
+        ];
+
+        let review = llm_review_summary_collection_selection(
+            "what have they been posting about lately?",
+            RequestedSummaryScope::CurrentWindow,
+            &collections,
+            &collections[0],
+            &llm_client,
+        )
+        .await
+        .expect("expected llm selection review");
+
+        assert_eq!(review.status, SummarySelectionReviewStatus::Repaired);
+        assert_eq!(review.final_collection_id, "recent_posts:did:plc:test");
+        assert_eq!(review.final_collection_kind, "recent_posts");
+    }
+
+    #[test]
+    fn parse_llm_summary_collection_selection_review_rejects_unknown_collection_id() {
+        let collections = vec![
+            LabeledPostCollection::new("recent_posts:did:plc:test", "Recent posts", Vec::new())
+                .with_collection_kind("recent_posts")
+                .with_actor_did("did:plc:test"),
+        ];
+
+        let err = parse_llm_summary_collection_selection_review(
+            &collections,
+            &collections[0],
+            r#"{"status":"repaired","final_collection_id":"actor_profile:did:plc:test","reason":"profile is better"}"#,
+        )
+        .expect_err("expected unknown collection id failure");
+
+        assert!(
+            err.to_string()
+                .contains("summary selection review chose unknown collection")
+        );
+    }
+
+    #[test]
     fn summary_hydration_args_include_clearsky_lists_for_lists_hint() {
         let args = summary_hydration_args_for_hint(
             &SummaryCollectionTargetHint::Lists,
-            RequestedSummaryScope::Count { requested_items: 50 },
+            RequestedSummaryScope::Count {
+                requested_items: 50,
+            },
         );
 
         assert_eq!(args["include_clearsky_lists"], serde_json::json!(true));

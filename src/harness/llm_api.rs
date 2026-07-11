@@ -346,7 +346,10 @@ impl LlmApiClient {
     }
 
     fn config_snapshot(&self) -> OpenAiRestConfig {
-        self.config.read().expect("llm config lock poisoned").clone()
+        self.config
+            .read()
+            .expect("llm config lock poisoned")
+            .clone()
     }
 }
 
@@ -538,7 +541,11 @@ mod tests {
         )
         .expect("models response should parse");
 
-        let ids = response.data.into_iter().map(|model| model.id).collect::<Vec<_>>();
+        let ids = response
+            .data
+            .into_iter()
+            .map(|model| model.id)
+            .collect::<Vec<_>>();
         assert_eq!(ids, vec!["gemma-4-local", "qwen-3.5-local"]);
     }
 }

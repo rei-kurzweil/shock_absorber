@@ -2,11 +2,11 @@ use crate::app::App;
 use crate::harness::runtime::{
     RootRunState, TranscriptEntry, TranscriptEntryKind, compact_transcript_entries,
 };
+use crossterm::Command;
 use crossterm::cursor::{MoveTo, Show};
 use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{self, Clear, ClearType};
-use crossterm::Command;
 use std::fmt;
 use std::io::{Result as IoResult, Write};
 
@@ -143,7 +143,11 @@ impl StdoutChatRenderer {
         Ok(())
     }
 
-    fn apply_layout_change<W: Write>(&mut self, writer: &mut W, layout: TerminalLayout) -> IoResult<()> {
+    fn apply_layout_change<W: Write>(
+        &mut self,
+        writer: &mut W,
+        layout: TerminalLayout,
+    ) -> IoResult<()> {
         if let Some(previous) = self.terminal_layout {
             if !previous.fallback {
                 queue!(writer, ResetScrollRegion)?;
@@ -332,7 +336,12 @@ fn render_footer(app: &App, width: usize, fallback: bool) -> FooterRenderView {
 
 fn render_fallback_footer(app: &App, width: usize) -> FooterRenderView {
     let prompt_width = width.saturating_sub(2).max(1);
-    let text = app.chat_editor().lines().last().copied().unwrap_or_default();
+    let text = app
+        .chat_editor()
+        .lines()
+        .last()
+        .copied()
+        .unwrap_or_default();
     let wrapped = wrap_line(text, prompt_width);
     let segment = wrapped.last().cloned().unwrap_or_default();
     let display = format!("⟩ {segment}");
@@ -371,8 +380,8 @@ fn render_input_box(app: &App, width: usize) -> (Vec<String>, u16, u16) {
                 && cursor_column_in_line <= consumed + segment_len
             {
                 cursor_row_index = row_index;
-                cursor_column = INPUT_BOX_LEFT_PADDING as u16
-                    + (cursor_column_in_line - consumed) as u16;
+                cursor_column =
+                    INPUT_BOX_LEFT_PADDING as u16 + (cursor_column_in_line - consumed) as u16;
             }
 
             consumed += segment_len;
@@ -511,7 +520,14 @@ fn write_footer_view<W: Write>(
                 )?;
             }
             FooterLineStyle::Plain => {
-                queue!(writer, ResetColor, Print(truncate_to_width(&line.text, footer_view.terminal_width as usize)))?;
+                queue!(
+                    writer,
+                    ResetColor,
+                    Print(truncate_to_width(
+                        &line.text,
+                        footer_view.terminal_width as usize
+                    ))
+                )?;
             }
         }
     }
@@ -572,11 +588,7 @@ fn render_user_input_echo_rows(content: &str, width: usize) -> Vec<String> {
     rows
 }
 
-fn write_input_box_styled_line<W: Write>(
-    writer: &mut W,
-    text: &str,
-    width: usize,
-) -> IoResult<()> {
+fn write_input_box_styled_line<W: Write>(writer: &mut W, text: &str, width: usize) -> IoResult<()> {
     queue!(
         writer,
         SetForegroundColor(INPUT_BOX_FG),

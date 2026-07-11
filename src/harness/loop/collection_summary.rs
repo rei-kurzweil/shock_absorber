@@ -1,9 +1,9 @@
-use crate::harness::context_window_logger::append_debug_trace;
 use crate::harness::context_window::{
     BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
 };
-use crate::harness::llm_api::LlmApiClient;
+use crate::harness::context_window_logger::append_debug_trace;
 use crate::harness::llm_api::ChatMessage;
+use crate::harness::llm_api::LlmApiClient;
 use crate::harness::r#loop::{
     LoopDefinition, LoopExecutor, LoopKind, LoopNodeDefinition, LoopNodeKind, LoopPort,
     LoopPortTarget,
@@ -306,7 +306,8 @@ impl SummaryLoopAccumulator {
         self.source_exhausted = result.has_more == Some(false);
         self.accepted_windows
             .push((offset, result.processed_window_size().unwrap_or(0)));
-        self.accepted_page_summaries.push(result.summary.trim().to_string());
+        self.accepted_page_summaries
+            .push(result.summary.trim().to_string());
     }
 
     fn concatenated_window_summaries(&self) -> String {
@@ -396,9 +397,10 @@ impl SummaryLoopAccumulator {
                     concatenated_window_summaries: Some(concatenated_window_summaries),
                     window_offset: self.covered_window_offsets.first().copied(),
                     window_size: Some(self.covered_post_count),
-                    page_index: self.covered_window_offsets.first().map(|offset| {
-                        offset / COLLECTION_SEARCH_PAGE_SIZE.max(1)
-                    }),
+                    page_index: self
+                        .covered_window_offsets
+                        .first()
+                        .map(|offset| offset / COLLECTION_SEARCH_PAGE_SIZE.max(1)),
                     page_size: Some(COLLECTION_SEARCH_PAGE_SIZE),
                     collection_total_items: self.collection_total_items,
                     has_more: Some(!coverage_complete && !source_exhausted),
@@ -407,15 +409,17 @@ impl SummaryLoopAccumulator {
                     window_total_items: Some(self.covered_post_count),
                 })),
                 original_result: None,
-                context_window: self.notes_context_window.clone().or_else(|| self.planner_context_window.clone()).or_else(
-                    || {
+                context_window: self
+                    .notes_context_window
+                    .clone()
+                    .or_else(|| self.planner_context_window.clone())
+                    .or_else(|| {
                         self.page_outcomes
                             .iter()
                             .rev()
                             .find_map(|outcome| outcome.execution.as_ref().ok())
                             .map(|execution| execution.context_window.clone())
-                    },
-                )?,
+                    })?,
                 diagnostic: Some(format!(
                     "{diagnostic}\ncovered_window_offsets: {}\ncovered_post_count: {}\nplanner_updates: {}",
                     self.covered_window_offsets
@@ -555,7 +559,9 @@ fn covered_post_bodies<'a>(
 ) -> Vec<&'a str> {
     let mut bodies = Vec::new();
     for (offset, window_size) in accepted_windows {
-        let end = offset.saturating_add(*window_size).min(collection.posts.len());
+        let end = offset
+            .saturating_add(*window_size)
+            .min(collection.posts.len());
         for post in collection
             .posts
             .iter()
@@ -650,7 +656,10 @@ fn build_collection_summary_planner_context(
     let mut context = LLMContext::new(COLLECTION_SUMMARY_PLANNER_PROMPT);
     context.push_section("Task", prompt);
     context.push_section("Collection", render_collection_summary_stub(collection));
-    context.push_section("Requested Scope", requested_summary_scope.render_for_planner());
+    context.push_section(
+        "Requested Scope",
+        requested_summary_scope.render_for_planner(),
+    );
     context.push_section(
         "Coverage State",
         format!(
@@ -683,7 +692,10 @@ fn build_collection_summary_notes_context(
     let mut context = LLMContext::new(COLLECTION_SUMMARY_NOTES_PROMPT);
     context.push_section("Task", prompt);
     context.push_section("Collection", render_collection_summary_stub(collection));
-    context.push_section("Requested Scope", requested_summary_scope.render_for_planner());
+    context.push_section(
+        "Requested Scope",
+        requested_summary_scope.render_for_planner(),
+    );
     context.push_section(
         "Coverage State",
         format!(
@@ -823,7 +835,10 @@ impl BlueskyTools {
                     if offset >= collection.posts.len() {
                         append_summary_trace(format!(
                             "[collection_summary_loop]\nnode: summarize_page\nstatus: break\nreason: offset_out_of_range\ncurrent_offset: {}\ncollection_posts: {}\npages_processed: {}\nmax_pages: {}",
-                            offset, collection.posts.len(), pages_processed, max_pages
+                            offset,
+                            collection.posts.len(),
+                            pages_processed,
+                            max_pages
                         ));
                         if let Some(observer) = observer.as_ref() {
                             let _ = observer.send(ToolProgressEvent::AgentUpdate {
@@ -860,10 +875,7 @@ impl BlueskyTools {
                     }
                     append_summary_trace(format!(
                         "[collection_summary_loop]\nnode: summarize_page\nstatus: running\ncollection_id: {}\npage_index: {}\noffset: {}\nwindow_size: {}",
-                        collection.id,
-                        pages_processed,
-                        offset,
-                        COLLECTION_SEARCH_PAGE_SIZE
+                        collection.id, pages_processed, offset, COLLECTION_SEARCH_PAGE_SIZE
                     ));
                     if let Some(observer) = observer.as_ref() {
                         let _ = observer.send(ToolProgressEvent::AgentUpdate {
@@ -978,9 +990,7 @@ impl BlueskyTools {
                             depth: 2,
                             content: format!(
                                 "node: summarize_page\ncollection_id: {}\noffset: {}\n{}",
-                                outcome.collection_id,
-                                offset,
-                                execution_summary
+                                outcome.collection_id, offset, execution_summary
                             ),
                         });
                     }
@@ -1030,11 +1040,8 @@ impl BlueskyTools {
                                 .unwrap_or(false)
                         })
                     else {
-                        current_node = next_node(
-                            NODE_COLLECTION_SUMMARY_PLANNER,
-                            PORT_FAILURE,
-                        )
-                        .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REPAIR);
+                        current_node = next_node(NODE_COLLECTION_SUMMARY_PLANNER, PORT_FAILURE)
+                            .unwrap_or(NODE_COLLECTION_SUMMARY_PLANNER_REPAIR);
                         continue;
                     };
                     if grounded {
@@ -1092,7 +1099,9 @@ impl BlueskyTools {
                             )
                             .await
                             .ok()
-                            .map(|response| normalize_synthesis_response(response.trim().to_string()))
+                            .map(|response| {
+                                normalize_synthesis_response(response.trim().to_string())
+                            })
                             .filter(|response| !response.is_empty());
                         accumulator.pending_planner_update = planner_response.clone();
                         accumulator.pending_planner_context_window = Some(planner_window);
@@ -1176,7 +1185,8 @@ impl BlueskyTools {
                     if accumulator.planner_repair_attempted {
                         break;
                     }
-                    let Some(prior_context) = accumulator.pending_planner_context_window.clone() else {
+                    let Some(prior_context) = accumulator.pending_planner_context_window.clone()
+                    else {
                         break;
                     };
                     let prior_response = accumulator
@@ -1334,7 +1344,8 @@ impl BlueskyTools {
                     if accumulator.notes_repair_attempted {
                         break;
                     }
-                    let Some(prior_context) = accumulator.pending_notes_context_window.clone() else {
+                    let Some(prior_context) = accumulator.pending_notes_context_window.clone()
+                    else {
                         break;
                     };
                     let prior_response = accumulator
@@ -1460,7 +1471,12 @@ mod tests {
             }
         }
 
-        assert_eq!(outcomes.len(), 1, "progress:\n{}", progress.join("\n\n---\n\n"));
+        assert_eq!(
+            outcomes.len(),
+            1,
+            "progress:\n{}",
+            progress.join("\n\n---\n\n")
+        );
         let outcome = outcomes.first().expect("aggregated outcome");
         let execution = outcome.execution.as_ref().expect("successful execution");
         let result = execution
@@ -1485,16 +1501,28 @@ mod tests {
         let concatenated = result
             .concatenated_window_summaries()
             .expect("concatenated summaries");
-        assert!(concatenated.contains("The first window repeatedly returns to \"theme alpha\" posts"));
+        assert!(
+            concatenated.contains("The first window repeatedly returns to \"theme alpha\" posts")
+        );
         assert!(concatenated.contains("The second window shifts toward \"theme beta\" posts"));
 
         assert!(
-            result.summary.contains("The first 100 posts split into two clear phases."),
+            result
+                .summary
+                .contains("The first 100 posts split into two clear phases."),
             "final summary: {:?}",
             result.summary
         );
-        assert!(result.summary.contains("\"alpha\""), "final summary: {:?}", result.summary);
-        assert!(result.summary.contains("\"beta\""), "final summary: {:?}", result.summary);
+        assert!(
+            result.summary.contains("\"alpha\""),
+            "final summary: {:?}",
+            result.summary
+        );
+        assert!(
+            result.summary.contains("\"beta\""),
+            "final summary: {:?}",
+            result.summary
+        );
 
         let verdict = execution.review_verdict.as_ref().expect("review verdict");
         assert_eq!(verdict.status, CollectionReviewStatus::Pass);
@@ -1545,14 +1573,18 @@ mod tests {
             .and_then(CollectionLeafResult::as_summary)
             .expect("summary result");
 
-        assert!(result.summary.contains("The first 100 posts split into two clear phases."));
+        assert!(
+            result
+                .summary
+                .contains("The first 100 posts split into two clear phases.")
+        );
         assert!(result.summary.contains("\"snippet 79\""));
         assert!(!result.summary.contains("invented quote"));
     }
 
     #[tokio::test]
-    async fn run_collection_summary_loop_continues_when_partial_review_omits_grounded_and_next_offset(
-    ) {
+    async fn run_collection_summary_loop_continues_when_partial_review_omits_grounded_and_next_offset()
+     {
         let llm_client = start_mock_llm_client(vec![
             "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
             "status: fail\nsufficient: false\nreason: need more pages\nrepair_needed: false\nadditional_pages_needed: true\nrequired_total_items: 100".to_string(),
@@ -1587,7 +1619,11 @@ mod tests {
             .expect("summary result");
 
         assert_eq!(result.window_size, Some(100));
-        assert!(result.summary.contains("The first 100 posts split into two clear phases."));
+        assert!(
+            result
+                .summary
+                .contains("The first 100 posts split into two clear phases.")
+        );
 
         let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();
         assert!(diagnostic.contains("collection_summary_planner accepted 2 page summaries"));
