@@ -1,5 +1,5 @@
 use crate::db::AppDb;
-use crate::harness::agents::{AgentGraph, AgentNode, AgentNodeId, AgentNodeKind};
+use crate::harness::agents::{AgentNode, AgentNodeId, AgentNodeKind};
 use crate::harness::llm_api::{ChatMessage, LlmApiClient, OpenAiRestConfig};
 use crate::harness::root_context::{
     build_live_context_visualization, build_root_context_snapshot,
@@ -10,6 +10,9 @@ use crate::harness::runtime::{
     ContextMessage, ContextMessageKind, RootRunState, RootRunStatus, TranscriptEntryKind,
 };
 use crate::harness::tools::{BlueskyTools, ToolProgressEvent, prompt_tool_protocol_instructions};
+use crate::harness::units::{
+    UnitDefinition, UnitInstanceState, UnitInstanceStatus, UnitKind, UnitLocalStateSchema,
+};
 use crate::net_backend::{
     ActorProfile, CachedThreadReply, NotificationStore, ensure_actor_profile_cached,
     ensure_clearsky_lists_cached, ensure_pinned_posts_cached, ensure_recent_posts_cached,
@@ -702,6 +705,12 @@ impl App {
                 self.detail = DetailView::Agents;
                 self.status = "agents view loaded".to_string();
             }
+            "units" | "/units" => {
+                self.detail_scroll = 0;
+                self.presentation_mode = PresentationMode::Tui;
+                self.set_command_output("/units", self.units_lines());
+                self.status = "units view loaded".to_string();
+            }
             "notifications" | "/notifications" => {
                 self.detail_scroll = 0;
                 self.presentation_mode = PresentationMode::Tui;
@@ -890,6 +899,18 @@ impl App {
         lines
     }
 
+    fn units_lines(&self) -> Vec<String> {
+        let Some(run) = self.root_run.as_ref() else {
+            return vec![
+                "No unit run available yet.".to_string(),
+                "Run a query, then use `/units` to inspect the unit graph.".to_string(),
+            ];
+        };
+        let mut lines = Vec::new();
+        render_unit_lines(run.root_unit(), 0, &mut lines);
+        lines
+    }
+
     fn build_context_visualization(
         &self,
         evil_gemma: &EvilGemmaConfig,
@@ -1031,14 +1052,21 @@ impl App {
                 },
             },
         ];
-        let mut agent_graph = AgentGraph::new_root("Root Agent");
-        agent_graph.set_context_window(agent_graph.root_agent_id(), root_context_window.clone());
-        agent_graph.set_result_summary(agent_graph.root_agent_id(), query.to_string());
+        let mut root_unit = UnitInstanceState::new(UnitDefinition {
+            id: "root".to_string(),
+            label: "Root Unit".to_string(),
+            kind: UnitKind::Root,
+            graph: None,
+            local_state_schema: UnitLocalStateSchema::None,
+        });
+        root_unit.status = UnitInstanceStatus::Running;
+        root_unit.context_window = Some(root_context_window.clone());
+        root_unit.result_summary = Some(query.to_string());
         let mut root_run = RootRunState::new(
             query.to_string(),
             root_context_window,
             messages,
-            agent_graph,
+            root_unit,
         );
         if should_echo_stdout_chat_submission(query) {
             root_run.push_transcript_entry(TranscriptEntryKind::UserInput, query.to_string());
@@ -1600,6 +1628,42 @@ fn build_post_nodes(replies: Vec<CachedThreadReply>) -> Vec<PostNode> {
         .collect()
 }
 
+fn render_unit_lines(
+    unit: &UnitInstanceState,
+    depth: usize,
+    lines: &mut Vec<String>,
+) {
+    let indent = "  ".repeat(depth);
+    lines.push(format!(
+        "{indent}- {} [{}] status={} active_node={}",
+        unit.instance_label,
+        unit.kind.as_str(),
+        unit.status.as_str(),
+        unit.active_node.as_deref().unwrap_or("<none>")
+    ));
+    if let Some(collection_id) = unit.collection_id.as_deref() {
+        lines.push(format!("{indent}  collection_id: {collection_id}"));
+    }
+    if let Some(blocked_on_child) = unit.blocked_on_child.as_deref() {
+        lines.push(format!("{indent}  blocked_on_child: {blocked_on_child}"));
+    }
+    if let Some(local_state) = unit.local_state.compact_summary() {
+        lines.push(format!("{indent}  local_state:"));
+        for line in local_state.lines() {
+            lines.push(format!("{indent}    {line}"));
+        }
+    }
+    if let Some(summary) = unit.result_summary.as_deref() {
+        let summary = summary.trim();
+        if !summary.is_empty() {
+            lines.push(format!("{indent}  result: {}", summary.lines().next().unwrap_or("")));
+        }
+    }
+    for child in &unit.children {
+        render_unit_lines(child, depth + 1, lines);
+    }
+}
+
 fn help_lines() -> Vec<String> {
     vec![
         "Commands:".to_string(),
@@ -1607,6 +1671,7 @@ fn help_lines() -> Vec<String> {
         "  /replies_from handle.bsky.social".to_string(),
         "  /pins handle.bsky.social".to_string(),
         "  /agents".to_string(),
+        "  /units".to_string(),
         "  /notifications".to_string(),
         "  /context".to_string(),
         "  /stop".to_string(),
@@ -1632,6 +1697,7 @@ fn is_local_command(verb: &str) -> bool {
             | "/replies_from"
             | "/pins"
             | "/agents"
+            | "/units"
             | "/notifications"
             | "/context"
             | "/stop"
@@ -1647,6 +1713,7 @@ fn is_local_command(verb: &str) -> bool {
             | "replies_from"
             | "pins"
             | "agents"
+            | "units"
             | "notifications"
             | "context"
             | "stop"

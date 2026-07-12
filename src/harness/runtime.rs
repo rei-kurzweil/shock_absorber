@@ -2,6 +2,7 @@ use crate::harness::agents::AgentGraph;
 use crate::harness::context_window::BuiltContextWindow;
 use crate::harness::llm_api::ChatMessage;
 use crate::harness::tools::PromptToolCall;
+use crate::harness::units::{UnitInstanceState, agent_graph_from_root_unit};
 use crate::visualization::context::ContextVisualizationData;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
@@ -114,6 +115,7 @@ pub struct RootRunState {
     active_tool_entry: Option<String>,
     final_response: Option<String>,
     latest_successful_tool_runs: HashMap<String, SuccessfulRootToolRun>,
+    root_unit: UnitInstanceState,
     agent_graph: AgentGraph,
     context_visualization: Option<ContextVisualizationData>,
 }
@@ -123,8 +125,9 @@ impl RootRunState {
         query: impl Into<String>,
         root_context_window: BuiltContextWindow,
         messages: Vec<ContextMessage>,
-        agent_graph: AgentGraph,
+        root_unit: UnitInstanceState,
     ) -> Self {
+        let agent_graph = agent_graph_from_root_unit(&root_unit);
         Self {
             run_id: NEXT_ROOT_RUN_ID.fetch_add(1, Ordering::Relaxed),
             query: query.into(),
@@ -138,6 +141,7 @@ impl RootRunState {
             active_tool_entry: None,
             final_response: None,
             latest_successful_tool_runs: HashMap::new(),
+            root_unit,
             agent_graph,
             context_visualization: None,
         }
@@ -309,8 +313,16 @@ impl RootRunState {
         &self.agent_graph
     }
 
-    pub fn agent_graph_mut(&mut self) -> &mut AgentGraph {
-        &mut self.agent_graph
+    pub fn root_unit(&self) -> &UnitInstanceState {
+        &self.root_unit
+    }
+
+    pub fn root_unit_mut(&mut self) -> &mut UnitInstanceState {
+        &mut self.root_unit
+    }
+
+    pub fn refresh_agent_graph_from_units(&mut self) {
+        self.agent_graph = agent_graph_from_root_unit(&self.root_unit);
     }
 
     pub fn context_visualization(&self) -> Option<&ContextVisualizationData> {

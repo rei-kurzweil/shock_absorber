@@ -1,7 +1,7 @@
 use crate::app::EvilGemmaConfig;
-use crate::harness::agents::AgentNodeStatus;
 use crate::harness::context_window_logger::{
     log_agent_graph, log_chat_transcript, log_current_task, log_root_prompt_snapshot,
+    log_unit_graph,
 };
 use crate::harness::root_context::build_live_context_visualization;
 use crate::harness::runtime::{
@@ -197,6 +197,7 @@ pub async fn run_root_query_task(
                     ),
                     context_windows: Vec::new(),
                     agent_node: None,
+                    unit_node: None,
                 }
             } else {
                 match tools
@@ -216,14 +217,15 @@ pub async fn run_root_query_task(
                         rendered: format!("Tool execution failed: {err}"),
                         context_windows: Vec::new(),
                         agent_node: None,
+                        unit_node: None,
                     },
                 }
             };
             drop(tool_progress_sender);
             let _ = forward_handle.await;
-            if let Some(agent_node) = tool_output.agent_node.clone() {
-                let root_agent_id = root_run.agent_graph().root_agent_id();
-                root_run.agent_graph_mut().attach_template(root_agent_id, agent_node);
+            if let Some(unit_node) = tool_output.unit_node.clone() {
+                root_run.root_unit_mut().push_child(unit_node);
+                root_run.refresh_agent_graph_from_units();
             }
             let tool_output = if prep_warnings.is_empty() {
                 tool_output.rendered
@@ -372,13 +374,9 @@ pub async fn run_root_query_task(
         }
 
         root_run.set_final_response(response.clone());
-        let root_agent_id = root_run.agent_graph().root_agent_id();
-        root_run
-            .agent_graph_mut()
-            .set_status(root_agent_id, AgentNodeStatus::Completed);
-        root_run
-            .agent_graph_mut()
-            .set_result_summary(root_agent_id, response.clone());
+        root_run.root_unit_mut().status = crate::harness::units::UnitInstanceStatus::Completed;
+        root_run.root_unit_mut().result_summary = Some(response.clone());
+        root_run.refresh_agent_graph_from_units();
         root_run.set_status(RootRunStatus::Completed);
         let mut final_messages = root_run.messages().to_vec();
         final_messages.push(ContextMessage {
@@ -401,6 +399,7 @@ pub async fn run_root_query_task(
         let debug_base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let output_lines = root_run.render_output_lines();
         let _ = log_agent_graph(&debug_base_dir, root_run.agent_graph());
+        let _ = log_unit_graph(&debug_base_dir, root_run.root_unit());
         let _ = log_chat_transcript(&debug_base_dir, &output_lines);
         let _ = log_current_task(&debug_base_dir, root_run.agent_graph(), Some(root_run.query()));
         if let Some(root_snapshot) = final_context_visualization.windows.first() {

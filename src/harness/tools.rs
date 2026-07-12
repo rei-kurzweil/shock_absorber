@@ -1,4 +1,4 @@
-use crate::harness::agents::{AgentNodeKind, AgentNodeStatus, AgentNodeTemplate};
+use crate::harness::agents::{AgentNodeKind, AgentNodeTemplate};
 use crate::harness::context_window::{
     BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
 };
@@ -6,9 +6,12 @@ use crate::harness::context_window_logger::append_debug_trace;
 use crate::harness::llm_api::{ChatCompletionResponseFormat, ChatMessage, LlmApiClient};
 use crate::harness::r#loop::collection_summary::render_summary_collection_loop_result;
 use crate::harness::prompts::{AgentKind, tool_prompt};
+use crate::harness::search as harness_search;
+use crate::harness::summary as harness_summary;
 use crate::harness::tool_call_parser::{
     extract_leading_tool_call_block, parse_prompt_tool_call as parse_prompt_tool_call_result,
 };
+use crate::harness::units::UnitInstanceState;
 use crate::model::{LabeledPostCollection, PostRecord};
 use crate::net_backend::{
     NotificationStore, PostDetails, cache_global_search_posts, ensure_actor_profile_cached,
@@ -337,7 +340,7 @@ pub enum CollectionReviewStatus {
 }
 
 impl CollectionReviewStatus {
-    fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Pass => "pass",
             Self::Fail => "fail",
@@ -371,7 +374,7 @@ pub struct LlmSearchExecution {
 }
 
 impl LlmSearchExecution {
-    fn is_usable(&self) -> bool {
+    pub(crate) fn is_usable(&self) -> bool {
         self.result.is_some()
             && !matches!(
                 self.review_verdict.as_ref().map(|verdict| &verdict.status),
@@ -379,7 +382,7 @@ impl LlmSearchExecution {
             )
     }
 
-    fn has_warnings(&self) -> bool {
+    pub(crate) fn has_warnings(&self) -> bool {
         self.diagnostic
             .as_deref()
             .is_some_and(diagnostic_counts_as_warning)
@@ -391,6 +394,7 @@ pub struct ToolExecutionOutput {
     pub rendered: String,
     pub context_windows: Vec<ToolContextWindow>,
     pub agent_node: Option<AgentNodeTemplate>,
+    pub unit_node: Option<UnitInstanceState>,
 }
 
 #[derive(Clone, Debug)]
@@ -453,42 +457,42 @@ impl CollectionLeafToolKind {
         }
     }
 
-    fn label_prefix(self) -> &'static str {
+    pub(crate) fn label_prefix(self) -> &'static str {
         match self {
             Self::Search => "collection search",
             Self::Summary => "collection summary",
         }
     }
 
-    fn agent_kind(self) -> AgentKind {
+    pub(crate) fn agent_kind(self) -> AgentKind {
         match self {
             Self::Search => AgentKind::CollectionSearch,
             Self::Summary => AgentKind::CollectionSummary,
         }
     }
 
-    fn node_kind(self) -> AgentNodeKind {
+    pub(crate) fn node_kind(self) -> AgentNodeKind {
         match self {
             Self::Search => AgentNodeKind::CollectionSearchTool,
             Self::Summary => AgentNodeKind::CollectionSummaryTool,
         }
     }
 
-    fn review_agent_kind(self) -> AgentKind {
+    pub(crate) fn review_agent_kind(self) -> AgentKind {
         match self {
             Self::Search => AgentKind::SearchReview,
             Self::Summary => AgentKind::SummaryReview,
         }
     }
 
-    fn review_node_kind(self) -> AgentNodeKind {
+    pub(crate) fn review_node_kind(self) -> AgentNodeKind {
         match self {
             Self::Search => AgentNodeKind::SearchReviewAgent,
             Self::Summary => AgentNodeKind::SummaryReviewAgent,
         }
     }
 
-    fn review_label(self) -> &'static str {
+    pub(crate) fn review_label(self) -> &'static str {
         match self {
             Self::Search => "search review",
             Self::Summary => "summary review",
@@ -1121,6 +1125,7 @@ impl BlueskyTools {
                 rendered: self.read_selected_post(selected_notification),
                 context_windows: Vec::new(),
                 agent_node: None,
+                unit_node: None,
             }),
             "search" => {
                 let query = require_string_arg(&tool_call.args, "query")?;
@@ -1169,6 +1174,9 @@ impl BlueskyTools {
                         })
                         .collect(),
                     agent_node: Some(build_search_agent_node(&query, &outcomes, llm_client)),
+                    unit_node: Some(harness_search::build_search_unit_instance(
+                        &query, &outcomes, llm_client,
+                    )),
                 })
             }
             "summary" => {
@@ -1221,6 +1229,9 @@ impl BlueskyTools {
                         })
                         .collect(),
                     agent_node: Some(build_summary_agent_node(&query, &outcomes, llm_client)),
+                    unit_node: Some(harness_summary::build_summary_unit_instance(
+                        &query, &outcomes, llm_client,
+                    )),
                 })
             }
             other => Err(format!("unknown tool `{other}`").into()),
@@ -5085,7 +5096,7 @@ fn join_quoted(items: &[String]) -> String {
     }
 }
 
-fn render_review_summary(
+pub(crate) fn render_review_summary(
     verdict: Option<&CollectionReviewVerdict>,
     repair_diagnostic: Option<&str>,
 ) -> String {
@@ -6392,7 +6403,7 @@ fn render_llm_result(result: Option<&CollectionLeafResult>) -> String {
     }
 }
 
-fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
+pub(crate) fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
     let mut lines = Vec::new();
     if let Some(diagnostic) = execution.diagnostic.as_deref() {
         lines.push(format!("diagnostic: {diagnostic}"));
@@ -6438,47 +6449,7 @@ fn render_llm_execution_result(execution: &LlmSearchExecution) -> String {
 }
 
 fn render_public_summary_outcomes(outcomes: &[CollectionToolOutcome]) -> String {
-    if outcomes.len() == 1 {
-        if let Some(outcome) = outcomes.first() {
-            if let Ok(execution) = outcome.execution.as_ref() {
-                if execution.is_usable() {
-                    if let Some(result) = execution
-                        .result
-                        .as_ref()
-                        .or(execution.original_result.as_ref())
-                        .and_then(CollectionLeafResult::as_summary)
-                    {
-                        let mut sections = Vec::new();
-                        let final_summary = result.summary.trim();
-                        let concatenated = result
-                            .concatenated_window_summaries()
-                            .map(str::trim)
-                            .filter(|text| !text.is_empty());
-
-                        if !final_summary.is_empty() {
-                            sections.push(format!(
-                                "Overall commentary across {}:\n{}",
-                                outcome.collection_label, final_summary
-                            ));
-                        }
-
-                        if let Some(concatenated) = concatenated {
-                            sections.push(format!(
-                                "Concatenated page summaries for {}:\n{}",
-                                outcome.collection_label, concatenated
-                            ));
-                        }
-
-                        if !sections.is_empty() {
-                            return sections.join("\n\n");
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    render_summary_collection_loop_result(outcomes)
+    harness_summary::render_public_summary_outcomes(outcomes)
 }
 
 pub(crate) fn render_collection_outcome_result(
@@ -6631,7 +6602,7 @@ pub(crate) fn apply_summary_sufficiency_gates(
     ));
 }
 
-fn render_llm_result_compact(result: Option<&CollectionLeafResult>) -> String {
+pub(crate) fn render_llm_result_compact(result: Option<&CollectionLeafResult>) -> String {
     match result {
         Some(CollectionLeafResult::Search(result)) => {
             let mut lines = vec![
@@ -6763,39 +6734,11 @@ fn build_search_agent_node(
     outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
 ) -> AgentNodeTemplate {
-    AgentNodeTemplate {
-        agent_type: AgentNodeKind::ToolAgent,
-        agent_kind: Some(AgentKind::Search),
-        label: "search tool agent".to_string(),
-        status: if outcomes.is_empty() {
-            AgentNodeStatus::Failed
-        } else if outcomes.iter().any(|outcome| {
-            outcome
-                .execution
-                .as_ref()
-                .map(|execution| !execution.is_usable())
-                .unwrap_or(true)
-        }) {
-            AgentNodeStatus::Failed
-        } else if outcomes.iter().any(|outcome| {
-            outcome
-                .execution
-                .as_ref()
-                .map(|execution| execution.has_warnings())
-                .unwrap_or(false)
-        }) {
-            AgentNodeStatus::CompletedWithWarnings
-        } else {
-            AgentNodeStatus::Completed
-        },
-        tool_name: Some("search".to_string()),
-        collection_id: None,
-        context_window_report: Some(build_search_tool_context_window(
-            prompt, outcomes, llm_client,
-        )),
-        result_summary: Some(render_combined_search_results(outcomes)),
-        children: outcomes.iter().map(build_collection_tool_node).collect(),
-    }
+    harness_search::build_search_agent_node(prompt, outcomes, llm_client)
+}
+
+fn build_search_parent_context(prompt: &str, outcomes: &[CollectionToolOutcome]) -> LLMContext {
+    harness_search::build_search_parent_context(prompt, outcomes)
 }
 
 fn build_summary_agent_node(
@@ -6803,197 +6746,11 @@ fn build_summary_agent_node(
     outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
 ) -> AgentNodeTemplate {
-    AgentNodeTemplate {
-        agent_type: AgentNodeKind::ToolAgent,
-        agent_kind: Some(AgentKind::Summary),
-        label: "summary tool agent".to_string(),
-        status: if outcomes.is_empty() {
-            AgentNodeStatus::Failed
-        } else if outcomes.iter().any(|outcome| {
-            outcome
-                .execution
-                .as_ref()
-                .map(|execution| !execution.is_usable())
-                .unwrap_or(true)
-        }) {
-            AgentNodeStatus::Failed
-        } else if outcomes.iter().any(|outcome| {
-            outcome
-                .execution
-                .as_ref()
-                .map(|execution| execution.has_warnings())
-                .unwrap_or(false)
-        }) {
-            AgentNodeStatus::CompletedWithWarnings
-        } else {
-            AgentNodeStatus::Completed
-        },
-        tool_name: Some("summary".to_string()),
-        collection_id: None,
-        context_window_report: Some(build_summary_tool_context_window(
-            prompt, outcomes, llm_client,
-        )),
-        result_summary: Some(render_summary_collection_loop_result(outcomes)),
-        children: outcomes.iter().map(build_collection_tool_node).collect(),
-    }
-}
-
-fn build_collection_tool_node(outcome: &CollectionToolOutcome) -> AgentNodeTemplate {
-    let (status, context_window_report, result_summary) = match outcome.execution.as_ref() {
-        Ok(execution) => (
-            if execution.is_usable() {
-                if execution.has_warnings() {
-                    AgentNodeStatus::CompletedWithWarnings
-                } else {
-                    AgentNodeStatus::Completed
-                }
-            } else {
-                AgentNodeStatus::Failed
-            },
-            Some(execution.context_window.clone()),
-            Some(render_llm_execution_result(execution)),
-        ),
-        Err(err) => (
-            AgentNodeStatus::Failed,
-            None,
-            Some(format!("Tool execution failed: {err}")),
-        ),
-    };
-
-    AgentNodeTemplate {
-        agent_type: outcome.tool_kind.node_kind(),
-        agent_kind: Some(outcome.tool_kind.agent_kind()),
-        label: format!(
-            "{}: {}",
-            outcome.tool_kind.label_prefix(),
-            outcome.collection_label
-        ),
-        status,
-        tool_name: None,
-        collection_id: Some(outcome.collection_id.clone()),
-        context_window_report,
-        result_summary,
-        children: outcome
-            .execution
-            .as_ref()
-            .ok()
-            .and_then(|execution| build_collection_review_agent_node(outcome.tool_kind, execution))
-            .into_iter()
-            .collect(),
-    }
-}
-
-fn build_collection_review_agent_node(
-    tool_kind: CollectionLeafToolKind,
-    execution: &LlmSearchExecution,
-) -> Option<AgentNodeTemplate> {
-    let verdict = execution.review_verdict.as_ref()?;
-    Some(AgentNodeTemplate {
-        agent_type: tool_kind.review_node_kind(),
-        agent_kind: Some(tool_kind.review_agent_kind()),
-        label: tool_kind.review_label().to_string(),
-        status: match verdict.status {
-            CollectionReviewStatus::Pass => AgentNodeStatus::Completed,
-            CollectionReviewStatus::Fail => AgentNodeStatus::Failed,
-        },
-        tool_name: None,
-        collection_id: None,
-        context_window_report: execution.review_context_window.clone(),
-        result_summary: Some(render_review_summary(
-            execution.review_verdict.as_ref(),
-            execution.repair_diagnostic.as_deref(),
-        )),
-        children: Vec::new(),
-    })
-}
-
-fn build_search_tool_context_window(
-    prompt: &str,
-    outcomes: &[CollectionToolOutcome],
-    llm_client: &LlmApiClient,
-) -> BuiltContextWindow {
-    let context = build_search_parent_context(prompt, outcomes);
-    build_context_window_report(&context, &llm_client.context_limits())
-}
-
-fn build_summary_tool_context_window(
-    prompt: &str,
-    outcomes: &[CollectionToolOutcome],
-    llm_client: &LlmApiClient,
-) -> BuiltContextWindow {
-    let mut context = LLMContext::new(AgentKind::Summary.system_prompt());
-    context.push_section_with_kind(
-        "Original Summary Query",
-        ContextSectionKind::CurrentTask,
-        prompt,
-    );
-    context.push_section_with_kind(
-        "Summary Result",
-        ContextSectionKind::ParentSearchResults,
-        render_summary_collection_loop_result(outcomes),
-    );
-    build_context_window_report(&context, &llm_client.context_limits())
-}
-
-fn build_search_parent_context(prompt: &str, outcomes: &[CollectionToolOutcome]) -> LLMContext {
-    let mut context = LLMContext::new(AgentKind::Search.system_prompt());
-    context.push_section_with_kind(
-        "Original Search Query",
-        ContextSectionKind::CurrentTask,
-        prompt,
-    );
-    context.push_section_with_kind(
-        "Per-Collection Results",
-        ContextSectionKind::ParentSearchResults,
-        outcomes
-            .iter()
-            .map(|outcome| {
-                let mut lines = vec![
-                    format!("tool_name: {}", outcome.tool_kind.tool_name()),
-                    format!("collection_id: {}", outcome.collection_id),
-                    format!("collection_label: {}", outcome.collection_label),
-                ];
-                match outcome.execution.as_ref() {
-                    Ok(execution) => {
-                        lines.push(format!(
-                            "status: {}",
-                            if execution.is_usable() {
-                                "ok"
-                            } else {
-                                "failed"
-                            }
-                        ));
-                        if let Some(diagnostic) = execution.diagnostic.as_deref() {
-                            lines.push(format!("diagnostic: {diagnostic}"));
-                        }
-                        if let Some(verdict) = execution.review_verdict.as_ref() {
-                            lines.push(format!("review_status: {}", verdict.status.as_str()));
-                            lines.push(format!("review_grounded: {}", verdict.grounded));
-                            lines.push(format!("review_sufficient: {}", verdict.sufficient));
-                            lines.push(format!("review_reason: {}", verdict.reason));
-                        }
-                        lines.push(render_llm_result_compact(
-                            execution
-                                .result
-                                .as_ref()
-                                .or(execution.original_result.as_ref()),
-                        ));
-                    }
-                    Err(err) => {
-                        lines.push("status: failed".to_string());
-                        lines.push(format!("error: {err}"));
-                    }
-                }
-                lines.join("\n")
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n"),
-    );
-    context
+    harness_summary::build_summary_agent_node(prompt, outcomes, llm_client)
 }
 
 fn render_combined_search_results(outcomes: &[CollectionToolOutcome]) -> String {
-    render_combined_search_results_with_summary(outcomes, None, &[])
+    harness_search::render_combined_search_results(outcomes)
 }
 
 fn render_combined_search_results_with_summary(

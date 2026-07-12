@@ -1,4 +1,5 @@
 use crate::harness::agents::AgentGraph;
+use crate::harness::units::UnitInstanceState;
 use crate::visualization::context::{ContextCategory, PromptContextSnapshot};
 use std::fs;
 use std::fs::OpenOptions;
@@ -11,6 +12,7 @@ pub fn reset_debug_dir(base_dir: &Path) -> Result<(), Box<dyn std::error::Error>
         fs::remove_dir_all(&debug_dir)?;
     }
     fs::create_dir_all(debug_dir.join("agents"))?;
+    fs::create_dir_all(debug_dir.join("units"))?;
     Ok(())
 }
 
@@ -54,6 +56,17 @@ pub fn log_chat_transcript(
         content.push_str("\n```\n");
     }
     fs::write(debug_dir(base_dir).join("chat_transcript.md"), content)?;
+    Ok(())
+}
+
+pub fn log_unit_graph(
+    base_dir: &Path,
+    root: &UnitInstanceState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let units_dir = debug_dir(base_dir).join("units");
+    fs::create_dir_all(&units_dir)?;
+    let mut counter = 0usize;
+    write_unit_node(&units_dir, root, None, &mut counter)?;
     Ok(())
 }
 
@@ -219,6 +232,65 @@ fn render_agent_node(node: &crate::harness::agents::AgentNode) -> String {
         out.push_str("```\n");
     }
 
+    out
+}
+
+fn write_unit_node(
+    units_dir: &Path,
+    node: &UnitInstanceState,
+    parent_label: Option<&str>,
+    counter: &mut usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let filename = format!("unit_{:03}_{}.md", *counter, slugify(&node.instance_label));
+    *counter += 1;
+    fs::write(units_dir.join(filename), render_unit_node(node, parent_label))?;
+    for child in &node.children {
+        write_unit_node(units_dir, child, Some(&node.instance_label), counter)?;
+    }
+    Ok(())
+}
+
+fn render_unit_node(node: &UnitInstanceState, parent_label: Option<&str>) -> String {
+    let mut out = String::from("# Unit Debug\n\n");
+    out.push_str(&format!("- unit_id: {}\n", node.definition.id));
+    out.push_str(&format!("- unit_kind: {}\n", node.kind.as_str()));
+    out.push_str(&format!("- label: {}\n", node.instance_label));
+    out.push_str(&format!("- lifecycle_status: {}\n", node.status.as_str()));
+    out.push_str(&format!(
+        "- parent_unit: {}\n",
+        parent_label.unwrap_or("<none>")
+    ));
+    out.push_str(&format!(
+        "- active_node: {}\n",
+        node.active_node.as_deref().unwrap_or("<none>")
+    ));
+    out.push_str(&format!(
+        "- blocked_on_child: {}\n",
+        node.blocked_on_child.as_deref().unwrap_or("<none>")
+    ));
+    if let Some(tool_name) = node.tool_name.as_deref() {
+        out.push_str(&format!("- tool_name: {}\n", tool_name));
+    }
+    if let Some(collection_id) = node.collection_id.as_deref() {
+        out.push_str(&format!("- collection_id: {}\n", collection_id));
+    }
+    out.push_str("\n## Local State\n\n");
+    out.push_str(
+        &node.local_state
+            .compact_summary()
+            .unwrap_or_else(|| "<none>".to_string()),
+    );
+    out.push_str("\n\n## Result Summary\n\n");
+    out.push_str(node.result_summary.as_deref().unwrap_or("<none>"));
+    out.push_str("\n\n");
+    if let Some(window) = node.context_window.as_ref() {
+        out.push_str("## Context Window\n\n```text\n");
+        out.push_str(&window.rendered);
+        if !window.rendered.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("```\n");
+    }
     out
 }
 
