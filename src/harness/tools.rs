@@ -538,6 +538,28 @@ pub(crate) struct PreparedActorAnchor {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PreparedSummaryActor {
+    Resolved(PreparedActorAnchor),
+    ExplicitRef(String),
+}
+
+impl PreparedSummaryActor {
+    pub(crate) fn source(&self) -> ActorAnchorSource {
+        match self {
+            Self::Resolved(anchor) => anchor.source.clone(),
+            Self::ExplicitRef(_) => ActorAnchorSource::ExplicitQueryRef,
+        }
+    }
+
+    pub(crate) fn explicit_actor_ref(&self) -> Option<&str> {
+        match self {
+            Self::Resolved(anchor) => anchor.actor_ref.as_deref(),
+            Self::ExplicitRef(actor_ref) => Some(actor_ref.as_str()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SummaryCollectionTargetHint {
     RecentPosts,
     Replies,
@@ -568,7 +590,7 @@ pub(crate) struct PreparedSearchInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PreparedSummaryInput {
     pub(crate) original_query: String,
-    pub(crate) actor_anchor: PreparedActorAnchor,
+    pub(crate) actor: PreparedSummaryActor,
     pub(crate) requested_summary_scope: RequestedSummaryScope,
     pub(crate) collection_target_hint: SummaryCollectionTargetHint,
 }
@@ -988,8 +1010,7 @@ impl BlueskyTools {
                         actor_anchor_source: None,
                         tried: vec![format!("resolve_summary_request: {message}")],
                     })?;
-                let Some(actor_anchor) =
-                    resolve_prepared_actor_anchor(&query, selected_actor_did, store)
+                let Some(actor) = resolve_prepared_summary_actor(&query, selected_actor_did, store)
                 else {
                     return Err(ToolPrepFailure {
                         tool_name: "summary".to_string(),
@@ -1004,7 +1025,7 @@ impl BlueskyTools {
                 };
                 Ok(PreparedPromptToolInput::Summary(PreparedSummaryInput {
                     original_query: query,
-                    actor_anchor,
+                    actor,
                     requested_summary_scope: resolved_summary_request.requested_summary_scope,
                     collection_target_hint: resolved_summary_request.collection_target_hint,
                 }))
@@ -1024,7 +1045,21 @@ impl BlueskyTools {
     ) -> Option<&PreparedActorAnchor> {
         match prepared_input {
             PreparedPromptToolInput::Search(prepared) => prepared.actor_anchor.as_ref(),
-            PreparedPromptToolInput::Summary(prepared) => Some(&prepared.actor_anchor),
+            PreparedPromptToolInput::Summary(prepared) => match &prepared.actor {
+                PreparedSummaryActor::Resolved(anchor) => Some(anchor),
+                PreparedSummaryActor::ExplicitRef(_) => None,
+            },
+        }
+    }
+
+    pub(crate) fn prepared_actor_anchor_source(
+        prepared_input: &PreparedPromptToolInput,
+    ) -> Option<ActorAnchorSource> {
+        match prepared_input {
+            PreparedPromptToolInput::Search(prepared) => {
+                prepared.actor_anchor.as_ref().map(|anchor| anchor.source.clone())
+            }
+            PreparedPromptToolInput::Summary(prepared) => Some(prepared.actor.source()),
         }
     }
 
@@ -1594,7 +1629,9 @@ impl BlueskyTools {
         observer: Option<UnboundedSender<ToolProgressEvent>>,
     ) -> Result<(String, Vec<CollectionToolOutcome>), Box<dyn std::error::Error>> {
         let query = prepared_input.original_query.as_str();
-        let actor_anchor = &prepared_input.actor_anchor;
+        let actor_anchor = self
+            .resolve_prepared_summary_actor_anchor(&prepared_input.actor, agent, store)
+            .await?;
         append_summary_trace(format!(
             "[execute_public_summary]\nstatus: start\nquery: {query}\nactor_anchor_did: {}\nactor_anchor_source: {}",
             actor_anchor.actor_did.as_str(),
@@ -2339,6 +2376,26 @@ impl BlueskyTools {
         pick_summary_collection_for_hint(&collections, hint)
     }
 
+    async fn resolve_prepared_summary_actor_anchor(
+        &self,
+        prepared_actor: &PreparedSummaryActor,
+        agent: &BskyAgent,
+        store: &mut NotificationStore,
+    ) -> Result<PreparedActorAnchor, Box<dyn std::error::Error>> {
+        match prepared_actor {
+            PreparedSummaryActor::Resolved(anchor) => Ok(anchor.clone()),
+            PreparedSummaryActor::ExplicitRef(actor_ref) => {
+                let profile = ensure_actor_profile_cached(agent, store, actor_ref).await?;
+                Ok(PreparedActorAnchor {
+                    actor_ref: Some(actor_ref.clone()),
+                    actor_handle: Some(profile.handle),
+                    actor_did: profile.did,
+                    source: ActorAnchorSource::ExplicitQueryRef,
+                })
+            }
+        }
+    }
+
     async fn resolve_summary_prep_request(
         &self,
         query: &str,
@@ -3048,6 +3105,33 @@ fn resolve_prepared_actor_anchor(
         actor_handle: store.get_handle(actor_did).map(str::to_string),
         actor_did: actor_did.clone(),
         source: ActorAnchorSource::SelectedActorFallback,
+    })
+}
+
+fn resolve_prepared_summary_actor(
+    query: &str,
+    selected_actor_did: Option<&Did>,
+    store: &NotificationStore,
+) -> Option<PreparedSummaryActor> {
+    if let Some(actor_ref) = detect_actor_refs(query).and_then(|refs| refs.into_iter().next()) {
+        if let Some(actor_did) = store.find_did(&actor_ref).or_else(|| actor_ref.parse().ok()) {
+            return Some(PreparedSummaryActor::Resolved(PreparedActorAnchor {
+                actor_ref: Some(actor_ref),
+                actor_handle: store.get_handle(&actor_did).map(str::to_string),
+                actor_did,
+                source: ActorAnchorSource::ExplicitQueryRef,
+            }));
+        }
+        return Some(PreparedSummaryActor::ExplicitRef(actor_ref));
+    }
+
+    selected_actor_did.map(|actor_did| {
+        PreparedSummaryActor::Resolved(PreparedActorAnchor {
+            actor_ref: store.get_handle(actor_did).map(str::to_string),
+            actor_handle: store.get_handle(actor_did).map(str::to_string),
+            actor_did: actor_did.clone(),
+            source: ActorAnchorSource::SelectedActorFallback,
+        })
     })
 }
 
@@ -7532,7 +7616,8 @@ mod tests {
         ActorAnchorSource, BlueskyTools, CollectionLeafResult, CollectionLeafToolKind,
         CollectionToolOutcome,
         CollectionReviewStatus, LlmSearchExecution, LlmSearchResult, LlmSearchResultItem,
-        LlmSummaryResult, PreparedPromptToolInput, PromptToolCall, RequestedSummaryScope,
+        LlmSummaryResult, PreparedPromptToolInput, PreparedSummaryActor, PromptToolCall,
+        RequestedSummaryScope,
         SearchIntent, SummaryCollectionTargetHint, SummarySelectionReviewStatus,
         ToolPrepMissingPrerequisite, ToolRegistry, build_search_agent_node,
         build_summary_agent_node, choose_deterministic_collection_id_for_actor,
@@ -8510,11 +8595,11 @@ mod tests {
 
         match prepared {
             PreparedPromptToolInput::Summary(summary) => {
-                assert_eq!(summary.actor_anchor.actor_did, selected_did);
-                assert_eq!(
-                    summary.actor_anchor.source,
-                    ActorAnchorSource::SelectedActorFallback
-                );
+                let PreparedSummaryActor::Resolved(anchor) = &summary.actor else {
+                    panic!("expected resolved actor anchor");
+                };
+                assert_eq!(anchor.actor_did, selected_did);
+                assert_eq!(anchor.source, ActorAnchorSource::SelectedActorFallback);
                 assert_eq!(
                     summary.collection_target_hint,
                     SummaryCollectionTargetHint::RecentPosts
@@ -8608,10 +8693,42 @@ mod tests {
 
         match prepared {
             PreparedPromptToolInput::Summary(summary) => {
-                assert_eq!(summary.actor_anchor.actor_did, explicit_did);
+                let PreparedSummaryActor::Resolved(anchor) = &summary.actor else {
+                    panic!("expected resolved actor anchor");
+                };
+                assert_eq!(anchor.actor_did, explicit_did);
+                assert_eq!(anchor.source, ActorAnchorSource::ExplicitQueryRef);
+            }
+            other => panic!("expected summary prep, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn prepared_summary_accepts_uncached_explicit_query_actor() {
+        let tools = BlueskyTools::new();
+        let llm_client = summary_prep_llm_for_tests(
+            "{\"requested_summary_scope\":{\"kind\":\"count\",\"requested_items\":150},\"collection_target_hint\":\"recent_posts\"}",
+        );
+        let store = NotificationStore::new();
+        let tool_call = PromptToolCall {
+            name: "summary".to_string(),
+            args: serde_json::json!({"query":"summarize 150 posts by segyges.bsky.social into 3 paragraphs"}),
+        };
+
+        let prepared = tools
+            .prepare_root_tool_input(&tool_call, None, &store, &llm_client)
+            .await
+            .expect("expected prepared summary input");
+
+        match prepared {
+            PreparedPromptToolInput::Summary(summary) => {
                 assert_eq!(
-                    summary.actor_anchor.source,
-                    ActorAnchorSource::ExplicitQueryRef
+                    &summary.actor,
+                    &PreparedSummaryActor::ExplicitRef("segyges.bsky.social".to_string())
+                );
+                assert_eq!(
+                    summary.collection_target_hint,
+                    SummaryCollectionTargetHint::RecentPosts
                 );
             }
             other => panic!("expected summary prep, got {other:?}"),

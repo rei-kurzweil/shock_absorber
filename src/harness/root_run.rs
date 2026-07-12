@@ -556,8 +556,8 @@ async fn prepare_root_tool_input_loop(
             .await
         {
             Ok(prepared_input) => {
-                let actor_source = BlueskyTools::prepared_actor_anchor(&prepared_input)
-                    .map(|anchor| anchor.source.as_str())
+                let actor_source = BlueskyTools::prepared_actor_anchor_source(&prepared_input)
+                    .map(|source| source.as_str())
                     .unwrap_or("none");
                 if let Some(anchor_did) = BlueskyTools::prepared_actor_anchor(&prepared_input)
                     .map(|anchor| anchor.actor_did.clone())
