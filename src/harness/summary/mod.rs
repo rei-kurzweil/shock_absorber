@@ -240,13 +240,22 @@ fn collection_summary_state(outcome: &CollectionToolOutcome) -> CollectionSummar
         .as_ref()
         .or(execution.original_result.as_ref())
         .and_then(CollectionLeafResult::as_summary);
-    let current_offset = summary.and_then(|result| result.processed_window_offset());
+    let current_offset = summary.and_then(|result| {
+        let covered_post_count = result.processed_window_size().unwrap_or(0);
+        let start_offset = result.processed_window_offset().unwrap_or(0);
+        if covered_post_count == 0 {
+            return Some(start_offset);
+        }
+        let page_size = result.processed_page_size().unwrap_or(COLLECTION_SEARCH_PAGE_SIZE);
+        let last_window_size = covered_post_count.saturating_sub(1) % page_size + 1;
+        Some(start_offset + covered_post_count.saturating_sub(last_window_size))
+    });
     let covered_post_count = summary
         .and_then(|result| result.processed_window_size())
         .unwrap_or(0);
     let pages_processed = summary
-        .and_then(|result| result.processed_page_index())
-        .map(|page_index| page_index + 1)
+        .and_then(|result| result.processed_page_size())
+        .map(|page_size| covered_post_count.div_ceil(page_size.max(1)))
         .unwrap_or(usize::from(covered_post_count > 0));
     let next_offset = summary.and_then(|result| {
         if result.has_more == Some(true) {

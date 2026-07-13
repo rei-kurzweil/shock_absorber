@@ -54,6 +54,7 @@ pub enum DetailView {
     Agents,
     Command { title: String, lines: Vec<String> },
     ContextVisualization(ContextVisualizationData),
+    Units,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +63,7 @@ enum AppActivity {
     Agents,
     CommandOverlay,
     ContextVisualization,
+    Units,
     AiChat,
 }
 
@@ -86,6 +88,8 @@ pub struct App {
     opened_notification: Option<usize>,
     selected_actor: Option<ActorProfile>,
     detail_scroll: u16,
+    units_horizontal_scroll: u16,
+    selected_unit: usize,
     detail: DetailView,
     root_conversation: Vec<ConversationTurn>,
     root_run: Option<RootRunState>,
@@ -178,6 +182,8 @@ impl App {
             opened_notification: None,
             selected_actor: None,
             detail_scroll: 0,
+            units_horizontal_scroll: 0,
+            selected_unit: 0,
             detail: DetailView::Command {
                 title: "Welcome".to_string(),
                 lines: help_lines(),
@@ -287,6 +293,7 @@ impl App {
                 .unwrap_or_else(|| "Agent".to_string()),
             DetailView::Command { title, .. } => title.clone(),
             DetailView::ContextVisualization(data) => data.title.clone(),
+            DetailView::Units => "Execution Units".to_string(),
         }
     }
 
@@ -299,6 +306,7 @@ impl App {
             DetailView::Agents => AppActivity::Agents,
             DetailView::Command { .. } => AppActivity::CommandOverlay,
             DetailView::ContextVisualization(_) => AppActivity::ContextVisualization,
+            DetailView::Units => AppActivity::Units,
         }
     }
 
@@ -312,7 +320,7 @@ impl App {
     fn is_fullscreen_overlay(&self) -> bool {
         matches!(
             self.detail,
-            DetailView::Command { .. } | DetailView::ContextVisualization(_)
+            DetailView::Command { .. } | DetailView::ContextVisualization(_) | DetailView::Units
         )
     }
 
@@ -322,6 +330,7 @@ impl App {
             DetailView::Agents => self.agent_detail_text(),
             DetailView::Command { lines, .. } => ratatui::text::Text::from(lines.join("\n")),
             DetailView::ContextVisualization(_) => ratatui::text::Text::from(""),
+            DetailView::Units => ratatui::text::Text::from(""),
         }
     }
 
@@ -707,8 +716,10 @@ impl App {
             }
             "units" | "/units" => {
                 self.detail_scroll = 0;
+                self.units_horizontal_scroll = 0;
+                self.selected_unit = 0;
                 self.presentation_mode = PresentationMode::Tui;
-                self.set_command_output("/units", self.units_lines());
+                self.detail = DetailView::Units;
                 self.status = "units view loaded".to_string();
             }
             "notifications" | "/notifications" => {
@@ -1130,14 +1141,16 @@ impl App {
                 .unwrap_or(false);
             match event {
                 RootRunEvent::Progress(root_run) => {
+                    let keep_units = matches!(self.detail, DetailView::Units);
                     let query = root_run.query().to_string();
                     self.root_run = Some(root_run.clone());
                     self.chat_title = Some(format!("evil_gemma: {query}"));
                     self.clamp_selection();
-                    self.show_chat_output(!keep_context_overlay);
+                    self.show_chat_output(!keep_context_overlay && !keep_units);
                     self.status = format!("evil_gemma running: {}", root_run.status().as_str());
                 }
                 RootRunEvent::ToolProgress(event) => {
+                    let keep_units = matches!(self.detail, DetailView::Units);
                     if let Some(root_run) = self.root_run.as_mut() {
                         match event {
                             ToolProgressEvent::AgentUpdate {
@@ -1153,7 +1166,7 @@ impl App {
                         }
                         let query = root_run.query().to_string();
                         self.chat_title = Some(format!("evil_gemma: {query}"));
-                        self.show_chat_output(!keep_context_overlay);
+                        self.show_chat_output(!keep_context_overlay && !keep_units);
                         self.status = "evil_gemma running: subagent progress".to_string();
                     }
                 }
@@ -1214,6 +1227,10 @@ impl App {
     }
 
     fn move_selection_up(&mut self) {
+        if matches!(self.detail, DetailView::Units) {
+            self.selected_unit = self.selected_unit.saturating_sub(1);
+            return;
+        }
         match self.current_split_view() {
             SplitView::Notifications => {
                 if self.selected > 0 {
@@ -1230,6 +1247,11 @@ impl App {
     }
 
     fn move_selection_down(&mut self) {
+        if matches!(self.detail, DetailView::Units) {
+            let count = self.root_run.as_ref().map(|run| count_units(run.root_unit())).unwrap_or(0);
+            if self.selected_unit + 1 < count { self.selected_unit += 1; }
+            return;
+        }
         match self.current_split_view() {
             SplitView::Notifications => {
                 if self.selected + 1 < self.store.notifications.len() {
@@ -1355,6 +1377,14 @@ pub async fn run_app(
                         }
                         KeyCode::Up => app.move_selection_up(),
                         KeyCode::Down => app.move_selection_down(),
+                        KeyCode::Left if matches!(app.detail, DetailView::Units) => {
+                            if key.modifiers.contains(KeyModifiers::SHIFT) { app.units_horizontal_scroll = app.units_horizontal_scroll.saturating_sub(4); }
+                            else { app.selected_unit = app.selected_unit.saturating_sub(1); }
+                        }
+                        KeyCode::Right if matches!(app.detail, DetailView::Units) => {
+                            if key.modifiers.contains(KeyModifiers::SHIFT) { app.units_horizontal_scroll = app.units_horizontal_scroll.saturating_add(4); }
+                            else { app.selected_unit = app.selected_unit.saturating_add(1); }
+                        }
                         KeyCode::PageUp => {
                             app.detail_scroll = app.detail_scroll.saturating_sub(4);
                         }
@@ -1664,6 +1694,10 @@ fn render_unit_lines(
     }
 }
 
+fn count_units(unit: &UnitInstanceState) -> usize {
+    1 + unit.children.iter().map(count_units).sum::<usize>()
+}
+
 fn help_lines() -> Vec<String> {
     vec![
         "Commands:".to_string(),
@@ -1799,6 +1833,10 @@ fn draw_ui(frame: &mut Frame, app: &App) {
                     app.detail_scroll,
                 );
             }
+            DetailView::Units => ui::units_renderer::render(
+                frame, chunks[0], app.root_run.as_ref().map(|run| run.root_unit()),
+                app.selected_unit, app.detail_scroll, app.units_horizontal_scroll,
+            ),
             DetailView::Notification | DetailView::Agents => {}
         }
     } else {

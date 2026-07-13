@@ -1140,7 +1140,7 @@ impl BlueskyTools {
                     Some(PreparedPromptToolInput::Search(prepared)) => Some(prepared.clone()),
                     _ => None,
                 };
-                let (rendered, outcomes) = self
+                let (rendered, outcomes, unit_node) = self
                     .execute_internal_search(
                         &query,
                         prepared_search.as_ref(),
@@ -1174,9 +1174,7 @@ impl BlueskyTools {
                         })
                         .collect(),
                     agent_node: Some(build_search_agent_node(&query, &outcomes, llm_client)),
-                    unit_node: Some(harness_search::build_search_unit_instance(
-                        &query, &outcomes, llm_client,
-                    )),
+                    unit_node: Some(unit_node),
                 })
             }
             "summary" => {
@@ -1247,7 +1245,11 @@ impl BlueskyTools {
         store: &mut NotificationStore,
         llm_client: &LlmApiClient,
         observer: Option<UnboundedSender<ToolProgressEvent>>,
-    ) -> Result<(String, Vec<CollectionToolOutcome>), Box<dyn std::error::Error>> {
+    ) -> Result<
+        (String, Vec<CollectionToolOutcome>, UnitInstanceState),
+        Box<dyn std::error::Error>,
+    > {
+        let mut search_unit_runtime = harness_search::SearchUnitRuntime::new();
         let search_intent = classify_search_intent(query);
         let requested_summary_scope = detect_requested_summary_scope(query);
         let resolved_actor_refs = if let Some(prepared_actor) =
@@ -1315,14 +1317,18 @@ impl BlueskyTools {
         let mut consecutive_invalid_tool_calls = 0usize;
 
         for round in 0..6usize {
+            search_unit_runtime.planner_round_started(round + 1);
             let response = llm_client.complete_chat(messages.clone(), 768).await?;
             let accepted_tool_call = match validate_internal_tool_response(&response) {
                 InternalToolResponse::FinalSummary(summary) => {
+                    search_unit_runtime.planner_finished_with_summary();
                     final_summary = Some(summary);
                     break;
                 }
                 InternalToolResponse::Invalid(reason) => {
                     consecutive_invalid_tool_responses += 1;
+                    search_unit_runtime
+                        .planner_protocol_invalid(&reason, consecutive_invalid_tool_responses);
                     let diagnostic = format!(
                         "status: invalid_tool_call\nreason: {reason}\ninstruction: re-emit exactly one valid internal TOOL_CALL block with no extra prose\nraw_response:\n{}",
                         truncate_diagnostic_block(&response, 1200)
@@ -1383,6 +1389,11 @@ impl BlueskyTools {
             ) {
                 Ok(_) => accepted_tool_call,
                 Err(reason) => {
+                    search_unit_runtime.invalid_tool_call(
+                        &accepted_tool_call.tool_call.name,
+                        &reason,
+                        consecutive_invalid_tool_calls + 1,
+                    );
                     let tool_args =
                         serde_json::to_string_pretty(&accepted_tool_call.tool_call.args)?;
                     let diagnostic = format!(
@@ -1493,6 +1504,7 @@ impl BlueskyTools {
             };
             consecutive_invalid_tool_calls = 0;
             let tool_call = accepted_tool_call.tool_call.clone();
+            search_unit_runtime.enter_internal_tool(&tool_call.name);
 
             let rendered_tool_result = match tool_call.name.as_str() {
                 "resolve_actor_refs" => {
@@ -1548,6 +1560,7 @@ impl BlueskyTools {
                         let outcome = collection_outcomes
                             .pop()
                             .ok_or("missing collection tool outcome")?;
+                        search_unit_runtime.record_collection_window_searched();
                         let rendered = match outcome.execution.as_ref() {
                             Ok(execution) => render_collection_outcome_result(
                                 outcome.tool_kind,
@@ -1579,6 +1592,10 @@ impl BlueskyTools {
                     format!("Tool execution failed: unknown internal search tool `{other}`")
                 }
             };
+            if tool_call.name != "collection_search" {
+                search_unit_runtime
+                    .record_internal_tool_result(&tool_call.name, &rendered_tool_result);
+            }
 
             let tool_args = serde_json::to_string(&tool_call.args)?;
             messages.push(ChatMessage {
@@ -1602,6 +1619,7 @@ impl BlueskyTools {
         }
 
         if outcomes.is_empty() {
+            search_unit_runtime.mark_fallback_resolution();
             let collections = self
                 .resolve_search_collections(
                     agent,
@@ -1628,7 +1646,8 @@ impl BlueskyTools {
             final_summary.as_deref(),
             &diagnostics,
         );
-        Ok((rendered, outcomes))
+        let unit = search_unit_runtime.finish(query, &outcomes, llm_client, &rendered);
+        Ok((rendered, outcomes, unit))
     }
 
     async fn execute_public_summary(
@@ -7749,7 +7768,7 @@ mod tests {
             .expect("recent posts should hydrate");
 
         let query = format!("summarize the last 50 posts by {handle}");
-        let (rendered, outcomes) = timeout(
+        let (rendered, outcomes, _unit) = timeout(
             Duration::from_secs(180),
             tools.execute_internal_search(
                 &query,

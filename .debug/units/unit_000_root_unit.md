@@ -1,11 +1,15 @@
 # Unit Debug
 
+- instance_id: unit-1
 - unit_id: root
 - unit_kind: root
 - label: Root Unit
 - lifecycle_status: completed
 - parent_unit: <none>
 - active_node: <none>
+- visit_count: 0
+- visited_nodes: <none>
+- selected_output_port: <none>
 - blocked_on_child: <none>
 
 ## Local State
@@ -14,8 +18,16 @@
 
 ## Result Summary
 
-Overall commentary across Recent posts by did:plc:nehmem7iy5fyifkqxjpcnj6e:
-Grounded raw-window fallback preserved 5 page(s), but no final synthesis was produced.
+Overall commentary across Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn:
+Page 1 preserved grounded raw evidence around "KYOOOOT 😸\u{fe0f}"; "these artworks is beautiful btw! :D"; "Halloo everynyan!".
+
+Page 2 preserved grounded raw evidence around "scary! youtu.be/tFAd8jtPceQ?..."; "the samee!! /v♥\u{fe0f}v/"; "did you know you can drag this one if you hold your mouse, at the empty blue border? 🤣\u{fe0f}🤣\u{fe0f}🤣\u{fe0f}".
+
+Page 3 preserved grounded raw evidence around "OH and the last part you wrote? me too. i..proobably wouldnt want to know either."; "so im thinking..maybe one person is hater/spammy,on my list(sadly, i dont know who or what they type i just know they did)"; "oh! maybe but.. to me i have done so only a few can reply".
+
+## Transition History
+
+<none>
 
 ## Context Window
 
@@ -56,16 +68,11 @@ Notes:
 - Returns a grounded coverage summary with covered item URIs and source-exhaustion metadata when applicable.
 
 ## Search Hints
-The selected actor is did:plc:nehmem7iy5fyifkqxjpcnj6e. Use `search` with a natural-language `query` when you need selective grounded evidence about this actor or related topics. Use `summary` when you need broad coverage such as summarizing the actor's recent posts or replies.
+Use `search` with a natural-language `query` when you need selective Bluesky-grounded evidence about a handle/user or broader topic questions. Use `summary` for coverage-oriented requests like summarizing the last 50 posts by an actor.
 
 ## Current UI Context
-reason: like
-author_handle: sam.bunnylabs.dev
-author_did: did:plc:nehmem7iy5fyifkqxjpcnj6e
-uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.like/3mqdqzcwqwi2u
-indexed_at: 2026-07-11 03:49:29.875 +00:00
-reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mqdqpwdjh22g
+No actor is currently selected in the UI.
 
 ## Current Task
-summarize the most recent 300 posts by this actor into 6 paragraphs
+summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
 ```

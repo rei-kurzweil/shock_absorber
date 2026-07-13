@@ -3,14 +3,143 @@ use crate::harness::context_window::{
     BuiltContextWindow, ContextSectionKind, LLMContext, build_context_window_report,
 };
 use crate::harness::llm_api::LlmApiClient;
+use crate::harness::r#loop::search as search_loop;
 use crate::harness::prompts::AgentKind;
 use crate::harness::tools::{
     CollectionReviewStatus, CollectionToolOutcome, render_collection_outcome_result,
     render_llm_execution_result, render_llm_result_compact, render_review_summary,
 };
 use crate::harness::units::{
-    UnitDefinition, UnitInstanceState, UnitInstanceStatus, UnitKind, UnitLocalStateSchema,
+    SearchPlannerUnitLocalState, UnitDefinition, UnitInstanceState, UnitInstanceStatus, UnitKind,
+    UnitLocalState, UnitLocalStateSchema, unit_definition_from_loop,
 };
+
+pub(crate) struct SearchUnitRuntime {
+    unit: UnitInstanceState,
+}
+
+impl SearchUnitRuntime {
+    pub(crate) fn new() -> Self {
+        let mut unit = UnitInstanceState::new(unit_definition_from_loop(
+            "search.public_tool",
+            "search tool unit",
+            UnitKind::PublicToolOrchestration,
+            &search_loop::DEFINITION,
+            UnitLocalStateSchema::SearchPlanner,
+        ));
+        unit.status = UnitInstanceStatus::Running;
+        unit.tool_name = Some("search".to_string());
+        unit.active_node = Some(search_loop::DEFINITION.entry_node.to_string());
+        unit.local_state = UnitLocalState::SearchPlanner(SearchPlannerUnitLocalState {
+            current_node: unit.active_node.clone(),
+            ..Default::default()
+        });
+        Self { unit }
+    }
+
+    pub(crate) fn planner_round_started(&mut self, round: usize) {
+        let current_node = Some("planner_decide".to_string());
+        self.unit.active_node = current_node.clone();
+        self.search_state_mut().current_round = round;
+        self.search_state_mut().current_node = current_node;
+        self.search_state_mut().pending_tool_name = None;
+        self.unit.status = UnitInstanceStatus::Running;
+    }
+
+    pub(crate) fn planner_finished_with_summary(&mut self) {
+        self.search_state_mut().final_summary_present = true;
+        self.search_state_mut().pending_tool_name = None;
+        self.search_state_mut().current_node = Some("planner_decide".to_string());
+    }
+
+    pub(crate) fn planner_protocol_invalid(&mut self, reason: &str, repeated_count: usize) {
+        let current_node = Some("planner_protocol_repair".to_string());
+        self.unit.active_node = current_node.clone();
+        let state = self.search_state_mut();
+        state.current_node = current_node;
+        state.consecutive_invalid_tool_responses = repeated_count;
+        state.last_validation_failure = Some(reason.to_string());
+    }
+
+    pub(crate) fn invalid_tool_call(&mut self, tool_name: &str, reason: &str, repeated_count: usize) {
+        let current_node = Some("tool_call_repair".to_string());
+        self.unit.active_node = current_node.clone();
+        let state = self.search_state_mut();
+        state.current_node = current_node;
+        state.pending_tool_name = Some(tool_name.to_string());
+        state.consecutive_invalid_tool_calls = repeated_count;
+        state.last_validation_failure = Some(reason.to_string());
+    }
+
+    pub(crate) fn enter_internal_tool(&mut self, tool_name: &str) {
+        let current_node = Some("execute_internal_tool".to_string());
+        self.unit.active_node = current_node.clone();
+        let state = self.search_state_mut();
+        state.current_node = current_node;
+        state.pending_tool_name = Some(tool_name.to_string());
+    }
+
+    pub(crate) fn record_internal_tool_result(&mut self, tool_name: &str, rendered: &str) {
+        let mut child = UnitInstanceState::new(UnitDefinition {
+            id: format!(
+                "search.internal.{}.{}",
+                tool_name,
+                self.unit.children.len()
+            ),
+            label: tool_name.replace('_', " "),
+            kind: match tool_name {
+                "collection_search" => UnitKind::CollectionSearch,
+                _ => UnitKind::DeterministicOrchestration,
+            },
+            graph: None,
+            local_state_schema: UnitLocalStateSchema::None,
+        });
+        child.status = if rendered.contains("\nstatus: failed") || rendered.starts_with("Tool execution failed:") {
+            UnitInstanceStatus::Failed
+        } else if rendered.contains("\nstatus: skipped") {
+            UnitInstanceStatus::CompletedWithWarnings
+        } else {
+            UnitInstanceStatus::Completed
+        };
+        child.result_summary = Some(rendered.to_string());
+        self.unit.children.push(child);
+    }
+
+    pub(crate) fn record_collection_window_searched(&mut self) {
+        self.search_state_mut().searched_collection_windows += 1;
+    }
+
+    pub(crate) fn mark_fallback_resolution(&mut self) {
+        self.search_state_mut().fallback_resolution_used = true;
+        self.search_state_mut().current_node = Some("execute_internal_tool".to_string());
+    }
+
+    pub(crate) fn finish(
+        mut self,
+        prompt: &str,
+        outcomes: &[CollectionToolOutcome],
+        llm_client: &LlmApiClient,
+        rendered: &str,
+    ) -> UnitInstanceState {
+        self.unit.status = unit_status(parent_status(outcomes));
+        self.unit.active_node = None;
+        self.search_state_mut().current_node = None;
+        self.search_state_mut().pending_tool_name = None;
+        self.unit.context_window = Some(build_search_tool_context_window(prompt, outcomes, llm_client));
+        self.unit.result_summary = Some(rendered.to_string());
+        self.unit
+            .children
+            .extend(outcomes.iter().map(build_collection_tool_unit));
+        self.unit
+    }
+
+    fn search_state_mut(&mut self) -> &mut SearchPlannerUnitLocalState {
+        let UnitLocalState::SearchPlanner(state) = &mut self.unit.local_state else {
+            panic!("search unit runtime requires search planner local state");
+        };
+        state
+    }
+}
 
 pub(crate) fn build_search_agent_node(
     prompt: &str,
@@ -37,20 +166,12 @@ pub(crate) fn build_search_unit_instance(
     outcomes: &[CollectionToolOutcome],
     llm_client: &LlmApiClient,
 ) -> UnitInstanceState {
-    let mut unit = UnitInstanceState::new(UnitDefinition {
-        id: "search.public_tool".to_string(),
-        label: "search tool unit".to_string(),
-        kind: UnitKind::PublicToolOrchestration,
-        graph: None,
-        local_state_schema: UnitLocalStateSchema::None,
-    });
-    unit.instance_label = "search tool unit".to_string();
-    unit.status = unit_status(parent_status(outcomes));
-    unit.tool_name = Some("search".to_string());
-    unit.context_window = Some(build_search_tool_context_window(prompt, outcomes, llm_client));
-    unit.result_summary = Some(render_combined_search_results(outcomes));
-    unit.children = outcomes.iter().map(build_collection_tool_unit).collect();
-    unit
+    SearchUnitRuntime::new().finish(
+        prompt,
+        outcomes,
+        llm_client,
+        &render_combined_search_results(outcomes),
+    )
 }
 
 fn parent_status(outcomes: &[CollectionToolOutcome]) -> AgentNodeStatus {

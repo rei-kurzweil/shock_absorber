@@ -251,7 +251,7 @@ struct SummaryLoopAccumulator {
     page_outcomes: Vec<CollectionToolOutcome>,
     page_states: Vec<SummaryPageState>,
     accepted_page_summaries: Vec<String>,
-    planner_updates: Vec<String>,
+    planner_updates: Vec<PlannerUpdate>,
     covered_window_offsets: Vec<usize>,
     covered_post_count: usize,
     collection_total_items: Option<usize>,
@@ -272,6 +272,12 @@ struct SummaryLoopAccumulator {
     notes_repair_attempted: bool,
     final_notes_summary: Option<String>,
     accepted_windows: Vec<(usize, usize)>,
+}
+
+#[derive(Clone)]
+struct PlannerUpdate {
+    text: String,
+    covered_post_count: usize,
 }
 
 #[derive(Clone)]
@@ -327,7 +333,11 @@ impl SummaryLoopAccumulator {
     }
 
     fn planner_notes(&self) -> String {
-        self.planner_updates.join("\n\n")
+        self.planner_updates
+            .iter()
+            .map(|update| update.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
 
     fn final_summary_text(&self) -> String {
@@ -343,24 +353,58 @@ impl SummaryLoopAccumulator {
         if let Some(notes) = self
             .planner_updates
             .last()
-            .map(|summary| summary.trim())
+            .filter(|update| update.covered_post_count >= self.covered_post_count)
+            .map(|update| update.text.trim())
             .filter(|summary| !summary.is_empty())
         {
             return notes.to_string();
         }
 
         let concatenated = self.concatenated_window_summaries();
-        if concatenated.trim().is_empty() {
-            if self.page_states.is_empty() {
-                "No grounded summary pages were accepted.".to_string()
-            } else {
-                format!(
-                    "Grounded raw-window fallback preserved {} page(s), but no final synthesis was produced.",
-                    self.page_states.len()
-                )
-            }
-        } else {
+        if !concatenated.trim().is_empty() && self.accepted_page_summaries.len() == self.page_states.len() {
             concatenated
+        } else if self.page_states.is_empty() {
+            "No grounded summary pages were accepted.".to_string()
+        } else {
+            self.deterministic_scope_summary()
+        }
+    }
+
+    fn deterministic_scope_summary(&self) -> String {
+        let mut paragraphs = Vec::new();
+        for page_state in &self.page_states {
+            match &page_state.payload {
+                SummaryPagePayload::Summary { text } => {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        paragraphs.push(trimmed.to_string());
+                    }
+                }
+                SummaryPagePayload::RawWindow { fallback } => {
+                    let snippets = representative_body_snippets(&fallback.records, 3);
+                    let paragraph = if snippets.is_empty() {
+                        format!(
+                            "Page {} preserved grounded raw evidence, but the window did not yield concise representative snippets.",
+                            page_state.page_index + 1
+                        )
+                    } else {
+                        format!(
+                            "Page {} preserved grounded raw evidence around {}.",
+                            page_state.page_index + 1,
+                            snippets.join("; ")
+                        )
+                    };
+                    paragraphs.push(paragraph);
+                }
+            }
+        }
+        if paragraphs.is_empty() {
+            format!(
+                "Grounded raw-window fallback preserved {} page(s), but no final synthesis was produced.",
+                self.page_states.len()
+            )
+        } else {
+            paragraphs.join("\n\n")
         }
     }
 
@@ -375,6 +419,16 @@ impl SummaryLoopAccumulator {
 
         let concatenated_window_summaries = self.concatenated_window_summaries();
         let final_summary = self.final_summary_text();
+        let notes_summary_accepted = self
+            .final_notes_summary
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|summary| !summary.is_empty());
+        let planner_summary_accepted = self
+            .planner_updates
+            .last()
+            .map(|update| update.text.trim())
+            .is_some_and(|summary| !summary.is_empty());
         let required_post_count = match requested_summary_scope {
             RequestedSummaryScope::Count { requested_items } => Some(requested_items),
             _ => None,
@@ -388,18 +442,49 @@ impl SummaryLoopAccumulator {
                 .map(|total| self.covered_post_count >= total)
                 .unwrap_or(false);
         let diagnostic = format!(
-            "collection_summary_planner accepted {} page summaries and {} raw-window fallbacks; collection_summary_notes produced final scope summary",
+            "collection_summary_planner accepted {} page summaries and {} raw-window fallbacks; final_notes_summary_accepted: {}; planner_summary_accepted: {}",
             self.accepted_page_summaries.len(),
-            self.fallback_page_count()
+            self.fallback_page_count(),
+            notes_summary_accepted,
+            planner_summary_accepted
         );
-        let review_reason = if coverage_complete {
+        let review_reason = if notes_summary_accepted {
+            if coverage_complete || source_exhausted {
+                format!(
+                    "collection_summary_notes produced a final scope summary after considering {} posts.",
+                    self.covered_post_count
+                )
+            } else {
+                format!(
+                    "collection_summary_notes produced a partial scope summary after considering {} posts before exhaustion.",
+                    self.covered_post_count
+                )
+            }
+        } else if planner_summary_accepted {
+            if coverage_complete || source_exhausted {
+                format!(
+                    "collection_summary_planner produced the best accepted synthesis after considering {} posts.",
+                    self.covered_post_count
+                )
+            } else {
+                format!(
+                    "collection_summary_planner produced the best partial accepted synthesis after considering {} posts before exhaustion.",
+                    self.covered_post_count
+                )
+            }
+        } else if source_exhausted {
             format!(
-                "collection_summary_notes produced a final scope summary after considering {} posts.",
+                "No final planner or notes synthesis was accepted, but grounded raw-window fallback preserved the full available scope across {} posts.",
+                self.covered_post_count
+            )
+        } else if coverage_complete {
+            format!(
+                "No final planner or notes synthesis was accepted after considering {} posts.",
                 self.covered_post_count
             )
         } else {
             format!(
-                "collection_summary_notes produced a partial scope summary after considering {} posts before exhaustion.",
+                "No final planner or notes synthesis was accepted before the requested scope stopped at {} grounded posts.",
                 self.covered_post_count
             )
         };
@@ -864,6 +949,35 @@ fn covered_post_bodies<'a>(
         }
     }
     bodies
+}
+
+fn representative_body_snippets(records: &[PostRecord], limit: usize) -> Vec<String> {
+    let mut snippets = Vec::new();
+    for post in records {
+        let snippet = post
+            .body
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("");
+        if snippet.is_empty() {
+            continue;
+        }
+        let condensed = if snippet.chars().count() > 140 {
+            let truncated: String = snippet.chars().take(140).collect();
+            format!("{truncated}...")
+        } else {
+            snippet.to_string()
+        };
+        if snippets.iter().any(|existing| existing == &condensed) {
+            continue;
+        }
+        snippets.push(format!("{:?}", condensed));
+        if snippets.len() >= limit {
+            break;
+        }
+    }
+    snippets
 }
 
 fn review_synthesis_text(
@@ -1440,7 +1554,10 @@ impl BlueskyTools {
                     match review_result {
                         Ok(()) => {
                             if let Some(response) = accumulator.pending_planner_update.take() {
-                                accumulator.planner_updates.push(response.clone());
+                                accumulator.planner_updates.push(PlannerUpdate {
+                                    text: response.clone(),
+                                    covered_post_count: accumulator.covered_post_count,
+                                });
                                 accumulator.planner_raw_response = Some(
                                     accumulator
                                         .pending_planner_raw_response

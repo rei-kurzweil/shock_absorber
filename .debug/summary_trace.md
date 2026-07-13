@@ -1,101 +1,89 @@
 [execute_public_summary]
 status: start
-query: summarize the most recent 300 posts by this actor into 6 paragraphs
-actor_anchor_did: did:plc:nehmem7iy5fyifkqxjpcnj6e
-actor_anchor_source: selected_actor_fallback
+query: summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
+actor_anchor_did: did:plc:37lcyqfy4d5r25jvgtabe5kn
+actor_anchor_source: explicit_query_ref
 
 [execute_public_summary]
 status: actor_resolved
-actor_handle: sam.bunnylabs.dev
-actor_did: did:plc:nehmem7iy5fyifkqxjpcnj6e
+actor_handle: loneicewolf.bsky.social
+actor_did: did:plc:37lcyqfy4d5r25jvgtabe5kn
 
 [execute_public_summary]
 status: hydrate_start
-actor_did: did:plc:nehmem7iy5fyifkqxjpcnj6e
+actor_did: did:plc:37lcyqfy4d5r25jvgtabe5kn
 hydrate_args: {
-  "include_pinned_posts": true,
   "include_profile": true,
   "include_recent_posts": true,
-  "recent_posts_feed_fetch_limit": 400,
-  "recent_posts_min_top_level_posts": 300
+  "recent_posts_feed_fetch_limit": 300,
+  "recent_posts_min_top_level_posts": 150
 }
 
 [execute_public_summary]
 status: hydrate_complete
-actor_did: did:plc:nehmem7iy5fyifkqxjpcnj6e
+actor_did: did:plc:37lcyqfy4d5r25jvgtabe5kn
 collection_count: 6
 collections:
-actor_profile:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=actor_profile | posts=1
-clearsky_lists:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=clearsky_lists | posts=5
-pinned_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=pinned_posts | posts=0
-recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=recent_posts | posts=229
-recent_posts_unaddressed:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=recent_posts_unaddressed | posts=91
-recent_replies_sent:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=recent_replies_sent | posts=137
+actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=actor_profile | posts=1
+clearsky_lists:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=clearsky_lists | posts=73
+pinned_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=pinned_posts | posts=1
+recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_posts | posts=300
+recent_posts_unaddressed:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_posts_unaddressed | posts=76
+recent_replies_sent:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_replies_sent | posts=197
 
 [execute_public_summary]
 status: collection_selected
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-collection_label: Recent posts by did:plc:nehmem7iy5fyifkqxjpcnj6e
-collection_kind: recent_posts
-post_count: 229
-requested_scope: Count { requested_items: 300 }
+collection_id: actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_label: Profile for loneicewolf.bsky.social
+collection_kind: actor_profile
+post_count: 1
+requested_scope: Count { requested_items: 150 }
 
 [summary_collection_selection_review]
-query: summarize the most recent 300 posts by this actor into 6 paragraphs
-requested_scope: Count { requested_items: 300 }
+query: summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
+requested_scope: Count { requested_items: 150 }
 requested_target: recent_posts
 hydrated_candidate_collections:
-actor_profile:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=actor_profile | posts=1
-clearsky_lists:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=clearsky_lists | posts=5
-pinned_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=pinned_posts | posts=0
-recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=recent_posts | posts=229
-recent_posts_unaddressed:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=recent_posts_unaddressed | posts=91
-recent_replies_sent:did:plc:nehmem7iy5fyifkqxjpcnj6e | kind=recent_replies_sent | posts=137
-original_collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-original_collection_kind: recent_posts
-review_status: accepted
-final_collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=actor_profile | posts=1
+clearsky_lists:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=clearsky_lists | posts=73
+pinned_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=pinned_posts | posts=1
+recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_posts | posts=300
+recent_posts_unaddressed:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_posts_unaddressed | posts=76
+recent_replies_sent:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_replies_sent | posts=197
+original_collection_id: actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn
+original_collection_kind: actor_profile
+review_status: repaired
+final_collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 final_collection_kind: recent_posts
-deterministic_repair_applied: false
-reason: selected collection kind `recent_posts` matches explicit request target `recent_posts`
+deterministic_repair_applied: true
+reason: replaced incompatible collection kind `actor_profile` with explicit request target `recent_posts`
 
-[summary_collection_selection_llm_review]
-query: summarize the most recent 300 posts by this actor into 6 paragraphs
-requested_scope: Count { requested_items: 300 }
-proposed_collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-proposed_collection_kind: recent_posts
-review_status: accepted
-final_collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+[summary_collection_selection_repair]
+status: applied
+original_collection_id: actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn
+original_collection_kind: actor_profile
+final_collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 final_collection_kind: recent_posts
-reason: The proposed collection 'recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e' has 229 items, which is the closest available count to the requested 300 items. It directly matches the scope (recent posts by the actor).
-
-[summary_collection_selection_llm_enforcement]
-review_status: accepted
-original_collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-original_collection_kind: recent_posts
-final_collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-final_collection_kind: recent_posts
-deterministic_repair_applied: false
-reason: selected collection kind `recent_posts` matches explicit request target `recent_posts`
+reason: replaced incompatible collection kind `actor_profile` with explicit request target `recent_posts`
 
 [collection_summary_loop]
 node: init_window
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-collection_posts: 229
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_posts: 300
 initial_offset: 0
-max_pages: 5
-requested_scope: Count { requested_items: 300 }
+max_pages: 3
+requested_scope: Count { requested_items: 150 }
 
 [collection_summary_loop]
 node: summarize_page
 status: running
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 page_index: 0
 offset: 0
 window_size: 50
 
 [summary_leaf_parse]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 0
 result_present: true
 original_result_kind: summary
@@ -104,23 +92,25 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "Game Development Updates: Godot, Blender, and Server Work",
-  "summary": "The recent posts heavily focus on ongoing game development projects, primarily utilizing Godot, Blender, and various programming techniques. A major theme is the struggle with engine internals, specifically dealing with "rapier and a custom engine," which has led to "Bad design choices" involving dual coordinate systems and lag from simulating too many rigidbodies, prompting consideration to "switch out the client to godot." Development milestones include adding features like "walls, need to work on recruiting and upgrading :p" for a sidescrolling tower defence game, and the successful release of a project, "8-bit-knight," which the author noted was "buggy but finished a project after a long time!"\n\nVisual and asset creation is a constant topic, with updates on new models, desert environments, and map building. The author is working on a "desert house" and adding "buildings for the map," while also experimenting with "sketching" in 2D. Specific visual notes include adding a background and potentially a "parallax effect" to enhance the look, and noting that "Sometimes the orcs get stuck to the player lmao."\n\nTechnical implementation details are frequently shared, covering everything from the core game mechanics to server infrastructure. The author is actively "Testing out bots n stuff for more liveliness in the server!" and confirming that the system is moving to be "server authoratative." Furthermore, there are discussions around rendering and assets, such as noting that "web export is off the menu guys" and questioning if a UV map is "probably not straight."\n\nSeveral posts highlight the iterative nature of development, showing both successes and setbacks. There are acknowledgments of positive feedback, such as "Looks great!" and "Amazing!", contrasted with moments of frustration like being "very bored very tired" or having a "Worst day of my life" due to a stuck RJ45 cable. The author also mentions specific technical hurdles, like the difficulty of "making this landscape by hand."\n\nThe projects are clearly tied to specific aesthetics and platforms. The author is aiming for a "psx or n64 vibe," and the work is being showcased across platforms, with links provided to projects like "tanker.bunnylabs.dev" and the itch.io release. The use of tags like #gamedev, #indiedev, #godot, #pixelart, and #blender dominate the conversation.\n\nFinally, the collection covers the integration of various elements, including the addition of "lobby music" sourced from a specific pack, and the general progress of the game, which is moving toward a release build. The author is also experimenting with different styles, such as noting the initial concept of a "PS1 style world of tanks xD.""
+  "title": "AI, Art, and Social Discourse",
+  "summary": "The recent posts by loneicewolf.bsky.social heavily revolve around the topic of Artificial Intelligence, particularly GenAI, and its intersection with art and social acceptance. A major theme is navigating the social risk associated with AI usage, exemplified by the question: \"Do you feel there's a difference between big companies (un-ethically) training AI versus a patient using it for private comfort in a hospital?\" The author emphasizes the need to frame these discussions carefully to avoid \"cornering\" people, noting that a cold reply from an artist might stem from concerns over \"some random screenshoting and strawmanning them.\" This leads to a detailed survey plan covering three main questions: general views on AI, respect for AI users, and whether one still dislikes AI if a customer uses it. Furthermore, the author shares personal context, defining \"hard time\" as being \"often hospitalized,\" having a disorder, or having \"shaky/weak bones because of a history of cancer,\" and asks if users approve of AI helping those in these situations.\n\nBeyond the philosophical debate, there is significant engagement with AI-generated visuals, with several posts showcasing beautiful creations tagged with \#AIアート and \#SDXL, often featuring themes of comfort and beauty, such as the Japanese post inviting viewers to \"少し休憩しましょう？\" (Let's take a short break?). The author also shares observations on the AI landscape, referencing GPT 4o's temporary disappearance due to backlash, and expresses appreciation for posts that bring up news, noting, \"(sending hugs to everyone)\."\n\nFinally, the collection is punctuated by general social interactions, including greetings like \"Halloo everynyan!\" and \"おはよおううーー,\" expressions of delight over art, such as \"ITS SO PRETTY :D,\" and acknowledgments of community milestones, like congratulating a follower on reaching \"フォロワー400人おめでとうにゃん!!.\" The author also discusses the preference for using DMs for sensitive opinions to mitigate social pressure, concluding with a heartfelt sentiment: \"i gotta say..this is heart-warming ♥️.\""
 }
 
 [summary_leaf_review]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 0
 review_status: fail
 review_grounded: false
 review_sufficient: false
 review_repair_needed: false
 review_additional_pages_needed: false
-review_reason: The summary omits meaningful text that was available in the matched records.
+review_reason: The summary is not a single paragraph.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts heavily focus on ongoing game development projects, primarily utilizing Godot, Blender, and various programming techniques. A major theme is the struggle with engine internals, specifically dealing with
+The recent posts by loneicewolf.bsky.social heavily revolve around the topic of Artificial Intelligence, particularly GenAI, and its intersection with art and social acceptance. A major theme is navigating the social risk associated with AI usage, exemplified by the question: "Do you feel there's a difference between big companies (un-ethically) training AI versus a patient using it for private comfort in a hospital?" The author emphasizes the need to frame these discussions carefully to avoid "cornering" people, noting that a cold reply from an artist might stem from concerns over "some random screenshoting and strawmanning them." This leads to a detailed survey plan covering three main questions: general views on AI, respect for AI users, and whether one still dislikes AI if a customer uses it. Furthermore, the author shares personal context, defining "hard time" as being "often hospitalized," having a disorder, or having "shaky/weak bones because of a history of cancer," and asks if users approve of AI helping those in these situations.
+
+Beyond the philosophical debate, there is significant engagement with AI-generated visuals, with several posts showcasing beautiful creations tagged with #AIアート and #SDXL, often featuring themes of comfort and beauty, such as the Japanese post inviting viewers to "少し休憩しましょう？" (Let's take a short break?). The author also shares observations on the AI landscape, referencing GPT 4o's temporary disappearance due to backlash, and expresses appreciation for posts that bring up news, noting, "(sending hugs to everyone).
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -150,364 +140,384 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize the most recent 300 posts by this actor into 6 paragraphs
+summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
 
 ## Harness Scope Assessment
-requested_scope: count 300
-required_total_items: 229
+requested_scope: count 150
+required_total_items: 150
 page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
-available_total_items: 229
+available_total_items: 300
 current_window_offset: 0
 current_window_size: 50
 
 ## Collection Evidence
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-collection_label: Recent posts by did:plc:nehmem7iy5fyifkqxjpcnj6e (items 1-50 of 229)
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_label: Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn (items 1-50 of 300)
 collection_kind: recent_posts
 search_window_offset: 0
 search_window_total_items: 50
 
-matched_item[0] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqffgwn5bk2p
-body: PS1 style world of tanks xD
+matched_item[0] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj5quzqkc2q
+body: KYOOOOT 😸️
 
-matched_item[1] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqexj7c66s2p
-body: Yess
+matched_item[1] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj3mf6sb22g
+body: these artworks is beautiful btw! :D
 
-matched_item[2] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqeqhjjv522j
-body: Adding a background helped a lot!
-Might add some parallax effect
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+matched_item[2] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj2slgutc2g
+body: Halloo everynyan!
 
-matched_item[3] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqcuxy2ukk2v
-body: Waow
+i thought of sharing memes sometimes to make people laugh
+xD
 
-matched_item[4] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqc7o5phic2l
-body: Well, getting started was faster than expected. 
-Now need to get the tanks working with the current server implementation
-#godot #gamedev #indiedev
-tag: godot
-tag: gamedev
-tag: indiedev
+but im not sure! maybe i should make a thread about memes so people can also post theirs xD
 
-matched_item[5] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqc2mtqymk2h
-body: Hmmm something's missing
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+matched_item[3] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqizsyzops2g
+body: ? wait i dont get it xD
 
-matched_item[6] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqbzgkfmx226
-body: added walls, need to work on recruiting and upgrading :p
-sidescrolling tower defence
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+matched_item[4] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyxormds2g
+body: now of course if a user replies to me coldly, that's their problem.
+like, e.g
+artist(who dont like ai): i dont like it at all, so i hope u can stop it
+me: oh, i wont, but i respect your view on it, because i use it on hospital stays
+artist: cant support that
 
-matched_item[7] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqbytwdhvk26
-body: very bored very tired
+this was sharing life exp. not loaded Q
 
-matched_item[8] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqa6mtgea22d
-body: Bad design choices. Basically there's one coordinate system for stuff which where not affected by rapier and one for stuff that were. Idk why I did that but caused big pain
+matched_item[5] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiylm7z722g
+body: and this is why I use AI to frame it better!
+(another reason i like AI, without it, conversation wouldnt be peaceful imo)
 
-matched_item[9] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqa2yqcxoc2x
-body: Mostly maintaining engine internals. Plus maintaining 2 coordinate systems. One for rapier and one for the engine (bad engine design) then other stuff like rapier causing lag simulating too many rigidbodies
+"Do you feel there's a difference between 
+big companies (un-ethically) training AI 
+versus
+a patient using it for private comfort in a hospital?"
 
-matched_item[10] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq7dl5wm422n
-body: Looking great!
+might be a better way.
 
-matched_item[11] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq62vkgu6c2n
-body: Tyy
+matched_item[6] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyexi7lk2g
+body: (this should say something about my approach by the way, the goal is not cornering, its to understand)
 
-matched_item[12] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq5xjpl7m22n
-body: Dealing with rapier and a custom engine is becoming a big pain. I am honestly considering to switch out the client to godot. 
-#godot #gamedev #indiedev #webgl
-tag: godot
-tag: gamedev
-tag: indiedev
-tag: webgl
+matched_item[7] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyex3yxk2g
+body: now of course asking a user even in a dm "if you dont like ai, is it still not okay for you if people use it at hospitals to pass time.."
 
-matched_item[13] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq5p73mh3k2p
-body: Trying out a new idea 👀
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+even if intentionally well meant - it is a LOADED question.
+so if i do this i will try to frame it better because i worry about cornering people
 
-matched_item[14] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq4s2srh2k2n
-body: Yep big explosion
+matched_item[8] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixk3fvps2g
+body: wow! nice
 
-matched_item[15] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq4ndv4eqk2t
-body: Working on a desert house
-#blender #gamedev #indiedev #webgl
-tag: blender
-tag: gamedev
-tag: indiedev
-tag: webgl
+matched_item[9] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixgzfrbk2g
+body: thanks! will do!
 
-matched_item[16] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq3bbpukqk2a
-body: Oh it's a known bug. Gonna fix it in a patch coz it doesn't happen very often
+matched_item[10] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixgixzzs2g
+body: note, idk if i need to justify my like here but i liked this post because it bring up the news, 
 
-matched_item[17] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq3bavurkk2a
-body: Tyy
+(sending hugs to everyone)
 
-matched_item[18] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq2wc77euc2k
-body: Sometimes the orcs get stuck to the player lmao
+matched_item[11] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixfmgdqs2g
+body: waai-WHA?!
+oh my gudness. 
+i..had..no idea. thanks for bringing this up!
 
-matched_item[19] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq2sguoyds2r
-body: Released :p
-lioncatdevstudio.itch.io/8-bit-knight
-Learnt a lot from this project, it is buggy but finished a project after a long time! :D
-#gamedev #indiedev #godot #pixelart #software #programming
-link: https://lioncatdevstudio.itch.io/8-bit-knight
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+matched_item[12] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixebe57k2g
+body: Lol? dind't this happen to GPT 4o too?
+and OpenAI had to GIVE IT BACK because the backlsh was so great?
 
-matched_item[20] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpz77cnros2n
-body: New models
-#blender #gamedev #indiedev #webgl
-tag: blender
-tag: gamedev
-tag: indiedev
-tag: webgl
+and then it disappeared anyway
+because "no one used it" (spoiler twist: it prolly was the most used) and "it was lesser good than `xyz`-5" (spoiler twist:i think its the opposite!)
 
-matched_item[21] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mprabxdcv22o
-body: ohhhh will check that out
-it's pretty painful making this landscape by hand
+xD
 
-matched_item[22] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpra62ljlc2o
-body: Sometimes you gotta have a off week
+matched_item[13] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiwzndfmk2g
+body: おはよおううーー
 
-matched_item[23] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpmfhmghwc25
-body: No post today guys
-I got stuck getting rid of a fucking stuck RJ45 cable. Worst day of my life
+matched_item[14] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiwlnhz4s2g
+body: the samee!! :D
 
-matched_item[24] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpmbk6d5k22h
-body: Same here lmao
+matched_item[15] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiezqiisk2f
+body: ねえ、そこのあなた。
+そう、あなたよ。少し休憩しましょう？
+さあ、座って。温かいお茶を淹れてあげるから。
+#AIアート #AIイラスト
+#ComfyUI #SDXL
+#AIArt #AIArtwork
+#OC #AI-OC #AIOC
+tag: AIアート
+tag: AIイラスト
+tag: ComfyUI
+tag: SDXL
+tag: AIArt
+tag: AIArtwork
+tag: OC
+tag: AI-OC
+tag: AIOC
 
-matched_item[25] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpmbiid7ls2h
-body: Very pretty
-Riding into the sunset
+matched_item[16] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiegw7sak2o
+body: 心からの愛と、たくさんのお花、そして安らぎをあなたへ。
 
-matched_item[26] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpjwmf3u2c2l
-body: 👀
+#AIアート #AIイラスト
+#ComfyUI #SDXL
+#AIArt #AIArtwork
+#OC #AI-OC #AIOC
+tag: AIアート
+tag: AIイラスト
+tag: ComfyUI
+tag: SDXL
+tag: AIArt
+tag: AIArtwork
+tag: OC
+tag: AI-OC
+tag: AIOC
 
-matched_item[27] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpjghvyk5c2l
-body: Amazing!
+matched_item[17] uri: at://did:plc:rsbisnebdlfgrf6hgwgcfray/app.bsky.feed.post/3mqichb6mhk2e
+body: おはようございます☀️
 
-matched_item[28] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpitlrlmck2b
-body: Yeahh I can, but it's a lot of code :")
-Definitely gonna take a while
+新しい一週間が始まりましたね✨
 
-matched_item[29] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpio25eduk2h
-body: omw creating a release build 
-first game in a loooooong while
-ain't good, but we shall see :p
-#gamedev #indiedev #godot
-tag: gamedev
-tag: indiedev
-tag: godot
+月曜日は「頑張らなきゃ」と気負うより、「まずは一歩進めば大丈夫」くらいの気持ちでスタートするのがちょうどいいかもしれません😊
 
-matched_item[30] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpimn6vsdc2h
-body: Added them into the map
-tanker.bunnylabs.dev
-#blender #gamedev #indiedev #webgl
-link: https://tanker.bunnylabs.dev
-tag: blender
-tag: gamedev
-tag: indiedev
-tag: webgl
+どんな一週間になるかは、今日の小さな一歩から。
+焦らず、自分のペースで進んでいきましょう🍀
 
-matched_item[31] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpigbdto7k25
-body: Exactly what I want to hear. Going for a psx or n64 vibe :p
+お仕事の方も、お休みの方も、みなさんにとって笑顔の多い一日、そして素敵な一週間になりますように🌈
 
-matched_item[32] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphleyl7ks2f
-body: lol
+今週も元気にhappyにいきましょう！✨
 
-matched_item[33] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphkkkji6s2z
-body: better hanger face :p ty @prplon.bsky.social 
-#blender #gamedev #indiedev
-mention: did:plc:cbjca4qyp4jqoupvatqe5aqu
-tag: blender
-tag: gamedev
-tag: indiedev
+#aiart
+#AIイラスト
+tag: aiart
+tag: AIイラスト
 
-matched_item[34] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphkj2qs7s2z
-body: YOOO TYSM
-YOU ARE A LIFESAVER
+matched_item[18] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidzohaqk2o
+body: May! good morning ♥️
 
-matched_item[35] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphka2mej22i
-body: A desert isn't a desert without a catcus
-#blender #gamedev #indiedev
-tag: blender
-tag: gamedev
-tag: indiedev
+matched_item[19] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidoepmt22o
+body: 🐇...!
+♥️ pretty! :D
 
-matched_item[36] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphdnofyzk2n
-body: Trying out some sketching 
-#sketchbook #2d #art
-tag: sketchbook
-tag: 2d
-tag: art
+matched_item[20] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidlpsbqk2o
+body: ITS SO PRETTY :D
 
-matched_item[37] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpfuqomkgk2s
-body: Ahhh ty
-Lemme see
+matched_item[21] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidlg72os2o
+body: ♥️
 
-matched_item[38] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpfuprmys22s
-body: Looks great!
+matched_item[22] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztqpg2v
+body: THIS IS why i use DMs, if I can, and if people are okay with DMs, if i ask about a opinion and i know its..socially risky,
+if they dont bring it up in a reply, I CHOOSE DM.
 
-matched_item[39] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpfungbmq22s
-body: Oh demn sorry
+because, otherwise, its a immense pressure being put on the person who might just want to *exist*
 
-matched_item[40] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpfulrg3t22s
-body: Not exactly sure
-Looks kinda weird. You might be right, the uv is probably not straight
+matched_item[23] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztqpf2v
+body: ..because, the risk of:
 
-matched_item[41] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpdy2re54c2y
-body: HMMMMMM
-#blender #gamedev #indiedev
-tag: blender
-tag: gamedev
-tag: indiedev
+1) some random screenshoting and strawmanning them:
+"see? they like ai!"
 
-matched_item[42] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpbtcfj5l22s
-body: Yep!
+is just too great.
 
-matched_item[43] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpbr5jdmdc23
-body: Testing out bots n stuff for more liveliness in the server!
-also, we are going server authoratative!
-try now: tanker.bunnylabs.dev
-#gamedev #indiedev #software #programming #graphicsprogramming
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
+i wonder if this "THING" (group pressure, social risk)
+is why so much AI hate,
 
-matched_item[44] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpbio7xnrc2t
-body: Is that so?
-Lemme upgrade n see tysm!
+OR, if ppl actually became religious and saying
+ "it has no soul"
 
-matched_item[45] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpbgqxw2x22x
-body: Ah crap, looks like web export is off the menu guys
+matched_item[24] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztfxn2v
+body: kind of creepy thought experiment
+if using ai gets you labeled as a target for hate
 
-#gamedev #indiedev #godot
-tag: gamedev
-tag: indiedev
-tag: godot
+then actual artists who has kind views towards ai and people using ai, even they DO NOT USE ai at all-
 
-matched_item[46] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp7z2v4ywk2n
-body: Nice
+might even, NEED to, at least, refrain from being:
+either, neutral
+OR
+saying anything good about it
 
-matched_item[47] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp7xxvosf22h
-body: Nice work. Looks amazing already!
+because...
 
-matched_item[48] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp7hwagu7226
-body: Working on some buildings for the map. might change the texture
-#blender #gamedev #indiedev
-tag: blender
-tag: gamedev
-tag: indiedev
+matched_item[25] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7u7lbqn2v
+body: noo sad 🥺️❤️‍🩹️
 
-matched_item[49] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp6z5sdzds2e
-body: Finally added lobby music
-Thanks a lot to leohpaz for their music pack(leohpaz.itch.io/minifantasy-...)
-else I would have given up :p
-#gamedev #indiedev #godot #pixelart #software #programming
-link: https://leohpaz.itch.io/minifantasy-dungeon-sfx-pack
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+matched_item[26] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7shcuhn2v
+body: yum!! 😋️
+
+matched_item[27] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7qowwuv2v
+body: フォロワー400人おめでとうございます！！わーい！！
+
+matched_item[28] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7ossazv2v
+body: フォロワー400人おめでとうにゃん！！うおぉぉーっ！！
+
+matched_item[29] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv52v
+body: IMPORTANT
+Thank you for reading this, im not sure i will conduct this survey, but i want to understand others viewpoint.
+
+NOTE:
+no one can reply here, because this is not the survey, this is just a "heads up" that, i might, ask someone/you about this in a DM. i obviously wont ask publically cuz well
+
+matched_item[30] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv42v
+body: "hard time" here might be defined as:
+being often hospitalized
+having a disorder (speech disorder -> and getting help from AI to practice and to talk)
+shaky/weak bones because of a history of cancer
+
+matched_item[31] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv32v
+body: OPTIONAL EXTRA QUESTION(S)
+4)
+If someone has a hard time and using AI to make their life better, or more normal, do you approve of that approach?
+
+matched_item[32] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv22v
+body: 3)
+if you do NOT like GenAI or AI in general
+-and if you are a artist who sells your art (writing,images,..)-
+
+Would you still NOT like it if a customer
+(who will buy from you or have buyd from you in the past)
+uses AI?
+
+matched_item[33] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vbvs2v
+body: 2/3
+
+1) 
+what is your (general) view about AI
+(not specifically GenAI but AI as a concept)
+
+2)
+do you (generally) respect users who use AI as much as other people?
+
+(...)
+
+matched_item[34] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7v4zk2v
+body: 1/3
+was thinking of doing something controversial,
+namely, "conduct" a "survey" on my followers!
+by asking 3 questions:
+
+note, some questions assume one is someone who dislike ai, if someone is that, i will inform them that, they may skip that question
+
+matched_item[35] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi56j6mu22v
+body: yess! same same! 🌸️ \^^/
+
+matched_item[36] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi53nx3322v
+body: yess omg ❤️‍🩹️
+
+matched_item[37] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi4bukhx22v
+body: WAU this is pretty!
+
+matched_item[38] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi4bmif5s2v
+body: woahh this looks so wowiee!
+
+matched_item[39] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi47j7cps2v
+body: looks mysterious!👀️🍙️
+
+matched_item[40] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi46m2sus2v
+body: woah!
+👀️
+
+matched_item[41] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3kugxlc2o
+body: SHE PRETTY!!!
+
+matched_item[42] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3jry3lk2o
+body: KESS IS SO CUTE
+
+matched_item[43] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3jfsbxc2o
+body: WOW LOVE IT
+
+matched_item[44] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3hu64o22o
+body: LOVELY ♡＼( ´ ▽ ` )／♡
+
+matched_item[45] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi32iuvp22q
+body: WOW
+
+matched_item[46] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2zz752k2q
+body: all good! 😸️
+
+matched_item[47] uri: at://did:plc:y3vu6k7ozqpbc7rd7fgh5dug/app.bsky.feed.post/3mqh3bm56x22s
+body: `Mountain peak at dawn,
+   a single tree with
+        vibrant flowers`
+
+#synthart
+tag: synthart
+
+matched_item[48] uri: at://did:plc:eyncvuomoy5dma63kbe4k6xc/app.bsky.feed.post/3mqg3lz3ceu27
+body: 📯
+Watcher of the Wastes
+
+#AIイラスト #AiArt #SynthArt #Flux1-Dev
+tag: AIイラスト
+tag: AiArt
+tag: SynthArt
+tag: Flux1-Dev
+
+matched_item[49] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2o6iaek2x
+body: i gotta say..this is heart-warming ♥️
 
 ## Proposed Summary
-post: Game Development Updates: Godot, Blender, and Server Work
-summary: The recent posts heavily focus on ongoing game development projects, primarily utilizing Godot, Blender, and various programming techniques. A major theme is the struggle with engine internals, specifically dealing with 
+post: AI, Art, and Social Discourse
+summary: The recent posts by loneicewolf.bsky.social heavily revolve around the topic of Artificial Intelligence, particularly GenAI, and its intersection with art and social acceptance. A major theme is navigating the social risk associated with AI usage, exemplified by the question: "Do you feel there's a difference between big companies (un-ethically) training AI versus a patient using it for private comfort in a hospital?" The author emphasizes the need to frame these discussions carefully to avoid "cornering" people, noting that a cold reply from an artist might stem from concerns over "some random screenshoting and strawmanning them." This leads to a detailed survey plan covering three main questions: general views on AI, respect for AI users, and whether one still dislikes AI if a customer uses it. Furthermore, the author shares personal context, defining "hard time" as being "often hospitalized," having a disorder, or having "shaky/weak bones because of a history of cancer," and asks if users approve of AI helping those in these situations.
+
+Beyond the philosophical debate, there is significant engagement with AI-generated visuals, with several posts showcasing beautiful creations tagged with #AIアート and #SDXL, often featuring themes of comfort and beauty, such as the Japanese post inviting viewers to "少し休憩しましょう？" (Let's take a short break?). The author also shares observations on the AI landscape, referencing GPT 4o's temporary disappearance due to backlash, and expresses appreciation for posts that bring up news, noting, "(sending hugs to everyone).
 window_offset: 0
 window_size: 50
 page_index: 0
 page_size: 50
-collection_total_items: 229
+collection_total_items: 300
 has_more: true
-covered_item_1_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqffgwn5bk2p
-covered_item_2_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqexj7c66s2p
-covered_item_3_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqeqhjjv522j
-covered_item_4_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqcuxy2ukk2v
-covered_item_5_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqc7o5phic2l
-covered_item_6_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqc2mtqymk2h
-covered_item_7_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqbzgkfmx226
-covered_item_8_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqbytwdhvk26
-covered_item_9_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqa6mtgea22d
-covered_item_10_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mqa2yqcxoc2x
-covered_item_11_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq7dl5wm422n
-covered_item_12_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq62vkgu6c2n
-covered_item_13_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq5xjpl7m22n
-covered_item_14_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq5p73mh3k2p
-covered_item_15_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq4s2srh2k2n
-covered_item_16_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq4ndv4eqk2t
-covered_item_17_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq3bbpukqk2a
-covered_item_18_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq3bavurkk2a
-covered_item_19_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq2wc77euc2k
-covered_item_20_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mq2sguoyds2r
-covered_item_21_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpz77cnros2n
-covered_item_22_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mprabxdcv22o
-covered_item_23_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpra62ljlc2o
-covered_item_24_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpmfhmghwc25
-covered_item_25_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpmbk6d5k22h
-covered_item_26_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpmbiid7ls2h
-covered_item_27_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpjwmf3u2c2l
-covered_item_28_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpjghvyk5c2l
-covered_item_29_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpitlrlmck2b
-covered_item_30_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpio25eduk2h
-covered_item_31_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpimn6vsdc2h
-covered_item_32_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpigbdto7k25
-covered_item_33_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphleyl7ks2f
-covered_item_34_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphkkkji6s2z
-covered_item_35_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphkj2qs7s2z
-covered_item_36_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphka2mej22i
-covered_item_37_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mphdnofyzk2n
-covered_item_38_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpfuqomkgk2s
-covered_item_39_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpfuprmys22s
-covered_item_40_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpfungbmq22s
-covered_item_41_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpfulrg3t22s
-covered_item_42_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpdy2re54c2y
-covered_item_43_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpbtcfj5l22s
-covered_item_44_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpbr5jdmdc23
-covered_item_45_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpbio7xnrc2t
-covered_item_46_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mpbgqxw2x22x
-covered_item_47_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp7z2v4ywk2n
-covered_item_48_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp7xxvosf22h
-covered_item_49_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp7hwagu7226
-covered_item_50_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp6z5sdzds2e
+covered_item_1_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj5quzqkc2q
+covered_item_2_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj3mf6sb22g
+covered_item_3_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj2slgutc2g
+covered_item_4_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqizsyzops2g
+covered_item_5_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyxormds2g
+covered_item_6_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiylm7z722g
+covered_item_7_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyexi7lk2g
+covered_item_8_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyex3yxk2g
+covered_item_9_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixk3fvps2g
+covered_item_10_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixgzfrbk2g
+covered_item_11_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixgixzzs2g
+covered_item_12_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixfmgdqs2g
+covered_item_13_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixebe57k2g
+covered_item_14_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiwzndfmk2g
+covered_item_15_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiwlnhz4s2g
+covered_item_16_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiezqiisk2f
+covered_item_17_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiegw7sak2o
+covered_item_18_uri: at://did:plc:rsbisnebdlfgrf6hgwgcfray/app.bsky.feed.post/3mqichb6mhk2e
+covered_item_19_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidzohaqk2o
+covered_item_20_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidoepmt22o
+covered_item_21_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidlpsbqk2o
+covered_item_22_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidlg72os2o
+covered_item_23_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztqpg2v
+covered_item_24_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztqpf2v
+covered_item_25_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztfxn2v
+covered_item_26_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7u7lbqn2v
+covered_item_27_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7shcuhn2v
+covered_item_28_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7qowwuv2v
+covered_item_29_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7ossazv2v
+covered_item_30_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv52v
+covered_item_31_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv42v
+covered_item_32_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv32v
+covered_item_33_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv22v
+covered_item_34_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vbvs2v
+covered_item_35_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7v4zk2v
+covered_item_36_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi56j6mu22v
+covered_item_37_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi53nx3322v
+covered_item_38_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi4bukhx22v
+covered_item_39_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi4bmif5s2v
+covered_item_40_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi47j7cps2v
+covered_item_41_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi46m2sus2v
+covered_item_42_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3kugxlc2o
+covered_item_43_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3jry3lk2o
+covered_item_44_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3jfsbxc2o
+covered_item_45_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3hu64o22o
+covered_item_46_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi32iuvp22q
+covered_item_47_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2zz752k2q
+covered_item_48_uri: at://did:plc:y3vu6k7ozqpbc7rd7fgh5dug/app.bsky.feed.post/3mqh3bm56x22s
+covered_item_49_uri: at://did:plc:eyncvuomoy5dma63kbe4k6xc/app.bsky.feed.post/3mqg3lz3ceu27
+covered_item_50_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2o6iaek2x
 
 [summary_sufficiency_gate]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 0
 contiguous_coverage: 50
-available_total_items: 229
+available_total_items: 300
 status_after_gate: fail
 review_grounded: false
 review_sufficient: false
@@ -521,15 +531,15 @@ original_result_after_gate: true
 [collection_summary_loop]
 node: summarize_page
 status: page_outcome
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 offset: 0
 result_present: true
 review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 1 after summary failure: Grounded summary coverage currently reaches 50 item(s), but 229 item(s) are required before parent synthesis is sufficient.
-diagnostic: summary cursor processed offset 0 (page 1 of at most 5); raw-window fallback preserved offset 0
+review_reason: Raw-window fallback preserved grounded evidence for page 1 after summary failure: Grounded summary coverage currently reaches 50 item(s), but 150 item(s) are required before parent synthesis is sufficient.
+diagnostic: summary cursor processed offset 0 (page 1 of at most 3); raw-window fallback preserved offset 0
 
 [collection_summary_loop_page_state]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 page_offset: 0
 page_index: 0
 page_status: raw_window_fallback
@@ -537,31 +547,31 @@ repair_attempted: false
 fallback_applied: true
 next_offset: 50
 accumulated_covered_count: 50
-failure_reason: Grounded summary coverage currently reaches 50 item(s), but 229 item(s) are required before parent synthesis is sufficient.
+failure_reason: Grounded summary coverage currently reaches 50 item(s), but 150 item(s) are required before parent synthesis is sufficient.
 
 [summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 page_offset: 0
 page_index: 0
 window_size: 50
-failure_reason: Grounded summary coverage currently reaches 50 item(s), but 229 item(s) are required before parent synthesis is sufficient.
+failure_reason: Grounded summary coverage currently reaches 50 item(s), but 150 item(s) are required before parent synthesis is sufficient.
 
 [collection_summary_loop]
 node: collection_summary_planner_review
 status: planner_optional_failure
-reason: planner synthesis must be exactly one paragraph, got 2
+reason: planner synthesis must be exactly one paragraph, got 3
 route: advance_cursor
 
 [collection_summary_loop]
 node: summarize_page
 status: running
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 page_index: 1
 offset: 50
 window_size: 50
 
 [summary_leaf_parse]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 50
 result_present: true
 original_result_kind: summary
@@ -570,12 +580,12 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "Game Development Updates: Tanker & Dungeon Crawler Progress",
-  "summary": "The recent posts heavily focus on the development of a game, likely titled 'Tanker,' showcasing numerous feature additions and technical milestones. Key updates include the ability for players to \"kill other players! (they just respawn for now)\" and the implementation of shooting mechanics, though the turret control is still being refined. The project is evolving from basic functionality to more complex systems, such as adding \"basic multiplayer :D\" and integrating \"socket.io into my webgl engine,\" which is progressing despite clients not being fully synced yet. Developers are also working on environmental elements, including loading into a \"new desert map\" and considering whether to make the trees into sprites.\n\nBeyond the core gameplay loop, significant technical work is underway, with logic being moved to the server, meaning the client is now primarily used for rendering. The game is also adopting a specific aesthetic, with one post noting the direction of going for a \"ps1 style.\" Furthermore, the developer is actively iterating on controls, adding \"full World of Tanks like mouse controls :D,\" and providing users with a link to try it out at tanker.bunnylabs.dev.\n\nIn addition to the tank game, there are updates on a separate project, a dungeon crawler, where the developer confirms that \"the upgrades fully work in my dungeon crawler now!\" This project also utilizes tags like #godot and #pixelart, suggesting a similar indie development style to the tank game.\n\nCommunity interaction is a major theme, with frequent thanks and feedback solicited. Users are encouraged to report bugs via Discord, specifically at \"discord.gg/cRVbA5NA7s,\" and the developer is also building a dedicated Discord for discussing \"compilers and webgl.\" Several posts invite feedback on visual elements, such as asking, \"Should I make the trees into sprites?\"\n\nTechnical challenges and explorations are also documented, including the difficulty of using Blender as a level editor, leading the developer to seek alternatives, and the exploration of \"geometry nodes.\" The developer also mentioned trying to implement background music, noting it \"kinda sounds too cheerful lol,\" while also noting the surprisingly easy integration of socket.io.\n\nOverall, the collection demonstrates a highly active development cycle across multiple facets of game creation—from server-side logic and networking to art direction and feature implementation—with the goal of releasing a Demo on itch.io soon. The developer is also engaging with the community regarding ideas, such as potential powerups or score systems."
+  "title": "Recent Posts by loneicewolf.bsky.social: Gaming, AI, and Daily Life",
+  "summary": "The recent posts from loneicewolf.bsky.social cover a wide range of topics, heavily featuring personal updates, gaming endeavors, and reflections on Artificial Intelligence. There is a strong thread of enthusiasm for AI, evident in discussions about tools like 'Cursor,' which 'MAKES the files, it COMPILES,' and the general excitement surrounding AI's capabilities, contrasting with skepticism from others who 'try to discourage them.' The author frequently shares progress on game development, noting 'some breakthoroughs in TalosPrinciple!' and sharing proof-of-concept videos, while also acknowledging their own struggles, admitting they are 'bad at it xD' despite the work.\n\nDaily life and social interactions are also prominent, with frequent greetings in Japanese, such as 'おはようございます！💕' and 'mornyan! xD,' alongside expressions of affection like sending 'A HUG TO YOU WHO READ THIS (≧◡≦) ♡.' The author shares personal milestones, like announcing, 'I will be home tomorrowoo!!!' and expressing gratitude for community support, often concluding with a heartfelt sentiment like, 'it's refreshing to talk to someone like you, really.'\n\nBeyond the main themes, the posts touch upon specific interests and observations. Gaming content includes sharing walktroughs and mentioning 'Mass Effect' with a reaction of 'woah!', while tech discussions cover web development and the utility of AI assistance, noting the shift from Win11 to Fedora. A humorous tangent involves the naming conventions of 'Pi (the number) / Pie (the..thing you eat, the food) / RaspberryPi,' and the author reflects on the pervasive 'AI-Hate-Propaganda,' questioning why people might believe 'ChatGPT would be bad' before experiencing AI firsthand."
 }
 
 [summary_leaf_review]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 50
 review_status: fail
 review_grounded: false
@@ -586,17 +596,11 @@ review_reason: The summary is not a single paragraph.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts heavily focus on the development of a game, likely titled 'Tanker,' showcasing numerous feature additions and technical milestones. Key updates include the ability for players to "kill other players! (they just respawn for now)" and the implementation of shooting mechanics, though the turret control is still being refined. The project is evolving from basic functionality to more complex systems, such as adding "basic multiplayer :D" and integrating "socket.io into my webgl engine," which is progressing despite clients not being fully synced yet. Developers are also working on environmental elements, including loading into a "new desert map" and considering whether to make the trees into sprites.
+The recent posts from loneicewolf.bsky.social cover a wide range of topics, heavily featuring personal updates, gaming endeavors, and reflections on Artificial Intelligence. There is a strong thread of enthusiasm for AI, evident in discussions about tools like 'Cursor,' which 'MAKES the files, it COMPILES,' and the general excitement surrounding AI's capabilities, contrasting with skepticism from others who 'try to discourage them.' The author frequently shares progress on game development, noting 'some breakthoroughs in TalosPrinciple!' and sharing proof-of-concept videos, while also acknowledging their own struggles, admitting they are 'bad at it xD' despite the work.
 
-Beyond the core gameplay loop, significant technical work is underway, with logic being moved to the server, meaning the client is now primarily used for rendering. The game is also adopting a specific aesthetic, with one post noting the direction of going for a "ps1 style." Furthermore, the developer is actively iterating on controls, adding "full World of Tanks like mouse controls :D," and providing users with a link to try it out at tanker.bunnylabs.dev.
+Daily life and social interactions are also prominent, with frequent greetings in Japanese, such as 'おはようございます！💕' and 'mornyan! xD,' alongside expressions of affection like sending 'A HUG TO YOU WHO READ THIS (≧◡≦) ♡.' The author shares personal milestones, like announcing, 'I will be home tomorrowoo!!!' and expressing gratitude for community support, often concluding with a heartfelt sentiment like, 'it's refreshing to talk to someone like you, really.'
 
-In addition to the tank game, there are updates on a separate project, a dungeon crawler, where the developer confirms that "the upgrades fully work in my dungeon crawler now!" This project also utilizes tags like #godot and #pixelart, suggesting a similar indie development style to the tank game.
-
-Community interaction is a major theme, with frequent thanks and feedback solicited. Users are encouraged to report bugs via Discord, specifically at "discord.gg/cRVbA5NA7s," and the developer is also building a dedicated Discord for discussing "compilers and webgl." Several posts invite feedback on visual elements, such as asking, "Should I make the trees into sprites?"
-
-Technical challenges and explorations are also documented, including the difficulty of using Blender as a level editor, leading the developer to seek alternatives, and the exploration of "geometry nodes." The developer also mentioned trying to implement background music, noting it "kinda sounds too cheerful lol," while also noting the surprisingly easy integration of socket.io.
-
-Overall, the collection demonstrates a highly active development cycle across multiple facets of game creation—from server-side logic and networking to art direction and feature implementation—with the goal of releasing a Demo on itch.io soon. The developer is also engaging with the community regarding ideas, such as potential powerups or score systems.
+Beyond the main themes, the posts touch upon specific interests and observations. Gaming content includes sharing walktroughs and mentioning 'Mass Effect' with a reaction of 'woah!', while tech discussions cover web development and the utility of AI assistance, noting the shift from Win11 to Fedora. A humorous tangent involves the naming conventions of 'Pi (the number) / Pie (the..thing you eat, the food) / RaspberryPi,' and the author reflects on the pervasive 'AI-Hate-Propaganda,' questioning why people might believe 'ChatGPT would be bad' before experiencing AI firsthand.
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -626,428 +630,385 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize the most recent 300 posts by this actor into 6 paragraphs
+summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
 
 ## Harness Scope Assessment
-requested_scope: count 300
-required_total_items: 229
+requested_scope: count 150
+required_total_items: 150
 page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
-available_total_items: 229
+available_total_items: 300
 current_window_offset: 50
 current_window_size: 50
 
 ## Collection Evidence
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-collection_label: Recent posts by did:plc:nehmem7iy5fyifkqxjpcnj6e (items 51-100 of 229)
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_label: Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn (items 51-100 of 300)
 collection_kind: recent_posts
 search_window_offset: 50
 search_window_total_items: 50
 
-matched_item[0] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp6w5zatac2q
-body: You can now kill other players! (they just respawn for now)
-also added invert Y for changing the mouse direction if you want that :p
-try it out: tanker.bunnylabs.dev
-bug reports: discord.com/invite/cRVbA...
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-link: https://discord.com/invite/cRVbA5NA7s
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+matched_item[0] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2hkjz4k2x
+body: scary! youtu.be/tFAd8jtPceQ?...
+i have never played mass effect but.woah!
+link: https://youtu.be/tFAd8jtPceQ?t=251
 
-matched_item[1] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp6w3oz6q22q
-body: ty!
+matched_item[1] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2b2tqhc2x
+body: the samee!! /v♥️v/
 
-matched_item[2] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp6jrwxhnk2o
-body: welp, this gonna need some big retopology
-#blender #gamedev #indiedev
-tag: blender
-tag: gamedev
-tag: indiedev
+matched_item[2] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz5zhog22x
+body: did you know you can drag this one if you hold your mouse, at the empty blue border? 🤣️🤣️🤣️
 
-matched_item[3] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp55jm57c227
-body: Yep
-Going for a ps1 style
+#DID-YOU-KNOW
+#BSKY
+tag: DID-YOU-KNOW
+tag: BSKY
 
-matched_item[4] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4orpsoxk2t
-body: One major rework to add in scene support for the game.
-Now there is a menu scene :D
-currently has only 1 tank but in the future, will have support for selecting from a range of tanks!
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+matched_item[3] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz52kbbs2x
+body: test
 
-matched_item[5] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4cyjicbc2v
-body: Bug reports and chill shack: discord.gg/cRVbA5NA7s
-link: https://discord.gg/cRVbA5NA7s
+matched_item[4] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz4j3y2c2x
+body: ついにやったにゃん~！
+lichess.org/Y7L1Lbga/whi...
+link: https://lichess.org/Y7L1Lbga/white#32
 
-matched_item[6] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4cyji5f22v
-body: Loaded in the new map :p
-try it out: tanker.bunnylabs.dev
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+matched_item[5] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyysh3322x
+body: this is so cute ^^
 
-matched_item[7] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4cobm4bc2v
-body: hehe it is indeed
+matched_item[6] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhywh2b4c2x
+body: (≧◡≦) ♡ A HUG TO YOU WHO READ THIS (≧◡≦) ♡
 
-matched_item[8] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4c5zpdcs2o
-body: Working on the texture, how does this look guys?
+matched_item[7] uri: at://did:plc:fie2aqk5y4x43rrqc5x7aoh6/app.bsky.feed.post/3mqhhh5eaos2g
+body: そろそろ寝ます*\(^o^)/*
+おやすみなさい*\(^o^)/*
 
-#gamedev #indiedev #webgl #blender
-tag: gamedev
-tag: indiedev
-tag: webgl
-tag: blender
+matched_item[8] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyw4ktpk2x
+body: (≧◡≦) ♡
 
-matched_item[9] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2sqfb53c2b
-body: Already trying out the demo  :D
+matched_item[9] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyopwvxc2x
+body: 🚂😊️
 
-matched_item[10] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2snxyh422b
-body: This is so great to hear!
+matched_item[10] uri: at://did:plc:jrymrhkapgkln35qk6uwyava/app.bsky.feed.post/3mqfjvkuir22n
+body: おはようございます！(:D)┓
+【飛鳥山下跨線人道橋】
+　右側は京浜東北線の王子駅です。金網のスキマから撮影。E257系5000番台 団体臨時列車[修学旅行] 横浜方面。臨時列車（波動輸送）で見かける車両ですね。
+　自分はひとり旅がいいかな～、いろいろ予定通りにいかないやつ。夏はどこか旅行にいきますか？
+#鉄道 #railway
+tag: 鉄道
+tag: railway
 
-matched_item[11] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2sbn2ur22c
-body: that's a nice idea
-might add that as a powerup :p
+matched_item[11] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhylvfebk2x
+body: mornyan! xD
 
-matched_item[12] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2rye5dwk23
-body: Loaded in the new desert map
-needs a lot of work ngl
-and probably gonna have to make the map a lot bigger
+matched_item[12] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhykuzjs22x
+body: おはにゃんんんんん！！！🐱💓 今日も最高にハッピーな日にしてね！！✨ 今どんな感じにゃ〜？お返事まってるにゃんっ！🐾🎶
 
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+(🤣️ I tried something comical in AI, as I still learn japanese 😸️ )
+take care!!
 
-matched_item[13] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2n43bzvs26
-body: Trying to make background music before the Demo release
-kinda sounds too cheerful lol
+matched_item[13] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyfnvkzk2x
+body: おはようございます！💕
+朝から癒やされましたぁ🍀✨
+暑いけど、ドリンク飲んで一緒に乗り切りましょうね🥤🌊
+今週もよろしくお願いします！🌈💐✨🎶
 
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+matched_item[14] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhy7cbr622x
+body: I will be home tomorrowoo!!!
 
-matched_item[14] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2ijonlls2j
-body: Wishlisted!
+😸️
 
-matched_item[15] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2ddfyut225
-body: Ty. yep you are right, I can always update it later :p
+matched_item[15] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhy3xtpys2x
+body: i am! and the same! ^^ 
+and, fantasy-like clothes i gotta say!
+reminds me of..assassins creed somehow? anyway! take care!
 
-matched_item[16] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2d6xzrw224
-body: Not much to show for the tank game today
-I started moving all the logic into the server starting with the bullet, client will only be used for rendering.
-gameplay should still be the same
+thanks for liking my post btw!
+wishes from sweden!
 
-tanker.bunnylabs.dev 
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+matched_item[16] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxpxff722x
+body: Muuusic!
+youtu.be/EyhFKVhr9Jw
+link: https://youtu.be/EyhFKVhr9Jw
 
-matched_item[17] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2d43ub5k2d
-body: It looks so nice!
-Send me the link to wishlist :p
+matched_item[17] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxmfudf22x
+body: That's totes nice breh! \\^v^//
 
-matched_item[18] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mozrbvai2226
-body: Ohhhh lol I did play those. You unlocked my core memory lmao
+matched_item[18] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxletjys2b
+body: this reminds me i gotta start web dev too \^v^/
 
-matched_item[19] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mozp2f66os26
-body: Ohhh, never played that, will check it out :p
+matched_item[19] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxcplths2b
+body: oh! noted, ill try co-pilot, i have this, copilot button on my laptop but..I switched(from Win11 to Fedora) (thinkpad)
 
-matched_item[20] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moyddicqt22u
-body: You can now shoot with the tank! :D
-its still client side,
-Try it out!
-tanker.bunnylabs.dev
+but ill try it! noted!
 
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+matched_item[20] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhx3nvrys2b
+body: ...they dont know it.
 
-matched_item[21] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moxfvktiqs2h
-body: Sure!
+xD
 
-matched_item[22] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mox5gspyvk2i
-body: Ah yeah
-I have tried cross posting there as well. It's gone to dogs...
+matched_item[21] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhx3njv5c2b
+body: gosh how cringe!
+The other day i saw someone got upset about someone else,
+he said "ill unfollow+block u now"
 
-You might have better luck posting in the communities in Twitter.
+which is like..dude. just block. like..whats the issue.
 
-I had some amount of engagement there(still a lot less than here)
+BUT!
+the following is kind of satisfying to think about:
+these bullies wasting their life-{time,energy} to bully
 
-matched_item[23] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mox5ce5ku22i
-body: Tyy
+& the best part?
 
-matched_item[24] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mox52esdec2i
-body: Oh yeah, I had a few old games I released few years ago. Had been on a long hiatus hopefully my account won't need a review 😂
+matched_item[22] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwyvynik2b
+body: ☝️ ♥️ 
+SOMEONE PIN THIS
+love this reply ^
 
-matched_item[25] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mox2qr4rfk2i
-body: Well making this game was a pretty good learning experience. Gonna release a Demo on itch.io soon
+matched_item[23] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwne3r7s2b
+body: i dont know if you tried this..i havent, but
+i've heard of something called
+"Cursor" ?
 
-#gamedev #indiedev #godot #pixelart #software #programming
-link: https://itch.io
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+its like a AI which does "everything" or , at least, "much" like,
+it MAKES the files,
+it COMPILES ( i think?  i havent tried it )
+it even, auto edits, like if you edit a variable, it edits that <var> in manyFiles
 
-matched_item[26] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mowziwfj3k2i
-body: Working on a new map
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl #blender
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-tag: blender
+matched_item[24] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwl4ghi22b
+body: this is how gamedev should be and NO this is not a exageration,i genuinly think this is nice!
 
-matched_item[27] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mowvwxy4hs2k
-body: Nice
+like..my gamedev was not even a game and this is PLAYABLE
+:D love it! want to play it
 
-matched_item[28] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mov5xxawy22e
-body: Thank you!
+matched_item[25] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqhwde65pc2p
+body: I found this post I made about my WASM-4 game bsky.app/profile/schi...
+link: https://bsky.app/profile/schizanon.bsky.social/post/3lxicquosls2t
 
-matched_item[29] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mosxlun3as25
-body: That's how little tanks get made
+matched_item[26] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwgxkg2c2b
+body: OH! Noted!thanks for sharing wowie!
 
-matched_item[30] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3most3pv46c2t
-body: Please report any bugs at: discord.gg/cRVbA5NA7s
-link: https://discord.gg/cRVbA5NA7s
+matched_item[27] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwc7bhi22b
+body: Im not sure if i did it properly🤣️🤣️ but it was fun! 
+do try it BUT
 
-matched_item[31] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mosszajbr22x
-body: Added in basic multiplayer :D
-its still client side,
-Try it out!
-tanker.bunnylabs.dev
-p.s. click to lock your mouse when you start and it's pretty basic so you might face some *BIG GLITCHES*
+ONE BIG IMPORTANT THING.
 
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+only do it if you genuinely think its fun, basically, perform a test:
+ask yourself "does <this what im up to> feel like a chore?"
+if yes: stop
+if no: continue
 
-matched_item[32] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moshcfl7fk2e
-body: p.s. I created a discord for hanging out and talking about compilers and webgl :p discord.gg/cRVbA5NA7s
-link: https://discord.gg/cRVbA5NA7s
+^^ take care! :D
 
-matched_item[33] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mosgygdf5k2c
-body: Well, integrating socket.io into my webgl engine was surprisingly easy. The clients don't fully sync yet, but we getting there
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-link: https://socket.io
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+matched_item[28] uri: at://did:plc:mmddb3azjlolnq7eqtnebg42/app.bsky.feed.post/3mq3b5luslk24
+body: ohhhhh you hate AI? should we tell everyone? should we throw a party? should we invite amanda askell?
 
-matched_item[34] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mosaderhj22m
-body: Well, time to learn socket.io :p
+matched_item[29] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhw25ys622b
+body: sending a hug to everyone here! because..everyone need a hug!
+(i mean, to my fellow pro-ai people, really! xD)
 
-#gamedev #indiedev
-link: https://socket.io
-tag: gamedev
-tag: indiedev
+matched_item[30] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvvqvc322b
+body: sorry for many replies i wish i could <edit> my 1 reply but
+i recorded these, and wrote in notepad, why? well..
+i stutter! xD soo..yeah.. 😸️
 
-matched_item[35] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mos2wqsqe22u
-body: Nice
+matched_item[31] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvuidsk22b
+body: like, e.g
 
-matched_item[36] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mos2p5no7k2m
-body: Should I make the trees into sprites? What do you guys think?
-tanker.bunnylabs.dev
-#gamedev #indiedev
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
+the first part is this?
+i did ge ta lot of help from..what was it uhh
+stack overflow and.. the manuals, but ofc also Gemini! a lot.
 
-matched_item[37] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moryd46ees2y
-body: I also tried geometry nodes.
-Unfortunately my laptop has gone through too much abuse already and has given up :")
+www.youtube.com/watch?v=tsTB...
+link: https://www.youtube.com/watch?v=tsTBaUP1bYc&list=PLzPjNm14Efb0oLQhOhUf_y3lm6V6Zs_TT&index=18
 
-matched_item[38] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3morybcqfwc2y
-body: Also tried updating the map to map more tries. #Blender turns out to be very painful for a level editor :c
-Anyone knows any other option that I can try out?
-#gamedev #indiedev
-tag: Blender
-tag: gamedev
-tag: indiedev
+matched_item[32] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvrcm4vk2b
+body: oh it was like..hold on i made like..videos about it on my yt
+www.youtube.com/playlist?lis...
 
-matched_item[39] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mory5m7ppk2y
-body: Hmmmm I might add multiplayer >:D
+its like a proof of concept, not really a game-game xD
+link: https://www.youtube.com/playlist?list=PLzPjNm14Efb0oLQhOhUf_y3lm6V6Zs_TT
 
-#gamedev #indiedev #software #graphicsprogramming
-tag: gamedev
-tag: indiedev
-tag: software
-tag: graphicsprogramming
+matched_item[33] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvidyhqc2b
+body: oh! noted! ^^
 
-matched_item[40] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moqnr5ytts2l
-body: Nicee
+matched_item[34] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhuf3u5rk2b
+body: i do wonder why ppl would
+1) comment
+2) directly after ,delete it 
 
-matched_item[41] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moqhui2kgc2h
-body: Tried it out, very fun from such a simple implementation!
-really enjoyed it. Is there a score system? Didn't quite keep track of the balls lol xD
+(or maybe not directly after but..well)
 
-matched_item[42] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moqcy4u53c2p
-body: Tyyyy
+matched_item[35] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhueem2as2b
+body: oh! noted,
+but the funny thing is sometimes it appears nearly exactly when i have made a post
+which is..well!
 
-matched_item[43] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopwmjszjc2y
-body: Added full World of Tanks like mouse controls :D
-tanker.bunnylabs.dev
-p.s. click to lock your mouse when you start.
+but yeah ur right about that!
 
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
+matched_item[36] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhtv5myzk2b
+body: some breakthoroughs in TalosPrinciple!
 
-matched_item[44] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopsypd4fc2p
-body: Looking great!
+#spel #gaming #game #games #puzzle #puzzlegame #youtube #yt #video
 
-matched_item[45] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopsvvlonk2p
-body: Ty for playing!
-You found the test models kekw :p
+www.youtube.com/playlist?lis...
+tag: spel
+tag: gaming
+tag: game
+tag: games
+tag: puzzle
+tag: puzzlegame
+tag: youtube
+tag: yt
+tag: video
+link: https://www.youtube.com/playlist?list=PLzPjNm14Efb1Ghc2gzPTrRRF7u6_8Pbct
 
-The turret control isn't perfect yet, working on that :")
+matched_item[37] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhtu4f7z22b
+body: i forgot to share my gaming walktroughs!
+#gaming #walktrough #games #game #spel
 
-matched_item[46] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopibzs6ak2h
-body: Lol this looks very fun!
+youtube.com/playlist?lis...
+tag: gaming
+tag: walktrough
+tag: games
+tag: game
+tag: spel
+link: https://youtube.com/playlist?list=PLzPjNm14Efb1e6Rthb7nfZ30xKPjZzjtb&si=voDMVlQsTbhqycmF
 
-matched_item[47] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moph5btdps2c
-body: Ahhh good idea! Tyy
+matched_item[38] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsimsimc2b
+body: thanks! it will be open source but DAMN im..bad at it xD anyway!
 
-matched_item[48] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopa37353s2c
-body: Haven't thought of it yet. Needs ideas lol
+do you have any game or anything..? (i have yet to upload the game to github btw its not even..like..it is playable but its nothing fun LOL its..so catastrophically bad.)
 
-matched_item[49] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moociqrrz22u
-body: On other news,
-The upgrades fully work in my dungeon crawler now!
-tweaking the costs n all.
+matched_item[39] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqhs7j4i522g
+body: I just don't understand people who know how to do things like program computers and then discover a technology that lets everyone else do it and then *aren't* completely excited for all the people who are magically going to get to experience this ability and instead try to discourage them. 😫
 
-Need more ideas for upgrades 👀
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
+matched_item[40] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsgq326k2b
+body: This is the most true reply ive ever seen, in my entire damn life. (and i dont use "damn" often as a word. xD)
+so yeah!
+
+..actually id love to put your reply on a tshirt. 
+ten outa ten would wear it every day. xD
+
+matched_item[41] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsbtu4ec2b
+body: reminded me i should do this!
+
+matched_item[42] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsbgdph22b
+body: oh god this reminded me i must try this
+i did use...wait..what did i use hold on..OH!
+
+it was go dot!
+
+(
+ but it wasnt like.. "AI inside godot" it was more, 
+     Monitor 1: godot
+     Monitor 2: AI 
+)
+
+xD but anyway!
+
+matched_item[43] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhs3y3xmk2b
+body: imo you are fine as you are!
+NEVER-CHANGE
+
+matched_item[44] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhs2my6cc2b
+body: ♥️ aw thanks really! ^^
+
+matched_item[45] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrzsrfi22b
+body: Pi (the number)
+Pie (the..thing you eat, the food)
+RaspberryPi (which is like 2 things right? 1) food 2)uh circuit?)
+banana pi (raspberrypi version two point o or something)
+
+..youre right?
+whats with naming things pi[3.14]?!
+
+matched_item[46] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhruqaeuc2b
+body: LOL
+
+matched_item[47] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrmd3gm22b
+body: +its refreshing to talk to someone like you, really
+
+matched_item[48] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrlwzd522b
+body: but idk like..i really dont know
+
+and yeah now when you say the beginning of your reply? 
+i..kind of agree with you? now when i think about it..
+
+matched_item[49] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrlw7sq22b
+body: yeah..this? cuz..i dont even know where i got the feeling that "ChatGPT would be bad" like.. before.. when i didnt use AI?
+I kind of believed that? i dont..i dont know why?
+
+like.. maybe it was all the AI-Hate-Propaganda (AI-Psychosis, AI's is bad at chess, AI is unethical, AI is hurting jobs,)
 
 ## Proposed Summary
-post: Game Development Updates: Tanker & Dungeon Crawler Progress
-summary: The recent posts heavily focus on the development of a game, likely titled 'Tanker,' showcasing numerous feature additions and technical milestones. Key updates include the ability for players to "kill other players! (they just respawn for now)" and the implementation of shooting mechanics, though the turret control is still being refined. The project is evolving from basic functionality to more complex systems, such as adding "basic multiplayer :D" and integrating "socket.io into my webgl engine," which is progressing despite clients not being fully synced yet. Developers are also working on environmental elements, including loading into a "new desert map" and considering whether to make the trees into sprites.
+post: Recent Posts by loneicewolf.bsky.social: Gaming, AI, and Daily Life
+summary: The recent posts from loneicewolf.bsky.social cover a wide range of topics, heavily featuring personal updates, gaming endeavors, and reflections on Artificial Intelligence. There is a strong thread of enthusiasm for AI, evident in discussions about tools like 'Cursor,' which 'MAKES the files, it COMPILES,' and the general excitement surrounding AI's capabilities, contrasting with skepticism from others who 'try to discourage them.' The author frequently shares progress on game development, noting 'some breakthoroughs in TalosPrinciple!' and sharing proof-of-concept videos, while also acknowledging their own struggles, admitting they are 'bad at it xD' despite the work.
 
-Beyond the core gameplay loop, significant technical work is underway, with logic being moved to the server, meaning the client is now primarily used for rendering. The game is also adopting a specific aesthetic, with one post noting the direction of going for a "ps1 style." Furthermore, the developer is actively iterating on controls, adding "full World of Tanks like mouse controls :D," and providing users with a link to try it out at tanker.bunnylabs.dev.
+Daily life and social interactions are also prominent, with frequent greetings in Japanese, such as 'おはようございます！💕' and 'mornyan! xD,' alongside expressions of affection like sending 'A HUG TO YOU WHO READ THIS (≧◡≦) ♡.' The author shares personal milestones, like announcing, 'I will be home tomorrowoo!!!' and expressing gratitude for community support, often concluding with a heartfelt sentiment like, 'it's refreshing to talk to someone like you, really.'
 
-In addition to the tank game, there are updates on a separate project, a dungeon crawler, where the developer confirms that "the upgrades fully work in my dungeon crawler now!" This project also utilizes tags like #godot and #pixelart, suggesting a similar indie development style to the tank game.
-
-Community interaction is a major theme, with frequent thanks and feedback solicited. Users are encouraged to report bugs via Discord, specifically at "discord.gg/cRVbA5NA7s," and the developer is also building a dedicated Discord for discussing "compilers and webgl." Several posts invite feedback on visual elements, such as asking, "Should I make the trees into sprites?"
-
-Technical challenges and explorations are also documented, including the difficulty of using Blender as a level editor, leading the developer to seek alternatives, and the exploration of "geometry nodes." The developer also mentioned trying to implement background music, noting it "kinda sounds too cheerful lol," while also noting the surprisingly easy integration of socket.io.
-
-Overall, the collection demonstrates a highly active development cycle across multiple facets of game creation—from server-side logic and networking to art direction and feature implementation—with the goal of releasing a Demo on itch.io soon. The developer is also engaging with the community regarding ideas, such as potential powerups or score systems.
+Beyond the main themes, the posts touch upon specific interests and observations. Gaming content includes sharing walktroughs and mentioning 'Mass Effect' with a reaction of 'woah!', while tech discussions cover web development and the utility of AI assistance, noting the shift from Win11 to Fedora. A humorous tangent involves the naming conventions of 'Pi (the number) / Pie (the..thing you eat, the food) / RaspberryPi,' and the author reflects on the pervasive 'AI-Hate-Propaganda,' questioning why people might believe 'ChatGPT would be bad' before experiencing AI firsthand.
 window_offset: 50
 window_size: 50
 page_index: 1
 page_size: 50
-collection_total_items: 229
+collection_total_items: 300
 has_more: true
-covered_item_1_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp6w5zatac2q
-covered_item_2_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp6w3oz6q22q
-covered_item_3_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp6jrwxhnk2o
-covered_item_4_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp55jm57c227
-covered_item_5_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4orpsoxk2t
-covered_item_6_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4cyjicbc2v
-covered_item_7_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4cyji5f22v
-covered_item_8_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4cobm4bc2v
-covered_item_9_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp4c5zpdcs2o
-covered_item_10_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2sqfb53c2b
-covered_item_11_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2snxyh422b
-covered_item_12_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2sbn2ur22c
-covered_item_13_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2rye5dwk23
-covered_item_14_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2n43bzvs26
-covered_item_15_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2ijonlls2j
-covered_item_16_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2ddfyut225
-covered_item_17_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2d6xzrw224
-covered_item_18_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mp2d43ub5k2d
-covered_item_19_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mozrbvai2226
-covered_item_20_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mozp2f66os26
-covered_item_21_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moyddicqt22u
-covered_item_22_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moxfvktiqs2h
-covered_item_23_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mox5gspyvk2i
-covered_item_24_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mox5ce5ku22i
-covered_item_25_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mox52esdec2i
-covered_item_26_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mox2qr4rfk2i
-covered_item_27_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mowziwfj3k2i
-covered_item_28_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mowvwxy4hs2k
-covered_item_29_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mov5xxawy22e
-covered_item_30_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mosxlun3as25
-covered_item_31_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3most3pv46c2t
-covered_item_32_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mosszajbr22x
-covered_item_33_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moshcfl7fk2e
-covered_item_34_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mosgygdf5k2c
-covered_item_35_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mosaderhj22m
-covered_item_36_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mos2wqsqe22u
-covered_item_37_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mos2p5no7k2m
-covered_item_38_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moryd46ees2y
-covered_item_39_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3morybcqfwc2y
-covered_item_40_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mory5m7ppk2y
-covered_item_41_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moqnr5ytts2l
-covered_item_42_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moqhui2kgc2h
-covered_item_43_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moqcy4u53c2p
-covered_item_44_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopwmjszjc2y
-covered_item_45_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopsypd4fc2p
-covered_item_46_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopsvvlonk2p
-covered_item_47_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopibzs6ak2h
-covered_item_48_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moph5btdps2c
-covered_item_49_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mopa37353s2c
-covered_item_50_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moociqrrz22u
+covered_item_1_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2hkjz4k2x
+covered_item_2_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2b2tqhc2x
+covered_item_3_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz5zhog22x
+covered_item_4_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz52kbbs2x
+covered_item_5_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz4j3y2c2x
+covered_item_6_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyysh3322x
+covered_item_7_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhywh2b4c2x
+covered_item_8_uri: at://did:plc:fie2aqk5y4x43rrqc5x7aoh6/app.bsky.feed.post/3mqhhh5eaos2g
+covered_item_9_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyw4ktpk2x
+covered_item_10_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyopwvxc2x
+covered_item_11_uri: at://did:plc:jrymrhkapgkln35qk6uwyava/app.bsky.feed.post/3mqfjvkuir22n
+covered_item_12_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhylvfebk2x
+covered_item_13_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhykuzjs22x
+covered_item_14_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyfnvkzk2x
+covered_item_15_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhy7cbr622x
+covered_item_16_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhy3xtpys2x
+covered_item_17_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxpxff722x
+covered_item_18_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxmfudf22x
+covered_item_19_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxletjys2b
+covered_item_20_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxcplths2b
+covered_item_21_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhx3nvrys2b
+covered_item_22_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhx3njv5c2b
+covered_item_23_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwyvynik2b
+covered_item_24_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwne3r7s2b
+covered_item_25_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwl4ghi22b
+covered_item_26_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqhwde65pc2p
+covered_item_27_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwgxkg2c2b
+covered_item_28_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwc7bhi22b
+covered_item_29_uri: at://did:plc:mmddb3azjlolnq7eqtnebg42/app.bsky.feed.post/3mq3b5luslk24
+covered_item_30_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhw25ys622b
+covered_item_31_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvvqvc322b
+covered_item_32_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvuidsk22b
+covered_item_33_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvrcm4vk2b
+covered_item_34_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvidyhqc2b
+covered_item_35_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhuf3u5rk2b
+covered_item_36_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhueem2as2b
+covered_item_37_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhtv5myzk2b
+covered_item_38_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhtu4f7z22b
+covered_item_39_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsimsimc2b
+covered_item_40_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqhs7j4i522g
+covered_item_41_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsgq326k2b
+covered_item_42_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsbtu4ec2b
+covered_item_43_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsbgdph22b
+covered_item_44_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhs3y3xmk2b
+covered_item_45_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhs2my6cc2b
+covered_item_46_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrzsrfi22b
+covered_item_47_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhruqaeuc2b
+covered_item_48_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrmd3gm22b
+covered_item_49_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrlwzd522b
+covered_item_50_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrlw7sq22b
 
 [summary_sufficiency_gate]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 50
 contiguous_coverage: 100
-available_total_items: 229
+available_total_items: 300
 status_after_gate: fail
 review_grounded: false
 review_sufficient: false
@@ -1061,15 +1022,15 @@ original_result_after_gate: true
 [collection_summary_loop]
 node: summarize_page
 status: page_outcome
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 offset: 50
 result_present: true
 review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 2 after summary failure: Grounded summary coverage currently reaches 100 item(s), but 229 item(s) are required before parent synthesis is sufficient.
-diagnostic: summary cursor processed offset 50 (page 2 of at most 5); raw-window fallback preserved offset 50
+review_reason: Raw-window fallback preserved grounded evidence for page 2 after summary failure: Grounded summary coverage currently reaches 100 item(s), but 150 item(s) are required before parent synthesis is sufficient.
+diagnostic: summary cursor processed offset 50 (page 2 of at most 3); raw-window fallback preserved offset 50
 
 [collection_summary_loop_page_state]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 page_offset: 50
 page_index: 1
 page_status: raw_window_fallback
@@ -1077,31 +1038,25 @@ repair_attempted: false
 fallback_applied: true
 next_offset: 100
 accumulated_covered_count: 100
-failure_reason: Grounded summary coverage currently reaches 100 item(s), but 229 item(s) are required before parent synthesis is sufficient.
+failure_reason: Grounded summary coverage currently reaches 100 item(s), but 150 item(s) are required before parent synthesis is sufficient.
 
 [summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 page_offset: 50
 page_index: 1
 window_size: 50
-failure_reason: Grounded summary coverage currently reaches 100 item(s), but 229 item(s) are required before parent synthesis is sufficient.
-
-[collection_summary_loop]
-node: collection_summary_planner_review
-status: planner_optional_failure
-reason: planner synthesis must be exactly one paragraph, got 3
-route: advance_cursor
+failure_reason: Grounded summary coverage currently reaches 100 item(s), but 150 item(s) are required before parent synthesis is sufficient.
 
 [collection_summary_loop]
 node: summarize_page
 status: running
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 page_index: 2
 offset: 100
 window_size: 50
 
 [summary_leaf_parse]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 100
 result_present: true
 original_result_kind: summary
@@ -1110,12 +1065,12 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "Recent Development Updates: Tanker Game & WebGL Projects",
-  "summary": "The recent posts heavily focus on the development of a tank game, showcased at tanker.bunnylabs.dev, with continuous updates on its features and technical challenges. Key progress includes fixing the terrain collider, which was later resolved with 'baking,' and implementing the ability for the tank to follow the terrain. Furthermore, the game now features player upgrades, turret rotation, and the ability to switch rooms within the dungeon run, although the upgrades are still being refined. Technical aspects of the game development are also highlighted, such as the 'quick and dirty implementation of a tank movement system' and the current state of the physics, which is described as 'still a bit janky lol.'\n\nBeyond the tank game, there is significant work being done with WebGL rendering, demonstrating how 'adding UI is very easy' when using a WebGL renderer. The developer is also experimenting with 'alternate camera configurations' for this project. Several posts showcase the integration of assets, noting that 'gltf doesn't support my greatness,' while also praising Blender's capabilities, stating, 'Damnn, blender really is OP.'\n\nSpecific development milestones mentioned include the creation of a 'very simple material to set cliff side textures and grass textures' in Blender, and the ongoing effort to create a 'PS1 style tank in blender.' The visual fidelity is also being addressed, with one post noting that 'some of the sprites getting stretcheeeed gotta fix that.'\n\nIn terms of game mechanics, the developer is actively working on applying upgrades, which involves 'lots of bad code :p,' and has integrated an 'upgrade scene into the dungeon run.' The tank's functionality has seen improvements, such as the ability to rotate the turret, and the terrain updates are ongoing, with the developer noting that colliders 'not proper yet.'\n\nThe developer is also sharing progress on other aspects of their projects, including a sneak peek of the 'upgrade ui so far' and thinking about a 'bent pyramid.' There are also mentions of general development themes, such as the difficulty of the work ('very real very pain') and the initial testing of the movement system.\n\nFinally, the posts serve as a hub for community interaction, with frequent acknowledgments like 'This is great!' and 'Looks great!' from others, alongside sharing links to the demo and inviting interest via a Discord server ('discord.gg/cRVbA5NA7s')."
+  "title": "Recent Posts by loneicewolf.bsky.social: AI Art, Trains, and Community Support",
+  "summary": "The recent posts from loneicewolf.bsky.social cover a wide range of topics, with a strong recurring focus on appreciation for art, particularly AI-generated content. The author frequently expresses delight over visuals, using phrases like \"WOW THIS LOOKS SO HD/HIGH GRAPHICS!\" and \"LOVELY ART 😍️,\" while also praising specific artists and styles, noting, \"i think this is another of my new favorite artists.\" There is significant engagement with AI, with the author reflecting on the technology, stating, \"A.I CAN'T REPLACE ME BECAUSE I USE AI TO DO MY WORK,\" and acknowledging that even their parents, who were initially skeptical, now find it \"great.\" Beyond art, trains are a notable theme, with the author expressing a growing fondness for them after seeing interesting content, noting, \"i think i begin to like trains more, and more! 👀️,\" and mentioning the desire to \"take photo of trains too!\" while in Sweden.\n\nSeveral posts address community dynamics and the impact of online interaction. The author muses about the mysterious appearance of messages, wondering if it's due to \"ppl blocking? maybe its spammers or something?\" This leads to a broader discussion on the nature of online negativity, where loneicewolf distinguishes between those who \"CRUELLY hate\" AI and those who merely \"might dislike ai but is quiet.\" The author strongly advocates for support, urging readers who are struggling to \"please reach out. im here. DM's is open. ♥️,\" and warns that AI haters are \"wasting away both lives: their own (to hate) / the victims(who get more into AI who might not try drawingcuz..its discouraging).\"\n\nFinally, the collection includes brief personal updates and acknowledgments. The author shares simple greetings like \"Moorning!!\" and \"cuuute,\" and offers heartfelt thanks to their followers, stating, \"thanks everyone for understanding me ♥️.\" There are also interactions with other users, such as praising satyrs.eu's linkroll and agreeing with the sentiment that AI is a powerful tool, as seen in the exchange with schizanon.bsky.social regarding the adoption of AI by older generations."
 }
 
 [summary_leaf_review]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 100
 review_status: fail
 review_grounded: false
@@ -1126,17 +1081,11 @@ review_reason: The summary is not a single paragraph.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts heavily focus on the development of a tank game, showcased at tanker.bunnylabs.dev, with continuous updates on its features and technical challenges. Key progress includes fixing the terrain collider, which was later resolved with 'baking,' and implementing the ability for the tank to follow the terrain. Furthermore, the game now features player upgrades, turret rotation, and the ability to switch rooms within the dungeon run, although the upgrades are still being refined. Technical aspects of the game development are also highlighted, such as the 'quick and dirty implementation of a tank movement system' and the current state of the physics, which is described as 'still a bit janky lol.'
+The recent posts from loneicewolf.bsky.social cover a wide range of topics, with a strong recurring focus on appreciation for art, particularly AI-generated content. The author frequently expresses delight over visuals, using phrases like "WOW THIS LOOKS SO HD/HIGH GRAPHICS!" and "LOVELY ART 😍️," while also praising specific artists and styles, noting, "i think this is another of my new favorite artists." There is significant engagement with AI, with the author reflecting on the technology, stating, "A.I CAN'T REPLACE ME BECAUSE I USE AI TO DO MY WORK," and acknowledging that even their parents, who were initially skeptical, now find it "great." Beyond art, trains are a notable theme, with the author expressing a growing fondness for them after seeing interesting content, noting, "i think i begin to like trains more, and more! 👀️," and mentioning the desire to "take photo of trains too!" while in Sweden.
 
-Beyond the tank game, there is significant work being done with WebGL rendering, demonstrating how 'adding UI is very easy' when using a WebGL renderer. The developer is also experimenting with 'alternate camera configurations' for this project. Several posts showcase the integration of assets, noting that 'gltf doesn't support my greatness,' while also praising Blender's capabilities, stating, 'Damnn, blender really is OP.'
+Several posts address community dynamics and the impact of online interaction. The author muses about the mysterious appearance of messages, wondering if it's due to "ppl blocking? maybe its spammers or something?" This leads to a broader discussion on the nature of online negativity, where loneicewolf distinguishes between those who "CRUELLY hate" AI and those who merely "might dislike ai but is quiet." The author strongly advocates for support, urging readers who are struggling to "please reach out. im here. DM's is open. ♥️," and warns that AI haters are "wasting away both lives: their own (to hate) / the victims(who get more into AI who might not try drawingcuz..its discouraging)."
 
-Specific development milestones mentioned include the creation of a 'very simple material to set cliff side textures and grass textures' in Blender, and the ongoing effort to create a 'PS1 style tank in blender.' The visual fidelity is also being addressed, with one post noting that 'some of the sprites getting stretcheeeed gotta fix that.'
-
-In terms of game mechanics, the developer is actively working on applying upgrades, which involves 'lots of bad code :p,' and has integrated an 'upgrade scene into the dungeon run.' The tank's functionality has seen improvements, such as the ability to rotate the turret, and the terrain updates are ongoing, with the developer noting that colliders 'not proper yet.'
-
-The developer is also sharing progress on other aspects of their projects, including a sneak peek of the 'upgrade ui so far' and thinking about a 'bent pyramid.' There are also mentions of general development themes, such as the difficulty of the work ('very real very pain') and the initial testing of the movement system.
-
-Finally, the posts serve as a hub for community interaction, with frequent acknowledgments like 'This is great!' and 'Looks great!' from others, alongside sharing links to the demo and inviting interest via a Discord server ('discord.gg/cRVbA5NA7s').
+Finally, the collection includes brief personal updates and acknowledgments. The author shares simple greetings like "Moorning!!" and "cuuute," and offers heartfelt thanks to their followers, stating, "thanks everyone for understanding me ♥️." There are also interactions with other users, such as praising satyrs.eu's linkroll and agreeing with the sentiment that AI is a powerful tool, as seen in the exchange with schizanon.bsky.social regarding the adoption of AI by older generations.
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -1166,442 +1115,357 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize the most recent 300 posts by this actor into 6 paragraphs
+summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
 
 ## Harness Scope Assessment
-requested_scope: count 300
-required_total_items: 229
+requested_scope: count 150
+required_total_items: 150
 page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
-available_total_items: 229
+available_total_items: 300
 current_window_offset: 100
 current_window_size: 50
 
 ## Collection Evidence
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-collection_label: Recent posts by did:plc:nehmem7iy5fyifkqxjpcnj6e (items 101-150 of 229)
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_label: Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn (items 101-150 of 300)
 collection_kind: recent_posts
 search_window_offset: 100
 search_window_total_items: 50
 
-matched_item[0] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moob6magrs2u
-body: Experimenting with some alternate camera configurations
-
-tanker.bunnylabs.dev
-
-Kinda buggy, looks like I gotta play some World of Tanks to refresh my memory :p
-
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[1] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moncrnbhqs23
-body: Oh btw, I create a discord server if you are interested in following my progress:
-discord.gg/cRVbA5NA7s
-link: https://discord.gg/cRVbA5NA7s
-
-matched_item[2] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3monc2hff522o
-body: One of the usefulness of writing a webgl renderer is that, adding UI is very easy
-#gamedev #indiedev #software #programming #graphicsprogramming #webgl
-tag: gamedev
-tag: indiedev
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[3] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3monatgw3q22k
-body: Demo: tanker.bunnylabs.dev
-link: https://tanker.bunnylabs.dev
-
-matched_item[4] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3monasxm32s2k
-body: Fixed the terrain collider
-also added a Debug Renderer to check the colliders.
-Its mostly a dev tool and cannot be activated in the prod env yet but the tank now follows the environment
-
-#gamedev #indiedev #blender #software #programming #graphicsprogramming #webgl
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[5] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3momvnf2j5c2k
-body: Tyy
-
-matched_item[6] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3momrfuzgj222
-body: This is great!
-
-matched_item[7] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3momoyfnhm222
-body: Ty hehe
-
-matched_item[8] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3molyfmrcx22m
-body: Updated the terrain at
-tanker.bunnylabs.dev
-
-colliders not proper yet
-
-#gamedev #indiedev #blender #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev/
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[9] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3molw4eusg22b
-body: fixed with baking :p
-
-matched_item[10] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3molvaa5ris2b
-body: welp apparently gltf doesn't support my greatness
-
-matched_item[11] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moluyjhp5k2b
-body: Damnn, blender really is OP
-made a very simple material to set cliff side textures and grass textures. Very neat
-
-#gamedev #indiedev #blender #software #programming #graphicsprogramming #webgl
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[12] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moltcxae2k2s
-body: Making a level for the tank game :p
-tanker.bunnylabs.dev
-
-#gamedev #indiedev #blender #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[13] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3molph4eaqs2s
-body: Now player upgrades work! :D
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
-
-matched_item[14] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moloynwkf22e
-body: 
-
-matched_item[15] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moloy6q5wk2e
-body: Today I learnt it is possible to send data over signals
-Mind Blown
-
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
-
-matched_item[16] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mokg7b3jsk2y
-body: Neat!
-
-matched_item[17] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mojgtklruk2t
-body: very real
-very pain
-
-matched_item[18] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mojfydaxuk2w
-body: You can now rotate the tank turret :D
-
-tanker.bunnylabs.dev
-
-#gamedev #indiedev #blender #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[19] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mojeaelpak2u
-body: Working on applying upgrades. Lots of bad code :p
-
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
-
-matched_item[20] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moj4pt6hus2v
-body: Yep! 
-Tho probably for the first iteration I am gonna have flat terrain but let's see :p
-
-matched_item[21] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mohtw7nmjk27
-body: The tank now follows the terrain
-
-tanker.bunnylabs.dev
-
-#gamedev #indiedev #blender #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[22] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mogpve2t6c2d
-body: 
-
-matched_item[23] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mogpj7h2tk24
-body: haha, the physics is still a bit janky lol
-
-Yeah I am gonna add in turret rotation soon :p ty
-
-matched_item[24] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mogntzwt3k2u
-body: Just realized, the checkerboard pattern is kinda disorienting lol
-
-matched_item[25] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mognf22etk2e
-body: Quick and dirty implementation of a tank movement system
-you can try it out at:
-tanker.bunnylabs.dev
-
-#gamedev #indiedev #blender #software #programming #graphicsprogramming #webgl
-link: https://tanker.bunnylabs.dev
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[26] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moghwigxpc2e
-body: thank you!
-
-matched_item[27] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mogd5muk322f
-body: Added back the room switching into the run
-working on applying the upgrades
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
-
-matched_item[28] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofwbg4xmk23
-body: Ahhh cool
-
-matched_item[29] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofvw47zrk23
-body: Looks great!
-
-matched_item[30] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofuijzgnk23
-body: Awesome!
-What fgpa are you using?
-I am trying to make something similar myself :p
-
-matched_item[31] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofufk6yoc23
-body: Looks great!
-
-matched_item[32] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofnytyv6225
-body: Loaded into my webgl renderer hehe
-#gamedev #indiedev #blender #software #programming #graphicsprogramming #webgl
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-tag: graphicsprogramming
-tag: webgl
-
-matched_item[33] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moflwnq6ss2b
-body: Jail
-
-matched_item[34] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moflttxxok2b
-body: Congrats!
-
-matched_item[35] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofjz4bja225
-body: Finished making the tank
-#gamedev #indiedev #blender #software
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-
-matched_item[36] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofhifxuuc2y
-body: Trying to make a PS1 style tank in blender
-still WIP
-#gamedev #indiedev #blender #software #programming
-tag: gamedev
-tag: indiedev
-tag: blender
-tag: software
-tag: programming
-
-matched_item[37] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mof75ruyj223
-body: Nice
-
-matched_item[38] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moe6orynkc2r
-body: Is that a blood trail 👀
-
-matched_item[39] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moe2g6iwd225
-body: Yep
-Finally :D
-
-matched_item[40] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modyagcqp22g
-body: Sounds great!
-
-matched_item[41] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mody36rm2k2s
-body: Looking great!
-Very cute fox
-
-matched_item[42] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modxys4c722s
-body: Looks great!
-What are you making? Is it a submarine game?
-
-matched_item[43] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modxshgvxs2s
-body: Looks amazing!
-What are you using for he models? Blockbench?
-
-matched_item[44] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modugh3bks2v
-body: On a seperate note,
-trying out some webgl
-#graphics #webgl #software #programming
-tag: graphics
-tag: webgl
-tag: software
-tag: programming
-
-matched_item[45] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modue77xgs2v
-body: Added the upgrade scene into the dungeon run
-the upgrades don't work properly yet, but we getting there
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
-
-matched_item[46] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moduboxzmc2v
-body: lots of inspiration from that! hehe
-
-matched_item[47] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moblypcxgk2n
-body: some of the sprites getting stretcheeeed gotta fix that
-
-matched_item[48] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moblxjlsjk2n
-body: Mostly code changes today
-but here's a sneak peak of the upgrade ui so far :D
-
-#gamedev #indiedev #godot #pixelart #software #programming
-tag: gamedev
-tag: indiedev
-tag: godot
-tag: pixelart
-tag: software
-tag: programming
-
-matched_item[49] uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moam3pbwcc2n
-body: Thinking about the bent pyramid
+matched_item[0] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhripksmc2b
+body: OH and the last part you wrote? me too. i..proobably wouldnt want to know either.
+
+Now one thing though..i wonder why
+
+bsky:         "you got 1 message to read!"
+also bsky: "oh and you cant read it       "
+
+matched_item[1] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrhfp2k22b
+body: so im thinking..maybe one person is hater/spammy,on my list(sadly, i dont know who or what they type i just know they did)
+
+matched_item[2] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrhf52ek2b
+body: oh! maybe but.. to me i have done so only a few can reply
+(because of that hate)
+like.. 
+
+i have lists, and i add ppl who is kind to those lists, and tell bsky to only allow tose,
+
+and yet it happens,
+it pops up a bit-and then disappears.
+
+matched_item[3] uri: at://did:plc:unmgr5m7v3uvovdwngmtzbdk/app.bsky.feed.post/3mpmkqbocak2n
+body: My Pokémon Shining Pearl Episode 2 is live!
+
+We continue the adventure with new Pokémon, trainer battles, and more story progression. If you enjoy Pokémon walkthroughs and Nintendo Switch gameplay, check it out!
+
+youtu.be/fOqNhH2U0E4
+
+#Pokemon #BDSP #NintendoSwitch #Gaming
+link: https://youtu.be/fOqNhH2U0E4
+tag: Pokemon
+tag: BDSP
+tag: NintendoSwitch
+tag: Gaming
+
+matched_item[4] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhm7aie5c2d
+body: never been a fan of pokemon but..i think its cuz i never tried it? this made me wanna try it 👀️ one thing though i think pokemons look cute 😸️ take care! ^^ 
+
+and nice walktrough!
+
+matched_item[5] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlrojrzk2d
+body: Mooorning!!
+
+matched_item[6] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlnoypcc2d
+body: yumm! 😋️
+
+matched_item[7] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhln7zhec2d
+body: this is all, very very interesting  👀️ i must take photo of trains too! 
+
+but im in sweden..but..still! ^^
+
+matched_item[8] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlkrhvrc2d
+body: ohhh wow!
+i thought something had happened (it looked like, some accident? but..when i translated the japanese, i see oh thank god, nothing happened! ^^ it looks much more interesting than i thought!)
+
+i think i begin to like trains more, and more! 👀️
+
+matched_item[9] uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mqhajiqqns2f
+body: アリシアちゃんがうがうポーズ
+
+matched_item[10] uri: at://did:plc:yl54eschr7g4vd5tbyyn4kt3/app.bsky.feed.post/3mqhaxigfkk25
+body: 続・寂寥哀惜の念～ハイエースの車窓から～
+#AIイラスト #AIart #PixAI
+tag: AIイラスト
+tag: AIart
+tag: PixAI
+
+matched_item[11] uri: at://did:plc:b7rgxwd4p3qlqwyn6elyyouz/app.bsky.feed.post/3mqhb4wxtwk2p
+body: おやすみなさ～い💤
+
+matched_item[12] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlibs4yk2d
+body: WOW THIS LOOKS SO HD/HIGH GRAPHICS!
+Details! 4K! wowieee!! ♥️ love it!
+
+i have to share this more:
+#AIArt #AIArtwork
+
+its lovely!
+tag: AIArt
+tag: AIArtwork
+
+matched_item[13] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhl2nmbms26
+body: cuuute
+
+matched_item[14] uri: at://did:plc:bhklr7m5t5fdqebgy63hpfum/app.bsky.feed.post/3mq3fn77zb22l
+body: also if you’re clicking onto this for the first time you should check out all these cool websites i found for you i think they’re fun :-)
+
+satyrs.eu/linkroll
+link: https://satyrs.eu/linkroll
+
+matched_item[15] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkxsbhe226
+body: WAIT..You're underrated?!
+this is fun! XD 
+
+i cant believe i was first liker and first commentor o_o
+take care of yourself!
+warmest wishes from sweden and thanks for sharing this!
+..tbh i really like the colors on the ACTUAL-SITE 
+                  satyrs.eu/linkroll
+link: https://satyrs.eu/linkroll
+
+matched_item[16] uri: at://did:plc:bhklr7m5t5fdqebgy63hpfum/app.bsky.feed.post/3mqf2q7yjjk2s
+body: I think anyone who describes copying as theft should be legally required to disclose whether they ever made a “lol i just right-clicked and saved your NFT” joke
+
+matched_item[17] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkum7ph226
+body: or maybe this:
+"A.I CAN'T REPLACE ME BECAUSE I USE AI TO DO MY WORK"
+
+(i.e using AI as a tool xD as AI's aint (yet) sentient, they need people to *do* things..i think? so yeah! xD)
+
+matched_item[18] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkt442vc26
+body: OH MY GOD 🤣️
+
+matched_item[19] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhks6w46c26
+body: 2019?
+(looks at a calender which says its 2042)
+no but jokes aside, take care!
+
+matched_item[20] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkqnf5gc26
+body: yep 100%
+
+matched_item[21] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqgw3arxmk2p
+body: I'm proud of my partner who uses it every day to compensate for the shitty healthcare in this country. 
+
+I'm proud that she teaches her friends to use it when they need help. 
+
+I'm proud of all the women who are seizing the power.
+
+I think anyone who would shame them is truly evil.
+
+matched_item[22] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqgvbc774c2p
+body: Today my mom sent me a conversation she had with AI; something about timber rights on a parcel of land she inherited. 
+
+I'm so proud that she's learned to wield this technology, even at her age, even with the whole of liberal voices howling against it.
+
+matched_item[23] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhknlkrkc26
+body: this. i agree!
+
+matched_item[24] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhknaxwrk26
+body: Woww!! :D 
+my parents use AI too and they are boomers but.. Yeah!
+before they did not like AI (to be honest..there was ONE TIME I did not "like" or, "hate" ai.i was just.. i never had tried it. and..i was acting, before on the assumption that "ai was bad"
+BUT HOLY GOD I WAS WRONG. its great.)
+
+matched_item[25] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkjz5ckk26
+body: i also get those "1 message or 2 messages" and.. i dont know if its ppl blocking?
+maybe its spammers or something? ppl who write like.. i dont know low efort/hate? cuz sometimes those are like..but i dont know?
+
+no clue? like i mean, maybe the algorithm/mod-system(..thingy?) stops them but.? idk?
+
+matched_item[26] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhenzmmys2f
+body: wow! :D
+
+matched_item[27] uri: at://did:plc:fie2aqk5y4x43rrqc5x7aoh6/app.bsky.feed.post/3mqdqia2j2s2o
+body: そのうち乗ろう*\(^o^)/*
+
+matched_item[28] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhemxatnc2f
+body: THIS IS ABSOLUTELY WONDERFUL
+also..hehehe i see this cute one!! 😸️
+
+matched_item[29] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhdlscy522f
+body: will google this! ^^
+
+matched_item[30] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhdlmgtms2f
+body: OH! :D noted!!
+/^v^/==♥️♥️
+
+matched_item[31] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhct75ojc2f
+body: i want to say, thanks everyone for understanding me ♥️
+love you all!♥️
+take care of yourself!♥️
+and take care of your friends! ♥️
+
+And, please:
+Think of Yourself.
+There is only 1 person on this earth, like you, and that is YOU♥️
+
+Love You All!💐️
+Love Yourself!💐️
+And Take Care! 💐️
+
+matched_item[32] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh6i6qlmk2x
+body: FANCY! :O
+
+matched_item[33] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh6i2p6yk2x
+body: wooahahaaaoo!!! FANCYY! :D
+
+matched_item[34] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh4ndm6mc2x
+body: ohhh! 🥺️🫂️i see, take care though♥️
+
+matched_item[35] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh3pj2wek2x
+body: those are pretty! oh mai god! ^^
+
+matched_item[36] uri: at://did:plc:ajk4jyfmj3nmpf7ba67auv6x/app.bsky.feed.post/3mq7sqgca2c2c
+body: #AIart
+#AIイラスト
+tag: AIart
+tag: AIイラスト
+
+matched_item[37] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh37mv4gs2x
+body: Wooahh!! pretty! :D
+
+matched_item[38] uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mq6neu6uak2f
+body: #AIイラスト #AIart #オリキャラ
+tag: AIイラスト
+tag: AIart
+tag: オリキャラ
+
+matched_item[39] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh3653xt22x
+body: i think this is another of my new favorite artists ^^
+
+matched_item[40] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh35mncck2x
+body: wow! love the eyes and the smile! :D
+
+matched_item[41] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh34t2uu22x
+body: wow! that's...pretty! 😊️
+
+matched_item[42] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh2gjnevs2x
+body: CUUUTE
+
+matched_item[43] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh2fmztzs2x
+body: わっ、猫ちゃん可愛すぎる…！お花が描かれたバナーも素敵で癒やされます🌷
+
+matched_item[44] uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mqgyywglj22l
+body: 健全なアリシアさん
+
+matched_item[45] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgzlt3li22x
+body: LOVELY ART 😍️
+
+matched_item[46] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgzl57i5s2x
+body: OH MY GOD :DDD I love it!!
+😸️😃️👏️
+
+matched_item[47] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgz6bbjvc2x
+body: note, if you have had hate, or is depressed, (you who read this), then, please reach out. im here. DM's is open. ♥️
+
+*INCLUDING* People who dont like AI.
+I see the PERSON
+NOT the label.
+
+sending a hug. 🫂️
+
+matched_item[48] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgz6b2kb22x
+body: ⚠️IMPORTANT⚠️
+they are also wasting away both lives:
+their own (to hate)
+the victims(who get more into AI who might not try drawingcuz..its discouraging)
+
+So,
+one has to, really try to have fun in life because we only live once. 
+
+..some ai haters drive others into dark thoughts. and..that-i hate.
+
+matched_item[49] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgyzkpl3k2x
+body: what i talk about is People who CRUELLY hate.
+
+NOT people who "might dislike ai but is quiet" OR "might dislike ai but isnt cruel to others"
+
+those people i LOVE. and, would really want to support.
 
 ## Proposed Summary
-post: Recent Development Updates: Tanker Game & WebGL Projects
-summary: The recent posts heavily focus on the development of a tank game, showcased at tanker.bunnylabs.dev, with continuous updates on its features and technical challenges. Key progress includes fixing the terrain collider, which was later resolved with 'baking,' and implementing the ability for the tank to follow the terrain. Furthermore, the game now features player upgrades, turret rotation, and the ability to switch rooms within the dungeon run, although the upgrades are still being refined. Technical aspects of the game development are also highlighted, such as the 'quick and dirty implementation of a tank movement system' and the current state of the physics, which is described as 'still a bit janky lol.'
+post: Recent Posts by loneicewolf.bsky.social: AI Art, Trains, and Community Support
+summary: The recent posts from loneicewolf.bsky.social cover a wide range of topics, with a strong recurring focus on appreciation for art, particularly AI-generated content. The author frequently expresses delight over visuals, using phrases like "WOW THIS LOOKS SO HD/HIGH GRAPHICS!" and "LOVELY ART 😍️," while also praising specific artists and styles, noting, "i think this is another of my new favorite artists." There is significant engagement with AI, with the author reflecting on the technology, stating, "A.I CAN'T REPLACE ME BECAUSE I USE AI TO DO MY WORK," and acknowledging that even their parents, who were initially skeptical, now find it "great." Beyond art, trains are a notable theme, with the author expressing a growing fondness for them after seeing interesting content, noting, "i think i begin to like trains more, and more! 👀️," and mentioning the desire to "take photo of trains too!" while in Sweden.
 
-Beyond the tank game, there is significant work being done with WebGL rendering, demonstrating how 'adding UI is very easy' when using a WebGL renderer. The developer is also experimenting with 'alternate camera configurations' for this project. Several posts showcase the integration of assets, noting that 'gltf doesn't support my greatness,' while also praising Blender's capabilities, stating, 'Damnn, blender really is OP.'
+Several posts address community dynamics and the impact of online interaction. The author muses about the mysterious appearance of messages, wondering if it's due to "ppl blocking? maybe its spammers or something?" This leads to a broader discussion on the nature of online negativity, where loneicewolf distinguishes between those who "CRUELLY hate" AI and those who merely "might dislike ai but is quiet." The author strongly advocates for support, urging readers who are struggling to "please reach out. im here. DM's is open. ♥️," and warns that AI haters are "wasting away both lives: their own (to hate) / the victims(who get more into AI who might not try drawingcuz..its discouraging)."
 
-Specific development milestones mentioned include the creation of a 'very simple material to set cliff side textures and grass textures' in Blender, and the ongoing effort to create a 'PS1 style tank in blender.' The visual fidelity is also being addressed, with one post noting that 'some of the sprites getting stretcheeeed gotta fix that.'
-
-In terms of game mechanics, the developer is actively working on applying upgrades, which involves 'lots of bad code :p,' and has integrated an 'upgrade scene into the dungeon run.' The tank's functionality has seen improvements, such as the ability to rotate the turret, and the terrain updates are ongoing, with the developer noting that colliders 'not proper yet.'
-
-The developer is also sharing progress on other aspects of their projects, including a sneak peek of the 'upgrade ui so far' and thinking about a 'bent pyramid.' There are also mentions of general development themes, such as the difficulty of the work ('very real very pain') and the initial testing of the movement system.
-
-Finally, the posts serve as a hub for community interaction, with frequent acknowledgments like 'This is great!' and 'Looks great!' from others, alongside sharing links to the demo and inviting interest via a Discord server ('discord.gg/cRVbA5NA7s').
+Finally, the collection includes brief personal updates and acknowledgments. The author shares simple greetings like "Moorning!!" and "cuuute," and offers heartfelt thanks to their followers, stating, "thanks everyone for understanding me ♥️." There are also interactions with other users, such as praising satyrs.eu's linkroll and agreeing with the sentiment that AI is a powerful tool, as seen in the exchange with schizanon.bsky.social regarding the adoption of AI by older generations.
 window_offset: 100
 window_size: 50
 page_index: 2
 page_size: 50
-collection_total_items: 229
+collection_total_items: 300
 has_more: true
-covered_item_1_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moob6magrs2u
-covered_item_2_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moncrnbhqs23
-covered_item_3_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3monc2hff522o
-covered_item_4_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3monatgw3q22k
-covered_item_5_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3monasxm32s2k
-covered_item_6_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3momvnf2j5c2k
-covered_item_7_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3momrfuzgj222
-covered_item_8_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3momoyfnhm222
-covered_item_9_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3molyfmrcx22m
-covered_item_10_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3molw4eusg22b
-covered_item_11_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3molvaa5ris2b
-covered_item_12_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moluyjhp5k2b
-covered_item_13_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moltcxae2k2s
-covered_item_14_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3molph4eaqs2s
-covered_item_15_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moloynwkf22e
-covered_item_16_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moloy6q5wk2e
-covered_item_17_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mokg7b3jsk2y
-covered_item_18_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mojgtklruk2t
-covered_item_19_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mojfydaxuk2w
-covered_item_20_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mojeaelpak2u
-covered_item_21_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moj4pt6hus2v
-covered_item_22_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mohtw7nmjk27
-covered_item_23_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mogpve2t6c2d
-covered_item_24_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mogpj7h2tk24
-covered_item_25_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mogntzwt3k2u
-covered_item_26_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mognf22etk2e
-covered_item_27_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moghwigxpc2e
-covered_item_28_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mogd5muk322f
-covered_item_29_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofwbg4xmk23
-covered_item_30_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofvw47zrk23
-covered_item_31_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofuijzgnk23
-covered_item_32_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofufk6yoc23
-covered_item_33_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofnytyv6225
-covered_item_34_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moflwnq6ss2b
-covered_item_35_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moflttxxok2b
-covered_item_36_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofjz4bja225
-covered_item_37_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mofhifxuuc2y
-covered_item_38_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mof75ruyj223
-covered_item_39_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moe6orynkc2r
-covered_item_40_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moe2g6iwd225
-covered_item_41_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modyagcqp22g
-covered_item_42_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3mody36rm2k2s
-covered_item_43_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modxys4c722s
-covered_item_44_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modxshgvxs2s
-covered_item_45_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modugh3bks2v
-covered_item_46_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3modue77xgs2v
-covered_item_47_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moduboxzmc2v
-covered_item_48_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moblypcxgk2n
-covered_item_49_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moblxjlsjk2n
-covered_item_50_uri: at://did:plc:nehmem7iy5fyifkqxjpcnj6e/app.bsky.feed.post/3moam3pbwcc2n
+covered_item_1_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhripksmc2b
+covered_item_2_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrhfp2k22b
+covered_item_3_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrhf52ek2b
+covered_item_4_uri: at://did:plc:unmgr5m7v3uvovdwngmtzbdk/app.bsky.feed.post/3mpmkqbocak2n
+covered_item_5_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhm7aie5c2d
+covered_item_6_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlrojrzk2d
+covered_item_7_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlnoypcc2d
+covered_item_8_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhln7zhec2d
+covered_item_9_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlkrhvrc2d
+covered_item_10_uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mqhajiqqns2f
+covered_item_11_uri: at://did:plc:yl54eschr7g4vd5tbyyn4kt3/app.bsky.feed.post/3mqhaxigfkk25
+covered_item_12_uri: at://did:plc:b7rgxwd4p3qlqwyn6elyyouz/app.bsky.feed.post/3mqhb4wxtwk2p
+covered_item_13_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlibs4yk2d
+covered_item_14_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhl2nmbms26
+covered_item_15_uri: at://did:plc:bhklr7m5t5fdqebgy63hpfum/app.bsky.feed.post/3mq3fn77zb22l
+covered_item_16_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkxsbhe226
+covered_item_17_uri: at://did:plc:bhklr7m5t5fdqebgy63hpfum/app.bsky.feed.post/3mqf2q7yjjk2s
+covered_item_18_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkum7ph226
+covered_item_19_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkt442vc26
+covered_item_20_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhks6w46c26
+covered_item_21_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkqnf5gc26
+covered_item_22_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqgw3arxmk2p
+covered_item_23_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqgvbc774c2p
+covered_item_24_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhknlkrkc26
+covered_item_25_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhknaxwrk26
+covered_item_26_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkjz5ckk26
+covered_item_27_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhenzmmys2f
+covered_item_28_uri: at://did:plc:fie2aqk5y4x43rrqc5x7aoh6/app.bsky.feed.post/3mqdqia2j2s2o
+covered_item_29_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhemxatnc2f
+covered_item_30_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhdlscy522f
+covered_item_31_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhdlmgtms2f
+covered_item_32_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhct75ojc2f
+covered_item_33_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh6i6qlmk2x
+covered_item_34_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh6i2p6yk2x
+covered_item_35_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh4ndm6mc2x
+covered_item_36_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh3pj2wek2x
+covered_item_37_uri: at://did:plc:ajk4jyfmj3nmpf7ba67auv6x/app.bsky.feed.post/3mq7sqgca2c2c
+covered_item_38_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh37mv4gs2x
+covered_item_39_uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mq6neu6uak2f
+covered_item_40_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh3653xt22x
+covered_item_41_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh35mncck2x
+covered_item_42_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh34t2uu22x
+covered_item_43_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh2gjnevs2x
+covered_item_44_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh2fmztzs2x
+covered_item_45_uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mqgyywglj22l
+covered_item_46_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgzlt3li22x
+covered_item_47_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgzl57i5s2x
+covered_item_48_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgz6bbjvc2x
+covered_item_49_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgz6b2kb22x
+covered_item_50_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgyzkpl3k2x
 
 [summary_sufficiency_gate]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 window_offset: 100
 contiguous_coverage: 150
-available_total_items: 229
+available_total_items: 300
 status_after_gate: fail
 review_grounded: false
-review_sufficient: false
-review_additional_pages_needed: true
-review_next_offset: 150
+review_sufficient: true
+review_additional_pages_needed: false
+review_next_offset: <none>
 result_before_restore: false
 original_result_before_restore: true
 result_after_gate: false
@@ -1610,114 +1474,30 @@ original_result_after_gate: true
 [collection_summary_loop]
 node: summarize_page
 status: page_outcome
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 offset: 100
 result_present: true
 review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 3 after summary failure: Grounded summary coverage currently reaches 150 item(s), but 229 item(s) are required before parent synthesis is sufficient.
-diagnostic: summary cursor processed offset 100 (page 3 of at most 5); raw-window fallback preserved offset 100
+review_reason: Raw-window fallback preserved grounded evidence for page 3 after summary failure: Grounded summary coverage reaches 150 item(s), satisfying the requested 150 item scope.
+diagnostic: summary cursor processed offset 100 (page 3 of at most 3); raw-window fallback preserved offset 100
 
 [collection_summary_loop_page_state]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
 page_offset: 100
 page_index: 2
-page_status: raw_window_fallback
-repair_attempted: false
-fallback_applied: true
-next_offset: 150
-accumulated_covered_count: 150
-failure_reason: Grounded summary coverage currently reaches 150 item(s), but 229 item(s) are required before parent synthesis is sufficient.
-
-[summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-page_offset: 100
-page_index: 2
-window_size: 50
-failure_reason: Grounded summary coverage currently reaches 150 item(s), but 229 item(s) are required before parent synthesis is sufficient.
-
-[collection_summary_loop]
-node: collection_summary_planner_repair
-status: planner_optional_failure
-reason: planner synthesis failed validation
-route: advance_cursor
-
-[collection_summary_loop]
-node: summarize_page
-status: running
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-page_index: 3
-offset: 150
-window_size: 50
-
-[collection_summary_loop]
-node: summarize_page
-status: page_outcome
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-offset: 150
-result_present: true
-review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 4 after summary execution failed: summary execution failed: collection_summary failed on full collection (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions)) and reduced retry (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions))
-diagnostic: raw-window fallback preserved offset 150
-
-[collection_summary_loop_page_state]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-page_offset: 150
-page_index: 3
-page_status: raw_window_fallback
-repair_attempted: false
-fallback_applied: true
-next_offset: 200
-accumulated_covered_count: 200
-failure_reason: summary execution failed: collection_summary failed on full collection (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions)) and reduced retry (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions))
-
-[summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-page_offset: 150
-page_index: 3
-window_size: 50
-failure_reason: summary execution failed: collection_summary failed on full collection (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions)) and reduced retry (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions))
-
-[collection_summary_loop]
-node: collection_summary_planner_repair
-status: planner_optional_failure
-reason: planner synthesis failed validation
-route: advance_cursor
-
-[collection_summary_loop]
-node: summarize_page
-status: running
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-page_index: 4
-offset: 200
-window_size: 50
-
-[collection_summary_loop]
-node: summarize_page
-status: page_outcome
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-offset: 200
-result_present: true
-review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 5 after summary execution failed: summary execution failed: collection_summary failed on full collection (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions)) and reduced retry (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions))
-diagnostic: raw-window fallback preserved offset 200
-
-[collection_summary_loop_page_state]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-page_offset: 200
-page_index: 4
 page_status: raw_window_fallback
 repair_attempted: false
 fallback_applied: true
 next_offset: <none>
-accumulated_covered_count: 229
-failure_reason: summary execution failed: collection_summary failed on full collection (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions)) and reduced retry (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions))
+accumulated_covered_count: 150
+failure_reason: Grounded summary coverage reaches 150 item(s), satisfying the requested 150 item scope.
 
 [summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-page_offset: 200
-page_index: 4
-window_size: 29
-failure_reason: summary execution failed: collection_summary failed on full collection (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions)) and reduced retry (request to http://127.0.0.1:5000/v1/chat/completions failed: error sending request for url (http://127.0.0.1:5000/v1/chat/completions))
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+page_offset: 100
+page_index: 2
+window_size: 50
+failure_reason: Grounded summary coverage reaches 150 item(s), satisfying the requested 150 item scope.
 
 [collection_summary_loop]
 node: collection_summary_planner_repair
@@ -1730,29 +1510,35 @@ status: loop_finished
 outcome_count: 1
 rendered:
 tool_name: collection_summary
-collection_id: recent_posts:did:plc:nehmem7iy5fyifkqxjpcnj6e
-collection_label: Recent posts by did:plc:nehmem7iy5fyifkqxjpcnj6e
+collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_label: Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn
 status: ok
-diagnostic: collection_summary_planner accepted 0 page summaries and 5 raw-window fallbacks; collection_summary_notes produced final scope summary
-covered_window_offsets: 0, 50, 100, 150, 200
-covered_post_count: 229
-planner_updates: 0
-coherent_pages: 5
+diagnostic: collection_summary_planner accepted 0 page summaries and 3 raw-window fallbacks; final_notes_summary_accepted: false; planner_summary_accepted: true
+covered_window_offsets: 0, 50, 100
+covered_post_count: 150
+planner_updates: 1
+coherent_pages: 3
+raw_response:
+The recent posts by loneicewolf.bsky.social reveal a deep and multifaceted engagement with Artificial Intelligence, which serves as a central theme across both covered windows. The author is actively surveying public opinion on AI, particularly GenAI, focusing on the social risk associated with its use, exemplified by the question: "Do you feel there's a difference between big companies (un-ethically) training AI versus a patient using it for private comfort in a hospital?" This concern over "some random screenshoting and strawmanning them" drives the author's careful approach to discussion, often preferring DMs to mitigate social pressure. Beyond the philosophical debate, the content is rich with personal updates and creative output, including sharing beautiful AI-generated visuals tagged with \#AIアート and \#SDXL, alongside substantial progress in game development ("some breakthoroughs in TalosPrinciple!").
 review_status: pass
 review_grounded: true
 review_sufficient: true
-review_reason: collection_summary_notes produced a partial scope summary after considering 229 posts before exhaustion.
+review_reason: collection_summary_planner produced the best accepted synthesis after considering 150 posts.
 review_repair_needed: false
 review_additional_pages_needed: false
-review_required_total_items: 300
-post: Summary of Recent posts by did:plc:nehmem7iy5fyifkqxjpcnj6e
-summary: Grounded raw-window fallback preserved 5 page(s), but no final synthesis was produced.
+review_required_total_items: 150
+post: Summary of Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn
+summary: Page 1 preserved grounded raw evidence around "KYOOOOT 😸\u{fe0f}"; "these artworks is beautiful btw! :D"; "Halloo everynyan!".
+
+Page 2 preserved grounded raw evidence around "scary! youtu.be/tFAd8jtPceQ?..."; "the samee!! /v♥\u{fe0f}v/"; "did you know you can drag this one if you hold your mouse, at the empty blue border? 🤣\u{fe0f}🤣\u{fe0f}🤣\u{fe0f}".
+
+Page 3 preserved grounded raw evidence around "OH and the last part you wrote? me too. i..proobably wouldnt want to know either."; "so im thinking..maybe one person is hater/spammy,on my list(sadly, i dont know who or what they type i just know they did)"; "oh! maybe but.. to me i have done so only a few can reply".
 window_offset: 0
-window_size: 229
+window_size: 150
 page_index: 0
 page_size: 50
-collection_total_items: 229
+collection_total_items: 300
 has_more: false
-source_exhausted: true
+source_exhausted: false
 concatenated_window_summaries:
 

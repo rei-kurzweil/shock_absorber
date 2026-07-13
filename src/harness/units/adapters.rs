@@ -101,7 +101,9 @@ pub fn agent_graph_from_root_unit(root: &UnitInstanceState) -> AgentGraph {
 fn unit_status_to_agent_status(status: UnitInstanceStatus) -> Option<AgentNodeStatus> {
     Some(match status {
         UnitInstanceStatus::Ready => AgentNodeStatus::Ready,
-        UnitInstanceStatus::Running | UnitInstanceStatus::BlockedOnChild => AgentNodeStatus::Running,
+        UnitInstanceStatus::Running | UnitInstanceStatus::BlockedOnChild => {
+            AgentNodeStatus::Running
+        }
         UnitInstanceStatus::Completed => AgentNodeStatus::Completed,
         UnitInstanceStatus::CompletedWithWarnings => AgentNodeStatus::CompletedWithWarnings,
         UnitInstanceStatus::Failed => AgentNodeStatus::Failed,
@@ -125,7 +127,66 @@ mod tests {
 
         let graph = definition.graph.expect("graph");
         assert_eq!(graph.entry_node, "resolve_scope");
-        assert!(graph.nodes.iter().any(|node| node == "run_collection_summary"));
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node == "run_collection_summary")
+        );
         assert!(graph.ports.iter().any(|port| port.name == "success"));
+    }
+
+    #[test]
+    fn recursive_graph_validation_accepts_cycles_and_named_outputs() {
+        use crate::harness::units::definition::*;
+        let input = |id: &str| ExecutionPortDefinition {
+            id: id.into(),
+            direction: ExecutionPortDirection::Input,
+            semantic: ExecutionPortSemantic::Input,
+            label: id.into(),
+            color: UnitColor(100, 100, 100),
+        };
+        let output = |id: &str| ExecutionPortDefinition {
+            id: id.into(),
+            direction: ExecutionPortDirection::Output,
+            semantic: ExecutionPortSemantic::Branch,
+            label: id.into(),
+            color: UnitColor(0, 180, 0),
+        };
+        let unit = |id: &str| ExecutionUnitDefinition {
+            id: id.into(),
+            label: id.into(),
+            kind: UnitKind::Loop,
+            executor: ExecutionUnitExecutor::Harness,
+            color: UnitColor(20, 40, 80),
+            active_color: UnitColor(80, 160, 255),
+            input: input("input"),
+            outputs: vec![output("again")],
+            child_graph: None,
+        };
+        let graph = ExecutionGraphDefinition {
+            entry_unit_id: "a".into(),
+            units: vec![unit("a"), unit("b")],
+            edges: vec![
+                ExecutionEdgeDefinition {
+                    from_unit_id: "a".into(),
+                    output_port_id: "again".into(),
+                    target: ExecutionEdgeTarget::UnitInput {
+                        unit_id: "b".into(),
+                        port_id: "input".into(),
+                    },
+                },
+                ExecutionEdgeDefinition {
+                    from_unit_id: "b".into(),
+                    output_port_id: "again".into(),
+                    target: ExecutionEdgeTarget::UnitInput {
+                        unit_id: "a".into(),
+                        port_id: "input".into(),
+                    },
+                },
+            ],
+            outputs: vec![],
+        };
+        assert_eq!(graph.validate(), Ok(()));
     }
 }

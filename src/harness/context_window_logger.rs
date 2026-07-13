@@ -252,6 +252,7 @@ fn write_unit_node(
 
 fn render_unit_node(node: &UnitInstanceState, parent_label: Option<&str>) -> String {
     let mut out = String::from("# Unit Debug\n\n");
+    out.push_str(&format!("- instance_id: {}\n", node.instance_id));
     out.push_str(&format!("- unit_id: {}\n", node.definition.id));
     out.push_str(&format!("- unit_kind: {}\n", node.kind.as_str()));
     out.push_str(&format!("- label: {}\n", node.instance_label));
@@ -264,6 +265,9 @@ fn render_unit_node(node: &UnitInstanceState, parent_label: Option<&str>) -> Str
         "- active_node: {}\n",
         node.active_node.as_deref().unwrap_or("<none>")
     ));
+    out.push_str(&format!("- visit_count: {}\n", node.visit_count));
+    out.push_str(&format!("- visited_nodes: {}\n", if node.visited_nodes.is_empty() { "<none>".to_string() } else { node.visited_nodes.join(", ") }));
+    out.push_str(&format!("- selected_output_port: {}\n", node.last_output_port.as_deref().unwrap_or("<none>")));
     out.push_str(&format!(
         "- blocked_on_child: {}\n",
         node.blocked_on_child.as_deref().unwrap_or("<none>")
@@ -283,6 +287,13 @@ fn render_unit_node(node: &UnitInstanceState, parent_label: Option<&str>) -> Str
     out.push_str("\n\n## Result Summary\n\n");
     out.push_str(node.result_summary.as_deref().unwrap_or("<none>"));
     out.push_str("\n\n");
+    out.push_str("## Transition History\n\n");
+    if node.transitions.is_empty() { out.push_str("<none>\n\n"); } else {
+        for transition in &node.transitions {
+            out.push_str(&format!("- #{} {} -> {} (traversals: {})\n", transition.sequence, transition.output_port, transition.target_instance_id.as_deref().or(transition.graph_output.as_deref()).unwrap_or("<none>"), transition.traversal_count));
+        }
+        out.push('\n');
+    }
     if let Some(window) = node.context_window.as_ref() {
         out.push_str("## Context Window\n\n```text\n");
         out.push_str(&window.rendered);
