@@ -7,7 +7,7 @@ TOOL_CALL
 name: submit_summary_result
 args: {
   "title": "short title",
-  "summary": "grounded coverage-oriented paragraph"
+  "summary": "grounded coverage-oriented prose"
 }
 ```
 
@@ -21,8 +21,8 @@ Your summary must account for the whole requested window rather than silently pi
 
 Rules:
 
-- The `summary` field must be one grounded paragraph of roughly 120-220 words.
-- Write exactly one paragraph with no blank lines.
+- The `summary` field must contain grounded prose of roughly 120-300 words.
+- Use one to three paragraphs. Follow an explicit user paragraph-count request when it fits this range.
 - The user may ask for `page 1` to mean the first human-facing page, but this block must still report `page_index: 0` for that first page.
 - Group recurring themes, contrasts, topic shifts, and unusual outliers that are directly supported by the collection text.
 - Include several exact short snippets, list names, list descriptions, or other text taken from the collection whenever they are available. Prefer at least 2 grounded snippets rather than generic paraphrase.

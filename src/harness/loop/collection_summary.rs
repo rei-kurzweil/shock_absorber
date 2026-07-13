@@ -30,6 +30,51 @@ fn append_summary_trace(entry: impl AsRef<str>) {
     let _ = append_debug_trace(&debug_base_dir, "summary_trace.md", entry.as_ref());
 }
 
+async fn complete_optional_synthesis(
+    stage: &str,
+    llm_client: &LlmApiClient,
+    messages: Vec<ChatMessage>,
+    max_tokens: usize,
+    observer: Option<&UnboundedSender<ToolProgressEvent>>,
+) -> Option<String> {
+    match llm_client
+        .complete_chat_with_retry_observer(
+            messages,
+            max_tokens,
+            None,
+            |attempt, max_attempts, delay_secs| {
+                if let Some(observer) = observer {
+                    let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                        label: "collection_summary_backend".to_string(),
+                        depth: 3,
+                        content: format!(
+                            "stage: {stage}\nstatus: retrying\nattempt: {attempt}/{max_attempts}\nretry_in_seconds: {delay_secs}"
+                        ),
+                    });
+                }
+            },
+        )
+        .await
+    {
+        Ok(response) => {
+            let response = normalize_synthesis_response(response.trim().to_string());
+            (!response.is_empty()).then_some(response)
+        }
+        Err(err) => {
+            let content = format!("stage: {stage}\nstatus: backend_unavailable\nerror: {err}");
+            append_summary_trace(format!("[collection_summary_llm_failure]\n{content}"));
+            if let Some(observer) = observer {
+                let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                    label: "collection_summary_backend".to_string(),
+                    depth: 3,
+                    content,
+                });
+            }
+            None
+        }
+    }
+}
+
 const COLLECTION_SUMMARY_NODES: &[LoopNodeDefinition] = &[
     LoopNodeDefinition {
         id: "init_window",
@@ -424,11 +469,13 @@ impl SummaryLoopAccumulator {
             .as_deref()
             .map(str::trim)
             .is_some_and(|summary| !summary.is_empty());
-        let planner_summary_accepted = self
+        let eligible_planner_covered_post_count = self
             .planner_updates
             .last()
-            .map(|update| update.text.trim())
-            .is_some_and(|summary| !summary.is_empty());
+            .filter(|update| update.covered_post_count >= self.covered_post_count)
+            .filter(|update| !update.text.trim().is_empty())
+            .map(|update| update.covered_post_count);
+        let planner_summary_accepted = eligible_planner_covered_post_count.is_some();
         let required_post_count = match requested_summary_scope {
             RequestedSummaryScope::Count { requested_items } => Some(requested_items),
             _ => None,
@@ -464,12 +511,12 @@ impl SummaryLoopAccumulator {
             if coverage_complete || source_exhausted {
                 format!(
                     "collection_summary_planner produced the best accepted synthesis after considering {} posts.",
-                    self.covered_post_count
+                    eligible_planner_covered_post_count.unwrap_or(self.covered_post_count)
                 )
             } else {
                 format!(
                     "collection_summary_planner produced the best partial accepted synthesis after considering {} posts before exhaustion.",
-                    self.covered_post_count
+                    eligible_planner_covered_post_count.unwrap_or(self.covered_post_count)
                 )
             }
         } else if source_exhausted {
@@ -544,7 +591,13 @@ impl SummaryLoopAccumulator {
                     self.planner_updates.len(),
                     self.coherent_page_count()
                 )),
-                raw_response: self.notes_raw_response.or(self.planner_raw_response),
+                raw_response: self.notes_raw_response.or_else(|| {
+                    if planner_summary_accepted {
+                        self.planner_raw_response
+                    } else {
+                        None
+                    }
+                }),
                 review_verdict: Some(CollectionReviewVerdict {
                     status: if coverage_complete || source_exhausted {
                         CollectionReviewStatus::Pass
@@ -1003,9 +1056,9 @@ fn review_synthesis_text(
     let paragraphs = paragraph_count(trimmed);
     match kind {
         SummarySynthesisKind::Planner => {
-            if paragraphs != 1 {
+            if !(1..=3).contains(&paragraphs) {
                 return Err(format!(
-                    "planner synthesis must be exactly one paragraph, got {paragraphs}"
+                    "planner synthesis must be 1-3 paragraphs, got {paragraphs}"
                 ));
             }
         }
@@ -1507,24 +1560,23 @@ impl BlueskyTools {
                     );
                     let planner_window =
                         build_context_window_report(&planner_context, &llm_client.context_limits());
-                    let planner_response = llm_client
-                        .complete_chat(
-                            vec![
-                                ChatMessage {
-                                    role: "system".to_string(),
-                                    content: planner_context.header().to_string(),
-                                },
-                                ChatMessage {
-                                    role: "user".to_string(),
-                                    content: planner_window.rendered.clone(),
-                                },
-                            ],
-                            256,
-                        )
-                        .await
-                        .ok()
-                        .map(|response| normalize_synthesis_response(response.trim().to_string()))
-                        .filter(|response| !response.is_empty());
+                    let planner_response = complete_optional_synthesis(
+                        "planner",
+                        llm_client,
+                        vec![
+                            ChatMessage {
+                                role: "system".to_string(),
+                                content: planner_context.header().to_string(),
+                            },
+                            ChatMessage {
+                                role: "user".to_string(),
+                                content: planner_window.rendered.clone(),
+                            },
+                        ],
+                        256,
+                        observer.as_ref(),
+                    )
+                    .await;
                     accumulator.pending_planner_update = planner_response.clone();
                     accumulator.pending_planner_context_window = Some(planner_window);
                     accumulator.pending_planner_raw_response = planner_response;
@@ -1660,24 +1712,23 @@ impl BlueskyTools {
                     );
                     let repair_window =
                         build_context_window_report(&repair_context, &llm_client.context_limits());
-                    let repair_response = llm_client
-                        .complete_chat(
-                            vec![
-                                ChatMessage {
-                                    role: "system".to_string(),
-                                    content: repair_context.header().to_string(),
-                                },
-                                ChatMessage {
-                                    role: "user".to_string(),
-                                    content: repair_window.rendered.clone(),
-                                },
-                            ],
-                            256,
-                        )
-                        .await
-                        .ok()
-                        .map(|response| normalize_synthesis_response(response.trim().to_string()))
-                        .filter(|response| !response.is_empty());
+                    let repair_response = complete_optional_synthesis(
+                        "planner_repair",
+                        llm_client,
+                        vec![
+                            ChatMessage {
+                                role: "system".to_string(),
+                                content: repair_context.header().to_string(),
+                            },
+                            ChatMessage {
+                                role: "user".to_string(),
+                                content: repair_window.rendered.clone(),
+                            },
+                        ],
+                        256,
+                        observer.as_ref(),
+                    )
+                    .await;
                     accumulator.pending_planner_update = repair_response.clone();
                     accumulator.pending_planner_context_window = Some(repair_window);
                     accumulator.pending_planner_raw_response = repair_response;
@@ -1719,24 +1770,23 @@ impl BlueskyTools {
                     );
                     let notes_window =
                         build_context_window_report(&notes_context, &llm_client.context_limits());
-                    let notes_response = llm_client
-                        .complete_chat(
-                            vec![
-                                ChatMessage {
-                                    role: "system".to_string(),
-                                    content: notes_context.header().to_string(),
-                                },
-                                ChatMessage {
-                                    role: "user".to_string(),
-                                    content: notes_window.rendered.clone(),
-                                },
-                            ],
-                            384,
-                        )
-                        .await
-                        .ok()
-                        .map(|response| normalize_synthesis_response(response.trim().to_string()))
-                        .filter(|response| !response.is_empty());
+                    let notes_response = complete_optional_synthesis(
+                        "final_notes",
+                        llm_client,
+                        vec![
+                            ChatMessage {
+                                role: "system".to_string(),
+                                content: notes_context.header().to_string(),
+                            },
+                            ChatMessage {
+                                role: "user".to_string(),
+                                content: notes_window.rendered.clone(),
+                            },
+                        ],
+                        384,
+                        observer.as_ref(),
+                    )
+                    .await;
                     accumulator.pending_notes_summary = notes_response.clone();
                     accumulator.pending_notes_context_window = Some(notes_window);
                     accumulator.pending_notes_raw_response = notes_response;
@@ -1830,24 +1880,23 @@ impl BlueskyTools {
                     );
                     let repair_window =
                         build_context_window_report(&repair_context, &llm_client.context_limits());
-                    let repair_response = llm_client
-                        .complete_chat(
-                            vec![
-                                ChatMessage {
-                                    role: "system".to_string(),
-                                    content: repair_context.header().to_string(),
-                                },
-                                ChatMessage {
-                                    role: "user".to_string(),
-                                    content: repair_window.rendered.clone(),
-                                },
-                            ],
-                            384,
-                        )
-                        .await
-                        .ok()
-                        .map(|response| normalize_synthesis_response(response.trim().to_string()))
-                        .filter(|response| !response.is_empty());
+                    let repair_response = complete_optional_synthesis(
+                        "final_notes_repair",
+                        llm_client,
+                        vec![
+                            ChatMessage {
+                                role: "system".to_string(),
+                                content: repair_context.header().to_string(),
+                            },
+                            ChatMessage {
+                                role: "user".to_string(),
+                                content: repair_window.rendered.clone(),
+                            },
+                        ],
+                        384,
+                        observer.as_ref(),
+                    )
+                    .await;
                     accumulator.pending_notes_summary = repair_response.clone();
                     accumulator.pending_notes_context_window = Some(repair_window);
                     accumulator.pending_notes_raw_response = repair_response;
@@ -1904,8 +1953,8 @@ mod tests {
     #[tokio::test]
     async fn run_collection_summary_loop_returns_aggregated_summary_payload() {
         let llm_client = start_mock_llm_client(vec![
-            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" and \\\"quote: \\\"snippet 12\\\"\\\" showing a steady, narrow focus across the opening page.\"\n}".to_string(),
-            "status: fail\ngrounded: true\nsufficient: false\nreason: Grounded summary coverage currently reaches 50 item(s), but 100 item(s) are required before parent synthesis is sufficient.\nrepair_needed: false\nadditional_pages_needed: true\nnext_page: 1\nnext_offset: 50\nrequired_total_items: 100".to_string(),
+            "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 0\",\n  \"summary\": \"The first window repeatedly returns to \\\"theme alpha\\\" posts, with lines like \\\"post 0: theme alpha\\\" showing a steady opening focus.\\n\\nA second requested paragraph remains grounded by \\\"quote: \\\"snippet 12\\\"\\\" from the same window.\"\n}".to_string(),
+            "status: fail\ngrounded: false\nsufficient: false\nreason: The summary is not a single paragraph.\nrepair_needed: false\nadditional_pages_needed: false".to_string(),
             "Across the covered windows so far, the posts repeatedly circle the \\\"alpha\\\" theme, with terse updates and quoted snippets showing a steady, narrow focus rather than abrupt topic changes.".to_string(),
             "TOOL_CALL\nname: submit_summary_result\nargs: {\n  \"title\": \"page 1\",\n  \"summary\": \"The second window shifts toward \\\"theme beta\\\" posts, with lines like \\\"post 50: theme beta\\\" and \\\"quote: \\\"snippet 79\\\"\\\" showing a broader follow-on page with a visible change in emphasis.\"\n}".to_string(),
             "status: pass\ngrounded: true\nsufficient: true\nreason: Grounded summary coverage reaches 100 item(s), satisfying the requested 100 item scope.\nrepair_needed: false\nadditional_pages_needed: false\nrequired_total_items: 100".to_string(),
@@ -2039,11 +2088,7 @@ mod tests {
             .and_then(CollectionLeafResult::as_summary)
             .expect("summary result");
 
-        assert!(
-            result
-                .summary
-                .contains("The first 100 posts split into two clear phases.")
-        );
+        assert!(result.summary.contains("The first 100 posts split into two clear phases."));
         assert!(result.summary.contains("\"snippet 79\""));
         assert!(!result.summary.contains("invented quote"));
     }
@@ -2182,7 +2227,11 @@ mod tests {
             .expect("summary result");
 
         assert_eq!(result.window_size, Some(100));
-        assert!(result.summary.contains("The first 100 posts split into two clear phases."));
+        assert!(
+            result
+                .summary
+                .contains("The first 100 posts split into two clear phases.")
+        );
         assert!(result.summary.contains("\"beta\""));
 
         let diagnostic = execution.diagnostic.as_deref().unwrap_or_default();

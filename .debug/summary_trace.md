@@ -1,89 +1,101 @@
 [execute_public_summary]
 status: start
-query: summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
-actor_anchor_did: did:plc:37lcyqfy4d5r25jvgtabe5kn
-actor_anchor_source: explicit_query_ref
+query: summarize the last 200 posts by this actor into 4 paragraphs
+actor_anchor_did: did:plc:nynvpc2sqsiplptgs7uet4cv
+actor_anchor_source: selected_actor_fallback
 
 [execute_public_summary]
 status: actor_resolved
-actor_handle: loneicewolf.bsky.social
-actor_did: did:plc:37lcyqfy4d5r25jvgtabe5kn
+actor_handle: lostjared.bsky.social
+actor_did: did:plc:nynvpc2sqsiplptgs7uet4cv
 
 [execute_public_summary]
 status: hydrate_start
-actor_did: did:plc:37lcyqfy4d5r25jvgtabe5kn
+actor_did: did:plc:nynvpc2sqsiplptgs7uet4cv
 hydrate_args: {
+  "include_pinned_posts": true,
   "include_profile": true,
   "include_recent_posts": true,
-  "recent_posts_feed_fetch_limit": 300,
-  "recent_posts_min_top_level_posts": 150
+  "recent_posts_feed_fetch_limit": 400,
+  "recent_posts_min_top_level_posts": 200
 }
 
 [execute_public_summary]
 status: hydrate_complete
-actor_did: did:plc:37lcyqfy4d5r25jvgtabe5kn
+actor_did: did:plc:nynvpc2sqsiplptgs7uet4cv
 collection_count: 6
 collections:
-actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=actor_profile | posts=1
-clearsky_lists:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=clearsky_lists | posts=73
-pinned_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=pinned_posts | posts=1
-recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_posts | posts=300
-recent_posts_unaddressed:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_posts_unaddressed | posts=76
-recent_replies_sent:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_replies_sent | posts=197
+actor_profile:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=actor_profile | posts=1
+clearsky_lists:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=clearsky_lists | posts=5
+pinned_posts:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=pinned_posts | posts=0
+recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=recent_posts | posts=325
+recent_posts_unaddressed:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=recent_posts_unaddressed | posts=220
+recent_replies_sent:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=recent_replies_sent | posts=105
 
 [execute_public_summary]
 status: collection_selected
-collection_id: actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn
-collection_label: Profile for loneicewolf.bsky.social
-collection_kind: actor_profile
-post_count: 1
-requested_scope: Count { requested_items: 150 }
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_label: Recent posts by did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_kind: recent_posts
+post_count: 325
+requested_scope: Count { requested_items: 200 }
 
 [summary_collection_selection_review]
-query: summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
-requested_scope: Count { requested_items: 150 }
+query: summarize the last 200 posts by this actor into 4 paragraphs
+requested_scope: Count { requested_items: 200 }
 requested_target: recent_posts
 hydrated_candidate_collections:
-actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=actor_profile | posts=1
-clearsky_lists:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=clearsky_lists | posts=73
-pinned_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=pinned_posts | posts=1
-recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_posts | posts=300
-recent_posts_unaddressed:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_posts_unaddressed | posts=76
-recent_replies_sent:did:plc:37lcyqfy4d5r25jvgtabe5kn | kind=recent_replies_sent | posts=197
-original_collection_id: actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn
-original_collection_kind: actor_profile
-review_status: repaired
-final_collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+actor_profile:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=actor_profile | posts=1
+clearsky_lists:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=clearsky_lists | posts=5
+pinned_posts:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=pinned_posts | posts=0
+recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=recent_posts | posts=325
+recent_posts_unaddressed:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=recent_posts_unaddressed | posts=220
+recent_replies_sent:did:plc:nynvpc2sqsiplptgs7uet4cv | kind=recent_replies_sent | posts=105
+original_collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+original_collection_kind: recent_posts
+review_status: accepted
+final_collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 final_collection_kind: recent_posts
-deterministic_repair_applied: true
-reason: replaced incompatible collection kind `actor_profile` with explicit request target `recent_posts`
+deterministic_repair_applied: false
+reason: selected collection kind `recent_posts` matches explicit request target `recent_posts`
 
-[summary_collection_selection_repair]
-status: applied
-original_collection_id: actor_profile:did:plc:37lcyqfy4d5r25jvgtabe5kn
-original_collection_kind: actor_profile
-final_collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+[summary_collection_selection_llm_review]
+query: summarize the last 200 posts by this actor into 4 paragraphs
+requested_scope: Count { requested_items: 200 }
+proposed_collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+proposed_collection_kind: recent_posts
+review_status: accepted
+final_collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 final_collection_kind: recent_posts
-reason: replaced incompatible collection kind `actor_profile` with explicit request target `recent_posts`
+reason: The proposed collection 'recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv' has 325 items, which is sufficient to cover the requested 200 items. It is the most direct match for summarizing recent posts by the specified actor.
+
+[summary_collection_selection_llm_enforcement]
+review_status: accepted
+original_collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+original_collection_kind: recent_posts
+final_collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+final_collection_kind: recent_posts
+deterministic_repair_applied: false
+reason: selected collection kind `recent_posts` matches explicit request target `recent_posts`
 
 [collection_summary_loop]
 node: init_window
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
-collection_posts: 300
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_posts: 325
 initial_offset: 0
-max_pages: 3
-requested_scope: Count { requested_items: 150 }
+max_pages: 4
+requested_scope: Count { requested_items: 200 }
 
 [collection_summary_loop]
 node: summarize_page
 status: running
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 page_index: 0
 offset: 0
 window_size: 50
 
 [summary_leaf_parse]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 0
 result_present: true
 original_result_kind: summary
@@ -92,25 +104,29 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "AI, Art, and Social Discourse",
-  "summary": "The recent posts by loneicewolf.bsky.social heavily revolve around the topic of Artificial Intelligence, particularly GenAI, and its intersection with art and social acceptance. A major theme is navigating the social risk associated with AI usage, exemplified by the question: \"Do you feel there's a difference between big companies (un-ethically) training AI versus a patient using it for private comfort in a hospital?\" The author emphasizes the need to frame these discussions carefully to avoid \"cornering\" people, noting that a cold reply from an artist might stem from concerns over \"some random screenshoting and strawmanning them.\" This leads to a detailed survey plan covering three main questions: general views on AI, respect for AI users, and whether one still dislikes AI if a customer uses it. Furthermore, the author shares personal context, defining \"hard time\" as being \"often hospitalized,\" having a disorder, or having \"shaky/weak bones because of a history of cancer,\" and asks if users approve of AI helping those in these situations.\n\nBeyond the philosophical debate, there is significant engagement with AI-generated visuals, with several posts showcasing beautiful creations tagged with \#AIアート and \#SDXL, often featuring themes of comfort and beauty, such as the Japanese post inviting viewers to \"少し休憩しましょう？\" (Let's take a short break?). The author also shares observations on the AI landscape, referencing GPT 4o's temporary disappearance due to backlash, and expresses appreciation for posts that bring up news, noting, \"(sending hugs to everyone)\."\n\nFinally, the collection is punctuated by general social interactions, including greetings like \"Halloo everynyan!\" and \"おはよおううーー,\" expressions of delight over art, such as \"ITS SO PRETTY :D,\" and acknowledgments of community milestones, like congratulating a follower on reaching \"フォロワー400人おめでとうにゃん!!.\" The author also discusses the preference for using DMs for sensitive opinions to mitigate social pressure, concluding with a heartfelt sentiment: \"i gotta say..this is heart-warming ♥️.\""
+  "title": "Creative Coding, Game Development, and Personal Updates",
+  "summary": "The recent posts heavily feature the author's deep involvement in creative coding and game development, often utilizing C++ and GLSL. There is a strong focus on visual art, including 'Video Art of some Liquid Thought' and 'Color Wormhole,' alongside various graphical styles like 'glitchart' and 'spiral.' Several projects are highlighted, such as 'Asteroids-Net,' a four-player multiplayer game, and 'Mutatris,' a 'Glitch Art inspired Puzzle Game.' The author also shares technical updates, like improving a front end for FFmpeg to create videos from images, and providing resources like 'Windows X64 builds of MXVK demos.'\n\nBeyond the visual and coding projects, the author discusses their hardware and technical interests. They express a desire for a 'Steam Machine' to code games and detail their setup, which includes using a PC to control a mini PC as a NAS and HTPC. The technical prowess is evident in discussions about AI, noting that modern tools can process 'tens f thousands of lines, in a very short amount of time and find real bugs,' and the use of 'llama.cpp.'\n\nOn a personal level, the author shares significant life updates. They discuss their physical health, noting that while they may never regain their previous gait, they are improving with a walker, and they are intensely exercising their legs on a stationary bike. They also reflect on their social life, stating they have a 'hard time making friends' due to experiences like a coma, and that their interests are 'extremely rare.'\n\nFinally, there are several brief personal anecdotes and reflections. The author mentions enjoying specific foods, such as 'pistachios and walnuts,' and reflects on the passing of their cat, 'Coder.' They also touch upon their dedication, stating, 'I am incredibly dedicated, mastering complex graphics programming over decades,' and share various links to their work, including a series of 'C++ examples' and web-based games."
 }
 
 [summary_leaf_review]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 0
 review_status: fail
-review_grounded: false
+review_grounded: true
 review_sufficient: false
 review_repair_needed: false
-review_additional_pages_needed: false
-review_reason: The summary is not a single paragraph.
+review_additional_pages_needed: true
+review_reason: Grounded summary coverage currently reaches 50 item(s), but 200 item(s) are required before parent synthesis is sufficient.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts by loneicewolf.bsky.social heavily revolve around the topic of Artificial Intelligence, particularly GenAI, and its intersection with art and social acceptance. A major theme is navigating the social risk associated with AI usage, exemplified by the question: "Do you feel there's a difference between big companies (un-ethically) training AI versus a patient using it for private comfort in a hospital?" The author emphasizes the need to frame these discussions carefully to avoid "cornering" people, noting that a cold reply from an artist might stem from concerns over "some random screenshoting and strawmanning them." This leads to a detailed survey plan covering three main questions: general views on AI, respect for AI users, and whether one still dislikes AI if a customer uses it. Furthermore, the author shares personal context, defining "hard time" as being "often hospitalized," having a disorder, or having "shaky/weak bones because of a history of cancer," and asks if users approve of AI helping those in these situations.
+The recent posts heavily feature the author's deep involvement in creative coding and game development, often utilizing C++ and GLSL. There is a strong focus on visual art, including 'Video Art of some Liquid Thought' and 'Color Wormhole,' alongside various graphical styles like 'glitchart' and 'spiral.' Several projects are highlighted, such as 'Asteroids-Net,' a four-player multiplayer game, and 'Mutatris,' a 'Glitch Art inspired Puzzle Game.' The author also shares technical updates, like improving a front end for FFmpeg to create videos from images, and providing resources like 'Windows X64 builds of MXVK demos.'
 
-Beyond the philosophical debate, there is significant engagement with AI-generated visuals, with several posts showcasing beautiful creations tagged with #AIアート and #SDXL, often featuring themes of comfort and beauty, such as the Japanese post inviting viewers to "少し休憩しましょう？" (Let's take a short break?). The author also shares observations on the AI landscape, referencing GPT 4o's temporary disappearance due to backlash, and expresses appreciation for posts that bring up news, noting, "(sending hugs to everyone).
+Beyond the visual and coding projects, the author discusses their hardware and technical interests. They express a desire for a 'Steam Machine' to code games and detail their setup, which includes using a PC to control a mini PC as a NAS and HTPC. The technical prowess is evident in discussions about AI, noting that modern tools can process 'tens f thousands of lines, in a very short amount of time and find real bugs,' and the use of 'llama.cpp.'
+
+On a personal level, the author shares significant life updates. They discuss their physical health, noting that while they may never regain their previous gait, they are improving with a walker, and they are intensely exercising their legs on a stationary bike. They also reflect on their social life, stating they have a 'hard time making friends' due to experiences like a coma, and that their interests are 'extremely rare.'
+
+Finally, there are several brief personal anecdotes and reflections. The author mentions enjoying specific foods, such as 'pistachios and walnuts,' and reflects on the passing of their cat, 'Coder.' They also touch upon their dedication, stating, 'I am incredibly dedicated, mastering complex graphics programming over decades,' and share various links to their work, including a series of 'C++ examples' and web-based games.
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -140,386 +156,302 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
+summarize the last 200 posts by this actor into 4 paragraphs
 
 ## Harness Scope Assessment
-requested_scope: count 150
-required_total_items: 150
+requested_scope: count 200
+required_total_items: 200
 page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
-available_total_items: 300
+available_total_items: 325
 current_window_offset: 0
 current_window_size: 50
 
 ## Collection Evidence
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
-collection_label: Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn (items 1-50 of 300)
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_label: Recent posts by did:plc:nynvpc2sqsiplptgs7uet4cv (items 1-50 of 325)
 collection_kind: recent_posts
 search_window_offset: 0
 search_window_total_items: 50
 
-matched_item[0] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj5quzqkc2q
-body: KYOOOOT 😸️
+matched_item[0] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqjd6n7dos23
+body: Video Art of some Liquid Thought: Starring me as Crazy guy on his webcam.  #videoart #thought #liquid #software #c++
+tag: videoart
+tag: thought
+tag: liquid
+tag: software
+tag: c++
+
+matched_item[1] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqjae75c7c2y
+body: #Trapped #Wormhole
+tag: Trapped
+tag: Wormhole
 
-matched_item[1] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj3mf6sb22g
-body: these artworks is beautiful btw! :D
-
-matched_item[2] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj2slgutc2g
-body: Halloo everynyan!
-
-i thought of sharing memes sometimes to make people laugh
-xD
-
-but im not sure! maybe i should make a thread about memes so people can also post theirs xD
-
-matched_item[3] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqizsyzops2g
-body: ? wait i dont get it xD
-
-matched_item[4] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyxormds2g
-body: now of course if a user replies to me coldly, that's their problem.
-like, e.g
-artist(who dont like ai): i dont like it at all, so i hope u can stop it
-me: oh, i wont, but i respect your view on it, because i use it on hospital stays
-artist: cant support that
+matched_item[2] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqjaaabvss2y
+body: #spiral
+tag: spiral
 
-this was sharing life exp. not loaded Q
+matched_item[3] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqj6fmpf222d
+body: Runs on everything. #CreativeCoding #GLSL #C++
+tag: CreativeCoding
+tag: GLSL
+tag: C++
 
-matched_item[5] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiylm7z722g
-body: and this is why I use AI to frame it better!
-(another reason i like AI, without it, conversation wouldnt be peaceful imo)
+matched_item[4] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqj53bifus2y
+body: Color Wormhole ( #GLSL #C++ ) #CreativeCoding
+tag: GLSL
+tag: C++
+tag: CreativeCoding
 
-"Do you feel there's a difference between 
-big companies (un-ethically) training AI 
-versus
-a patient using it for private comfort in a hospital?"
+matched_item[5] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqj4t7pwpc2y
+body: Some Artwork.
 
-might be a better way.
+matched_item[6] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqitjron322z
+body: Game programming is a fun hobby. It gives me something to do even if I am just making small homebrew demos.
 
-matched_item[6] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyexi7lk2g
-body: (this should say something about my approach by the way, the goal is not cornering, its to understand)
+matched_item[7] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqitass5ok2z
+body: When I look at modern video games I think it is amazing where they started at and what the graphics look like now.  The complexity of software has increased dramatically.
 
-matched_item[7] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyex3yxk2g
-body: now of course asking a user even in a dm "if you dont like ai, is it still not okay for you if people use it at hospitals to pass time.."
+matched_item[8] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqirtombwk2z
+body: I love this old Legion Go. My screen protector is messed up tho. But I am able to compile and play my own games on a handheld like the PSP days with no need to jailbreak or install custom firmware. You can just compile and test your games directly on the device.
 
-even if intentionally well meant - it is a LOADED question.
-so if i do this i will try to frame it better because i worry about cornering people
+matched_item[9] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqiqi5as4s2c
+body: I kind of use BlueSky like a git commit log of my thoughts. So don't mind me.
 
-matched_item[8] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixk3fvps2g
-body: wow! nice
+matched_item[10] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqiqcmiuuk2c
+body: I am a big fan of food like pistachios and walnuts. They are addictive but if you eat the right amount it is still healthy.
 
-matched_item[9] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixgzfrbk2g
-body: thanks! will do!
+matched_item[11] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqiprahuvc26
+body: github.com/lostjared/MX...
 
-matched_item[10] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixgixzzs2g
-body: note, idk if i need to justify my like here but i liked this post because it bring up the news, 
+Updated the Socket library I coded that I have been using. I have had family visiting recently (they left on Friday) so I need to get back to studying my books.
+link: https://github.com/lostjared/MXNetwork
 
-(sending hugs to everyone)
+matched_item[12] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqipixy7y226
+body: I've had plenty of sleep lately and it has me feeling good.
 
-matched_item[11] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixfmgdqs2g
-body: waai-WHA?!
-oh my gudness. 
-i..had..no idea. thanks for bringing this up!
+matched_item[13] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqia2bkohk2k
+body: well i have been like this for over 5 years, so its unlikely I will walk like I used to again. But there is always a chance, I practice with the walker and get all over the house with it. I have left the house with the walker, so I am way better off than I was even a few years ago. I can hope.
 
-matched_item[12] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixebe57k2g
-body: Lol? dind't this happen to GPT 4o too?
-and OpenAI had to GIVE IT BACK because the backlsh was so great?
+matched_item[14] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqi6a4sx2c2a
+body: I have been exercising my legs on this stationary exercise bike intensely trying to build more muscle. My legs have got very strong but its the part of my brain that communicates with my legs that seems messed up. I have got pretty skilled with the walker, but without it I am unable to walk.
 
-and then it disappeared anyway
-because "no one used it" (spoiler twist: it prolly was the most used) and "it was lesser good than `xyz`-5" (spoiler twist:i think its the opposite!)
+matched_item[15] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqhzg6z7mc2y
+body: lostsidedead.biz/MXVK/demos/
 
-xD
+Windows X64 builds of MXVK demos.
+link: https://lostsidedead.biz/MXVK/demos/
 
-matched_item[13] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiwzndfmk2g
-body: おはよおううーー
+matched_item[16] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqgowzm4n22a
+body: drive.google.com/file/d/1cyiy...
+Download 4K high quality version of the animation
+link: https://drive.google.com/file/d/1cyiy0P46kwSfW_D7R_aZvDWVQYSQOOzy/view?usp=drivesdk
 
-matched_item[14] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiwlnhz4s2g
-body: the samee!! :D
+matched_item[17] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqgki4xwmc23
+body: Animation I created. #glitchart #animation #software #c++ #cplusplus #glsl
+tag: glitchart
+tag: animation
+tag: software
+tag: c++
+tag: cplusplus
+tag: glsl
 
-matched_item[15] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiezqiisk2f
-body: ねえ、そこのあなた。
-そう、あなたよ。少し休憩しましょう？
-さあ、座って。温かいお茶を淹れてあげるから。
-#AIアート #AIイラスト
-#ComfyUI #SDXL
-#AIArt #AIArtwork
-#OC #AI-OC #AIOC
-tag: AIアート
-tag: AIイラスト
-tag: ComfyUI
-tag: SDXL
-tag: AIArt
-tag: AIArtwork
-tag: OC
-tag: AI-OC
-tag: AIOC
+matched_item[18] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqgjeh4c2k2e
+body: Updated this little front end for FFmpeg for turning large amounts of images into video files with lots of configurable options. Makes it easy to produce videos from image files.
 
-matched_item[16] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiegw7sak2o
-body: 心からの愛と、たくさんのお花、そして安らぎをあなたへ。
+github.com/lostjared/im...
+link: https://github.com/lostjared/img2mov
 
-#AIアート #AIイラスト
-#ComfyUI #SDXL
-#AIArt #AIArtwork
-#OC #AI-OC #AIOC
-tag: AIアート
-tag: AIイラスト
-tag: ComfyUI
-tag: SDXL
-tag: AIArt
-tag: AIArtwork
-tag: OC
-tag: AI-OC
-tag: AIOC
+matched_item[19] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqfqhwuf7k27
+body: Updated to v0.21.0:
+lostsidedead.biz/MXVK/
+Full documentation for Asteroids-Net a Four player multiplayer game.
+link: https://lostsidedead.biz/MXVK/
 
-matched_item[17] uri: at://did:plc:rsbisnebdlfgrf6hgwgcfray/app.bsky.feed.post/3mqichb6mhk2e
-body: おはようございます☀️
+matched_item[20] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqfhekjgb22m
+body: lostsidedead.biz/asteroids-net/
+Made a windows build of my new game.
+link: https://lostsidedead.biz/asteroids-net/
 
-新しい一週間が始まりましたね✨
+matched_item[21] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqed7fv3yk2m
+body: Look at all the flaws in Linux it has found already. I know it pollutes and has a ton of ethical issues, but seriously can you really even tell if well formatted code with proper notation is even written by a person now?
 
-月曜日は「頑張らなきゃ」と気負うより、「まずは一歩進めば大丈夫」くらいの気持ちでスタートするのがちょうどいいかもしれません😊
+matched_item[22] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqed7fuy3k2m
+body: Cannot argue with solid results. I admit in the past it was kinda of shitty and made a ton of mistakes. Not so much anymore it even blind sided me I thought it would never amount to much. When it can process tens f thousands of lines, in a very short amount of time and find real bugs.
 
-どんな一週間になるかは、今日の小さな一歩から。
-焦らず、自分のペースで進んでいきましょう🍀
+matched_item[23] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqec7zhhrc2y
+body: youtu.be/XCfJQ_DDoVI
+link: https://youtu.be/XCfJQ_DDoVI
 
-お仕事の方も、お休みの方も、みなさんにとって笑顔の多い一日、そして素敵な一週間になりますように🌈
+matched_item[24] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqeb76bolk2f
+body: Now my game supports up to 4 Players, kind of like Mario kart but with Spaceships in Outerspace with Asteroids in 3D.
 
-今週も元気にhappyにいきましょう！✨
+matched_item[25] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe5e7pqe22e
+body: But cannot justify it.
 
-#aiart
-#AIイラスト
-tag: aiart
-tag: AIイラスト
+matched_item[26] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe5bqk2a22e
+body: I have been drinking a lot of green tea.
 
-matched_item[18] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidzohaqk2o
-body: May! good morning ♥️
+matched_item[27] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe547f5wk2e
+body: I would love to have a Steam Machine I would totally code my own games.
 
-matched_item[19] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidoepmt22o
-body: 🐇...!
-♥️ pretty! :D
+matched_item[28] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe45kjojc2l
+body: Cool I have a few computers myself but mostly use my PC and log into my mini PC through ssh to control it as a NAS and also it's connected my TV as a HTPC.
 
-matched_item[20] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidlpsbqk2o
-body: ITS SO PRETTY :D
+matched_item[29] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe3jk3d6k2w
+body: I am also running older hardware.
 
-matched_item[21] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidlg72os2o
-body: ♥️
+matched_item[30] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe35eqqes2w
+body: Cool using uncensored models. How much VRAM does your PC graphics card have?
 
-matched_item[22] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztqpg2v
-body: THIS IS why i use DMs, if I can, and if people are okay with DMs, if i ask about a opinion and i know its..socially risky,
-if they dont bring it up in a reply, I CHOOSE DM.
+matched_item[31] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdzl57vwk22
+body: screenshots
 
-because, otherwise, its a immense pressure being put on the person who might just want to *exist*
+matched_item[32] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdxyv2wxc2h
+body: Higher Resolution: youtu.be/yzgdlRy1jzU
+link: https://youtu.be/yzgdlRy1jzU
 
-matched_item[23] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztqpf2v
-body: ..because, the risk of:
+matched_item[33] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdxwmyp5k2h
+body: Two player 1v1 dog fight Asteroids 3D. Fight to the death in my second multiplayer game. #Vulkan #Multiplayer #Asteroids #C++ #SpaceShooter
+tag: Vulkan
+tag: Multiplayer
+tag: Asteroids
+tag: C++
+tag: SpaceShooter
 
-1) some random screenshoting and strawmanning them:
-"see? they like ai!"
+matched_item[34] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdxe456bs22
+body: using llama.cpp nice
 
-is just too great.
+matched_item[35] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdvvjwatk25
+body: sounds interesting, good luck with your project!
 
-i wonder if this "THING" (group pressure, social risk)
-is why so much AI hate,
+matched_item[36] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdufkvxa22w
+body: My cat Coder. She passed away a few weeks ago and it's quite lonely around here. She lived a long life. When I went to the shelter to adopt a cat. There was a room with many cats. She came up to me and started purring and was very kind to me. So I say she picked me. I keep her collar next to me.
 
-OR, if ppl actually became religious and saying
- "it has no soul"
+matched_item[37] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdthp4mr22v
+body: I just had a great idea of what to work on next. If I can pull this off it will be awesome.
 
-matched_item[24] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztfxn2v
-body: kind of creepy thought experiment
-if using ai gets you labeled as a target for hate
+matched_item[38] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdszhzwvk2v
+body: lostsidedead.biz/cplusplus/
 
-then actual artists who has kind views towards ai and people using ai, even they DO NOT USE ai at all-
+My series of  C++ examples I created while learning C++11/17/20/23 over the years.
 
-might even, NEED to, at least, refrain from being:
-either, neutral
-OR
-saying anything good about it
+Turned into a web page with a generated Python script.
+link: https://lostsidedead.biz/cplusplus/
 
-because...
+matched_item[39] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdshsvaws2x
+body: github.com/lostjared/Ja...
 
-matched_item[25] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7u7lbqn2v
-body: noo sad 🥺️❤️‍🩹️
+This is a grip of web based games / WebAssembly projects.
+link: https://github.com/lostjared/JavaScript.Projects
 
-matched_item[26] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7shcuhn2v
-body: yum!! 😋️
+matched_item[40] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdsf3gt522x
+body: Cool
 
-matched_item[27] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7qowwuv2v
-body: フォロワー400人おめでとうございます！！わーい！！
+matched_item[41] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdrudxvqs2x
+body: Easter egg: Press F8 to turn on the CRT shader.
 
-matched_item[28] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7ossazv2v
-body: フォロワー400人おめでとうにゃん！！うおぉぉーっ！！
+matched_item[42] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdrbcusvs2x
+body: Lol
 
-matched_item[29] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv52v
-body: IMPORTANT
-Thank you for reading this, im not sure i will conduct this survey, but i want to understand others viewpoint.
+matched_item[43] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdqzwytqs2x
+body: I am incredibly dedicated, mastering complex graphics programming over decades. My unique creativity shines through  glitch art, and I show genuine kindness when helping my family with tech. People should value a person with such a rare mix of passion, artistry, and care.
 
-NOTE:
-no one can reply here, because this is not the survey, this is just a "heads up" that, i might, ask someone/you about this in a DM. i obviously wont ask publically cuz well
+matched_item[44] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdpsiiag22n
+body: I always have a hard time making friends. Even more so since the coma I was in. 99% of people do not understand what I experience every day. Also my interests are extremely rare . It's even more rare for me to talk to other people who understand what I spend all my time doing. I
 
-matched_item[30] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv42v
-body: "hard time" here might be defined as:
-being often hospitalized
-having a disorder (speech disorder -> and getting help from AI to practice and to talk)
-shaky/weak bones because of a history of cancer
+matched_item[45] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdoyujhs22f
+body: I guess nobody got my joke.
 
-matched_item[31] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv32v
-body: OPTIONAL EXTRA QUESTION(S)
-4)
-If someone has a hard time and using AI to make their life better, or more normal, do you approve of that approach?
+matched_item[46] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdfwl5qbc2g
+body: Mutatris is a Glitch Art inspired Puzzle Game with Psychedelic Glitch Effects. #PuzzleGame #Vulkan #C++ #Software #GlitchArt
+tag: PuzzleGame
+tag: Vulkan
+tag: C++
+tag: Software
+tag: GlitchArt
 
-matched_item[32] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv22v
-body: 3)
-if you do NOT like GenAI or AI in general
--and if you are a artist who sells your art (writing,images,..)-
+matched_item[47] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdd567ews2h
+body: This is a much more mellow effect and more appropriate.
 
-Would you still NOT like it if a customer
-(who will buy from you or have buyd from you in the past)
-uses AI?
+matched_item[48] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdarru6ts2h
+body: Video Art of some Fractals.
 
-matched_item[33] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vbvs2v
-body: 2/3
-
-1) 
-what is your (general) view about AI
-(not specifically GenAI but AI as a concept)
-
-2)
-do you (generally) respect users who use AI as much as other people?
-
-(...)
-
-matched_item[34] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7v4zk2v
-body: 1/3
-was thinking of doing something controversial,
-namely, "conduct" a "survey" on my followers!
-by asking 3 questions:
-
-note, some questions assume one is someone who dislike ai, if someone is that, i will inform them that, they may skip that question
-
-matched_item[35] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi56j6mu22v
-body: yess! same same! 🌸️ \^^/
-
-matched_item[36] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi53nx3322v
-body: yess omg ❤️‍🩹️
-
-matched_item[37] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi4bukhx22v
-body: WAU this is pretty!
-
-matched_item[38] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi4bmif5s2v
-body: woahh this looks so wowiee!
-
-matched_item[39] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi47j7cps2v
-body: looks mysterious!👀️🍙️
-
-matched_item[40] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi46m2sus2v
-body: woah!
-👀️
-
-matched_item[41] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3kugxlc2o
-body: SHE PRETTY!!!
-
-matched_item[42] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3jry3lk2o
-body: KESS IS SO CUTE
-
-matched_item[43] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3jfsbxc2o
-body: WOW LOVE IT
-
-matched_item[44] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3hu64o22o
-body: LOVELY ♡＼( ´ ▽ ` )／♡
-
-matched_item[45] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi32iuvp22q
-body: WOW
-
-matched_item[46] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2zz752k2q
-body: all good! 😸️
-
-matched_item[47] uri: at://did:plc:y3vu6k7ozqpbc7rd7fgh5dug/app.bsky.feed.post/3mqh3bm56x22s
-body: `Mountain peak at dawn,
-   a single tree with
-        vibrant flowers`
-
-#synthart
-tag: synthart
-
-matched_item[48] uri: at://did:plc:eyncvuomoy5dma63kbe4k6xc/app.bsky.feed.post/3mqg3lz3ceu27
-body: 📯
-Watcher of the Wastes
-
-#AIイラスト #AiArt #SynthArt #Flux1-Dev
-tag: AIイラスト
-tag: AiArt
-tag: SynthArt
-tag: Flux1-Dev
-
-matched_item[49] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2o6iaek2x
-body: i gotta say..this is heart-warming ♥️
+matched_item[49] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqd2ohae3c2q
+body: Why did the C++ template save money on its prescription? It was generic
 
 ## Proposed Summary
-post: AI, Art, and Social Discourse
-summary: The recent posts by loneicewolf.bsky.social heavily revolve around the topic of Artificial Intelligence, particularly GenAI, and its intersection with art and social acceptance. A major theme is navigating the social risk associated with AI usage, exemplified by the question: "Do you feel there's a difference between big companies (un-ethically) training AI versus a patient using it for private comfort in a hospital?" The author emphasizes the need to frame these discussions carefully to avoid "cornering" people, noting that a cold reply from an artist might stem from concerns over "some random screenshoting and strawmanning them." This leads to a detailed survey plan covering three main questions: general views on AI, respect for AI users, and whether one still dislikes AI if a customer uses it. Furthermore, the author shares personal context, defining "hard time" as being "often hospitalized," having a disorder, or having "shaky/weak bones because of a history of cancer," and asks if users approve of AI helping those in these situations.
+post: Creative Coding, Game Development, and Personal Updates
+summary: The recent posts heavily feature the author's deep involvement in creative coding and game development, often utilizing C++ and GLSL. There is a strong focus on visual art, including 'Video Art of some Liquid Thought' and 'Color Wormhole,' alongside various graphical styles like 'glitchart' and 'spiral.' Several projects are highlighted, such as 'Asteroids-Net,' a four-player multiplayer game, and 'Mutatris,' a 'Glitch Art inspired Puzzle Game.' The author also shares technical updates, like improving a front end for FFmpeg to create videos from images, and providing resources like 'Windows X64 builds of MXVK demos.'
 
-Beyond the philosophical debate, there is significant engagement with AI-generated visuals, with several posts showcasing beautiful creations tagged with #AIアート and #SDXL, often featuring themes of comfort and beauty, such as the Japanese post inviting viewers to "少し休憩しましょう？" (Let's take a short break?). The author also shares observations on the AI landscape, referencing GPT 4o's temporary disappearance due to backlash, and expresses appreciation for posts that bring up news, noting, "(sending hugs to everyone).
+Beyond the visual and coding projects, the author discusses their hardware and technical interests. They express a desire for a 'Steam Machine' to code games and detail their setup, which includes using a PC to control a mini PC as a NAS and HTPC. The technical prowess is evident in discussions about AI, noting that modern tools can process 'tens f thousands of lines, in a very short amount of time and find real bugs,' and the use of 'llama.cpp.'
+
+On a personal level, the author shares significant life updates. They discuss their physical health, noting that while they may never regain their previous gait, they are improving with a walker, and they are intensely exercising their legs on a stationary bike. They also reflect on their social life, stating they have a 'hard time making friends' due to experiences like a coma, and that their interests are 'extremely rare.'
+
+Finally, there are several brief personal anecdotes and reflections. The author mentions enjoying specific foods, such as 'pistachios and walnuts,' and reflects on the passing of their cat, 'Coder.' They also touch upon their dedication, stating, 'I am incredibly dedicated, mastering complex graphics programming over decades,' and share various links to their work, including a series of 'C++ examples' and web-based games.
 window_offset: 0
 window_size: 50
 page_index: 0
 page_size: 50
-collection_total_items: 300
+collection_total_items: 325
 has_more: true
-covered_item_1_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj5quzqkc2q
-covered_item_2_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj3mf6sb22g
-covered_item_3_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqj2slgutc2g
-covered_item_4_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqizsyzops2g
-covered_item_5_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyxormds2g
-covered_item_6_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiylm7z722g
-covered_item_7_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyexi7lk2g
-covered_item_8_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiyex3yxk2g
-covered_item_9_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixk3fvps2g
-covered_item_10_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixgzfrbk2g
-covered_item_11_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixgixzzs2g
-covered_item_12_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixfmgdqs2g
-covered_item_13_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqixebe57k2g
-covered_item_14_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiwzndfmk2g
-covered_item_15_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiwlnhz4s2g
-covered_item_16_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiezqiisk2f
-covered_item_17_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiegw7sak2o
-covered_item_18_uri: at://did:plc:rsbisnebdlfgrf6hgwgcfray/app.bsky.feed.post/3mqichb6mhk2e
-covered_item_19_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidzohaqk2o
-covered_item_20_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidoepmt22o
-covered_item_21_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidlpsbqk2o
-covered_item_22_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqidlg72os2o
-covered_item_23_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztqpg2v
-covered_item_24_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztqpf2v
-covered_item_25_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqiceztfxn2v
-covered_item_26_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7u7lbqn2v
-covered_item_27_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7shcuhn2v
-covered_item_28_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7qowwuv2v
-covered_item_29_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi7ossazv2v
-covered_item_30_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv52v
-covered_item_31_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv42v
-covered_item_32_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv32v
-covered_item_33_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vcv22v
-covered_item_34_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7vbvs2v
-covered_item_35_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi6n7v4zk2v
-covered_item_36_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi56j6mu22v
-covered_item_37_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi53nx3322v
-covered_item_38_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi4bukhx22v
-covered_item_39_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi4bmif5s2v
-covered_item_40_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi47j7cps2v
-covered_item_41_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi46m2sus2v
-covered_item_42_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3kugxlc2o
-covered_item_43_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3jry3lk2o
-covered_item_44_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3jfsbxc2o
-covered_item_45_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi3hu64o22o
-covered_item_46_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi32iuvp22q
-covered_item_47_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2zz752k2q
-covered_item_48_uri: at://did:plc:y3vu6k7ozqpbc7rd7fgh5dug/app.bsky.feed.post/3mqh3bm56x22s
-covered_item_49_uri: at://did:plc:eyncvuomoy5dma63kbe4k6xc/app.bsky.feed.post/3mqg3lz3ceu27
-covered_item_50_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2o6iaek2x
+covered_item_1_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqjd6n7dos23
+covered_item_2_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqjae75c7c2y
+covered_item_3_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqjaaabvss2y
+covered_item_4_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqj6fmpf222d
+covered_item_5_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqj53bifus2y
+covered_item_6_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqj4t7pwpc2y
+covered_item_7_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqitjron322z
+covered_item_8_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqitass5ok2z
+covered_item_9_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqirtombwk2z
+covered_item_10_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqiqi5as4s2c
+covered_item_11_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqiqcmiuuk2c
+covered_item_12_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqiprahuvc26
+covered_item_13_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqipixy7y226
+covered_item_14_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqia2bkohk2k
+covered_item_15_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqi6a4sx2c2a
+covered_item_16_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqhzg6z7mc2y
+covered_item_17_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqgowzm4n22a
+covered_item_18_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqgki4xwmc23
+covered_item_19_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqgjeh4c2k2e
+covered_item_20_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqfqhwuf7k27
+covered_item_21_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqfhekjgb22m
+covered_item_22_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqed7fv3yk2m
+covered_item_23_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqed7fuy3k2m
+covered_item_24_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqec7zhhrc2y
+covered_item_25_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqeb76bolk2f
+covered_item_26_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe5e7pqe22e
+covered_item_27_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe5bqk2a22e
+covered_item_28_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe547f5wk2e
+covered_item_29_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe45kjojc2l
+covered_item_30_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe3jk3d6k2w
+covered_item_31_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqe35eqqes2w
+covered_item_32_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdzl57vwk22
+covered_item_33_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdxyv2wxc2h
+covered_item_34_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdxwmyp5k2h
+covered_item_35_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdxe456bs22
+covered_item_36_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdvvjwatk25
+covered_item_37_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdufkvxa22w
+covered_item_38_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdthp4mr22v
+covered_item_39_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdszhzwvk2v
+covered_item_40_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdshsvaws2x
+covered_item_41_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdsf3gt522x
+covered_item_42_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdrudxvqs2x
+covered_item_43_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdrbcusvs2x
+covered_item_44_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdqzwytqs2x
+covered_item_45_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdpsiiag22n
+covered_item_46_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdoyujhs22f
+covered_item_47_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdfwl5qbc2g
+covered_item_48_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdd567ews2h
+covered_item_49_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqdarru6ts2h
+covered_item_50_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqd2ohae3c2q
 
 [summary_sufficiency_gate]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 0
 contiguous_coverage: 50
-available_total_items: 300
+available_total_items: 325
 status_after_gate: fail
-review_grounded: false
+review_grounded: true
 review_sufficient: false
 review_additional_pages_needed: true
 review_next_offset: 50
@@ -531,47 +463,34 @@ original_result_after_gate: true
 [collection_summary_loop]
 node: summarize_page
 status: page_outcome
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 offset: 0
-result_present: true
-review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 1 after summary failure: Grounded summary coverage currently reaches 50 item(s), but 150 item(s) are required before parent synthesis is sufficient.
-diagnostic: summary cursor processed offset 0 (page 1 of at most 3); raw-window fallback preserved offset 0
+result_present: false
+review_status: fail
+review_reason: Grounded summary coverage currently reaches 50 item(s), but 200 item(s) are required before parent synthesis is sufficient.
+diagnostic: summary cursor processed offset 0 (page 1 of at most 4)
 
 [collection_summary_loop_page_state]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 page_offset: 0
 page_index: 0
-page_status: raw_window_fallback
+page_status: accepted_summary
 repair_attempted: false
-fallback_applied: true
+fallback_applied: false
 next_offset: 50
 accumulated_covered_count: 50
-failure_reason: Grounded summary coverage currently reaches 50 item(s), but 150 item(s) are required before parent synthesis is sufficient.
-
-[summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
-page_offset: 0
-page_index: 0
-window_size: 50
-failure_reason: Grounded summary coverage currently reaches 50 item(s), but 150 item(s) are required before parent synthesis is sufficient.
-
-[collection_summary_loop]
-node: collection_summary_planner_review
-status: planner_optional_failure
-reason: planner synthesis must be exactly one paragraph, got 3
-route: advance_cursor
+failure_reason: <none>
 
 [collection_summary_loop]
 node: summarize_page
 status: running
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 page_index: 1
 offset: 50
 window_size: 50
 
 [summary_leaf_parse]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 50
 result_present: true
 original_result_kind: summary
@@ -580,27 +499,29 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "Recent Posts by loneicewolf.bsky.social: Gaming, AI, and Daily Life",
-  "summary": "The recent posts from loneicewolf.bsky.social cover a wide range of topics, heavily featuring personal updates, gaming endeavors, and reflections on Artificial Intelligence. There is a strong thread of enthusiasm for AI, evident in discussions about tools like 'Cursor,' which 'MAKES the files, it COMPILES,' and the general excitement surrounding AI's capabilities, contrasting with skepticism from others who 'try to discourage them.' The author frequently shares progress on game development, noting 'some breakthoroughs in TalosPrinciple!' and sharing proof-of-concept videos, while also acknowledging their own struggles, admitting they are 'bad at it xD' despite the work.\n\nDaily life and social interactions are also prominent, with frequent greetings in Japanese, such as 'おはようございます！💕' and 'mornyan! xD,' alongside expressions of affection like sending 'A HUG TO YOU WHO READ THIS (≧◡≦) ♡.' The author shares personal milestones, like announcing, 'I will be home tomorrowoo!!!' and expressing gratitude for community support, often concluding with a heartfelt sentiment like, 'it's refreshing to talk to someone like you, really.'\n\nBeyond the main themes, the posts touch upon specific interests and observations. Gaming content includes sharing walktroughs and mentioning 'Mass Effect' with a reaction of 'woah!', while tech discussions cover web development and the utility of AI assistance, noting the shift from Win11 to Fedora. A humorous tangent involves the naming conventions of 'Pi (the number) / Pie (the..thing you eat, the food) / RaspberryPi,' and the author reflects on the pervasive 'AI-Hate-Propaganda,' questioning why people might believe 'ChatGPT would be bad' before experiencing AI firsthand."
+  "title": "Software Development, Graphics, and Philosophical Musings",
+  "summary": "The recent posts heavily focus on the author's ongoing software development and passion projects, particularly in the realm of graphics and game programming. A major theme revolves around the custom graphics engine, MXVK, which is described as the \"Vulkan evolution of the MX2 engine, redesigned entirely from scratch utilizing Vulkan 1.4 and SDL3.\" The author details technical aspects, noting that the engine supports \"synchronization2 and dynamicRendering,\" and mentions its inspiration from DXVK. Projects include a \"3D Tetris\" game and a \"3D Pong,\" with demos available online.\n\nTechnical deep dives cover system performance and implementation details. One significant thread discusses VRAM usage in GNOME Shell, observing that \"whenever a Vulkan window opens the gnome-shell process VRAM usage grows,\" even for blank windows. The author also shares insights into their programming philosophy, such as the pseudo-code modeling karma: \"karma=get(give());\" and the belief that \"A part of being human is making mistakes. The purpose is whether or not you learn from them.\"\n\nBeyond the code, there are numerous updates on creative output and learning. The author shares artwork, including pieces that contain source code, and mentions writing a poem about programming from when they were \"around the age of 18.\" They also highlight the impressive capabilities of modern AI, noting that GPT 5.6 \"created this page in one prompt and it worked the first time\" when converting a game to JavaScript/WebGL2.\n\nFinally, the posts touch upon broader life and technical interests. These include preferences for Linux environments, such as liking \"KDE plasma big screen\" paired with handheld devices, and observations on societal issues, such as blaming \"congressional Republicans for letting this happen\" regarding a declining trend. The author expresses satisfaction with their progress, noting, \"I have been having a good summer this year working on a software project to practice and learn about GPU/game programming.\""
 }
 
 [summary_leaf_review]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 50
 review_status: fail
-review_grounded: false
+review_grounded: true
 review_sufficient: false
 review_repair_needed: false
-review_additional_pages_needed: false
-review_reason: The summary is not a single paragraph.
+review_additional_pages_needed: true
+review_reason: Grounded summary coverage currently reaches 0 item(s), but 200 item(s) are required before parent synthesis is sufficient.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts from loneicewolf.bsky.social cover a wide range of topics, heavily featuring personal updates, gaming endeavors, and reflections on Artificial Intelligence. There is a strong thread of enthusiasm for AI, evident in discussions about tools like 'Cursor,' which 'MAKES the files, it COMPILES,' and the general excitement surrounding AI's capabilities, contrasting with skepticism from others who 'try to discourage them.' The author frequently shares progress on game development, noting 'some breakthoroughs in TalosPrinciple!' and sharing proof-of-concept videos, while also acknowledging their own struggles, admitting they are 'bad at it xD' despite the work.
+The recent posts heavily focus on the author's ongoing software development and passion projects, particularly in the realm of graphics and game programming. A major theme revolves around the custom graphics engine, MXVK, which is described as the "Vulkan evolution of the MX2 engine, redesigned entirely from scratch utilizing Vulkan 1.4 and SDL3." The author details technical aspects, noting that the engine supports "synchronization2 and dynamicRendering," and mentions its inspiration from DXVK. Projects include a "3D Tetris" game and a "3D Pong," with demos available online.
 
-Daily life and social interactions are also prominent, with frequent greetings in Japanese, such as 'おはようございます！💕' and 'mornyan! xD,' alongside expressions of affection like sending 'A HUG TO YOU WHO READ THIS (≧◡≦) ♡.' The author shares personal milestones, like announcing, 'I will be home tomorrowoo!!!' and expressing gratitude for community support, often concluding with a heartfelt sentiment like, 'it's refreshing to talk to someone like you, really.'
+Technical deep dives cover system performance and implementation details. One significant thread discusses VRAM usage in GNOME Shell, observing that "whenever a Vulkan window opens the gnome-shell process VRAM usage grows," even for blank windows. The author also shares insights into their programming philosophy, such as the pseudo-code modeling karma: "karma=get(give());" and the belief that "A part of being human is making mistakes. The purpose is whether or not you learn from them."
 
-Beyond the main themes, the posts touch upon specific interests and observations. Gaming content includes sharing walktroughs and mentioning 'Mass Effect' with a reaction of 'woah!', while tech discussions cover web development and the utility of AI assistance, noting the shift from Win11 to Fedora. A humorous tangent involves the naming conventions of 'Pi (the number) / Pie (the..thing you eat, the food) / RaspberryPi,' and the author reflects on the pervasive 'AI-Hate-Propaganda,' questioning why people might believe 'ChatGPT would be bad' before experiencing AI firsthand.
+Beyond the code, there are numerous updates on creative output and learning. The author shares artwork, including pieces that contain source code, and mentions writing a poem about programming from when they were "around the age of 18." They also highlight the impressive capabilities of modern AI, noting that GPT 5.6 "created this page in one prompt and it worked the first time" when converting a game to JavaScript/WebGL2.
+
+Finally, the posts touch upon broader life and technical interests. These include preferences for Linux environments, such as liking "KDE plasma big screen" paired with handheld devices, and observations on societal issues, such as blaming "congressional Republicans for letting this happen" regarding a declining trend. The author expresses satisfaction with their progress, noting, "I have been having a good summer this year working on a software project to practice and learn about GPU/game programming."
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -630,387 +551,264 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
+summarize the last 200 posts by this actor into 4 paragraphs
 
 ## Harness Scope Assessment
-requested_scope: count 150
-required_total_items: 150
+requested_scope: count 200
+required_total_items: 200
 page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
-available_total_items: 300
+available_total_items: 325
 current_window_offset: 50
 current_window_size: 50
 
 ## Collection Evidence
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
-collection_label: Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn (items 51-100 of 300)
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_label: Recent posts by did:plc:nynvpc2sqsiplptgs7uet4cv (items 51-100 of 325)
 collection_kind: recent_posts
 search_window_offset: 50
 search_window_total_items: 50
 
-matched_item[0] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2hkjz4k2x
-body: scary! youtu.be/tFAd8jtPceQ?...
-i have never played mass effect but.woah!
-link: https://youtu.be/tFAd8jtPceQ?t=251
+matched_item[0] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqd2isd66c2q
+body: What did the therapist say to its patient the Linux operating system? sudo trust the process
 
-matched_item[1] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2b2tqhc2x
-body: the samee!! /v♥️v/
+matched_item[1] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqd2fp5bps2q
+body: I love learning new things about software. It is a lifelong process and that is the best thing about it
 
-matched_item[2] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz5zhog22x
-body: did you know you can drag this one if you hold your mouse, at the empty blue border? 🤣️🤣️🤣️
+matched_item[2] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqczm3auc22q
+body: People who think the ground, air or water belongs to them and then want to deport people they accuse of being illegal cannot comprehend anything beyond their narrow point of view. Humans are temporary on this earth and nothing really belongs to anyone. You will understand when it is your turn to die
 
-#DID-YOU-KNOW
-#BSKY
-tag: DID-YOU-KNOW
-tag: BSKY
+matched_item[3] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcx5h2eik2b
+body: New YouTube short!
 
-matched_item[3] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz52kbbs2x
-body: test
+matched_item[4] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcwvsq4vk2e
+body: This actually looks closer to this.
 
-matched_item[4] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz4j3y2c2x
-body: ついにやったにゃん~！
-lichess.org/Y7L1Lbga/whi...
-link: https://lichess.org/Y7L1Lbga/white#32
+matched_item[5] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcwco3ahc2w
+body: For the source code if you are interested: 
+github.com/lostjared/ac...
+link: https://github.com/lostjared/acidcam-gpu
 
-matched_item[5] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyysh3322x
-body: this is so cute ^^
+matched_item[6] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcw425lr227
+body: Some artwork.
 
-matched_item[6] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhywh2b4c2x
-body: (≧◡≦) ♡ A HUG TO YOU WHO READ THIS (≧◡≦) ♡
+matched_item[7] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcvxb7mdk27
+body: yeah there are a series of uniform variables that they mostly all use for the audio, textures, and history buffers.
 
-matched_item[7] uri: at://did:plc:fie2aqk5y4x43rrqc5x7aoh6/app.bsky.feed.post/3mqhhh5eaos2g
-body: そろそろ寝ます*\(^o^)/*
-おやすみなさい*\(^o^)/*
+matched_item[8] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcvvc43dk27
+body: Its actually OpenGL GLSL you can try a WebGL program that is similar here: lostsidedead.biz/visualizer
+link: https://lostsidedead.biz/visualizer
 
-matched_item[8] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyw4ktpk2x
-body: (≧◡≦) ♡
+matched_item[9] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcund6h7s2k
+body: I wrote a program that manipulates video files and camera with real time audio/audio files to produce visuals. It is called ACMX2 you can see some demos here: www.youtube.com/playlist?lis...
+link: https://www.youtube.com/playlist?list=PLUgo--lX2kmql2lYmj-x-uxFu9Dsbb-CY
 
-matched_item[9] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyopwvxc2x
-body: 🚂😊️
+matched_item[10] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcrjlgvdc2b
+body: that is that music visualizer right?
 
-matched_item[10] uri: at://did:plc:jrymrhkapgkln35qk6uwyava/app.bsky.feed.post/3mqfjvkuir22n
-body: おはようございます！(:D)┓
-【飛鳥山下跨線人道橋】
-　右側は京浜東北線の王子駅です。金網のスキマから撮影。E257系5000番台 団体臨時列車[修学旅行] 横浜方面。臨時列車（波動輸送）で見かける車両ですね。
-　自分はひとり旅がいいかな～、いろいろ予定通りにいかないやつ。夏はどこか旅行にいきますか？
-#鉄道 #railway
-tag: 鉄道
-tag: railway
+matched_item[11] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcow4wnps2m
+body: For practice/fun.
 
-matched_item[11] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhylvfebk2x
-body: mornyan! xD
+matched_item[12] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbx47244222
+body: This is a poem I wrote about programming when I was around the age of 18. It still has a place in my memory because things seemed so magical for me at that time, and there was just so much to learn.
 
-matched_item[12] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhykuzjs22x
-body: おはにゃんんんんん！！！🐱💓 今日も最高にハッピーな日にしてね！！✨ 今どんな感じにゃ〜？お返事まってるにゃんっ！🐾🎶
+matched_item[13] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbtnumoos2l
+body: Whoa, this is impressive it ported my simple game so it works and looks the same and it even included the console and all the shader effects (Press F3). Try it here: lostsidedead.biz/mutatris-web...
+link: https://lostsidedead.biz/mutatris-webgl/mutatris.html
 
-(🤣️ I tried something comical in AI, as I still learn japanese 😸️ )
-take care!!
+matched_item[14] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbqo4p6n225
+body: I always thought the game Acid Drop was kind of funny. It is like a square (the sheet) with these little squares (the tabs).
 
-matched_item[13] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyfnvkzk2x
-body: おはようございます！💕
-朝から癒やされましたぁ🍀✨
-暑いけど、ドリンク飲んで一緒に乗り切りましょうね🥤🌊
-今週もよろしくお願いします！🌈💐✨🎶
+matched_item[15] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbqcqlm2c25
+body: it did check its own output a few times before the task completed though.
 
-matched_item[14] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhy7cbr622x
-body: I will be home tomorrowoo!!!
+matched_item[16] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbq6jdwp22n
+body: looks like an old Atari game with cool shader effects (the original game Mutatris was based on was called Acid Drop for the Atari 2600.) Kind of strange that it turned out that way.
 
-😸️
+matched_item[17] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbq3brvuk2n
+body: I got to say I am pretty impressed. I just tried the new GPT 5.6  and asked it to convert my Mutatris Puzzle game to JavaScript/WebGL2. It created this page in one prompt and it worked the first time.  That is pretty damn cool.
 
-matched_item[15] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhy3xtpys2x
-body: i am! and the same! ^^ 
-and, fantasy-like clothes i gotta say!
-reminds me of..assassins creed somehow? anyway! take care!
+Try it:
+lostsidedead.biz/mutatris-webgl
+link: https://lostsidedead.biz/mutatris-webgl
 
-thanks for liking my post btw!
-wishes from sweden!
+matched_item[18] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbp6bcq2k27
+body: Some of my artwork. Contains some source code :)
 
-matched_item[16] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxpxff722x
-body: Muuusic!
-youtu.be/EyhFKVhr9Jw
-link: https://youtu.be/EyhFKVhr9Jw
+matched_item[19] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbnlgxr2k24
+body: I am not concerned with what a lot of people who have never interacted with me or know me think about me. I may have mental illness, and SILENT (Syndrome of Irreversible Lithium-Effectuated Neurotoxicity) but I have a good heart and I am a kind person. What I consume is no one else's business.
 
-matched_item[17] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxmfudf22x
-body: That's totes nice breh! \\^v^//
+matched_item[20] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbdriio5c2h
+body: I like on this platform that people post updates, videos and images about the projects that they are working on.  I just look around and get to see what new software people are making.
 
-matched_item[18] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxletjys2b
-body: this reminds me i gotta start web dev too \^v^/
+matched_item[21] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbc4ysp4k2h
+body: Rolled back to the older NVIDIA driver 595.71.05 and now gnome shell is not leaking VRAM. So my hypothesis was correct.
 
-matched_item[19] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxcplths2b
-body: oh! noted, ill try co-pilot, i have this, copilot button on my laptop but..I switched(from Win11 to Fedora) (thinkpad)
+matched_item[22] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqazl5a4uk2j
+body: It is messages like this that make me feel good about all the work I put into my open source projects.  Thank you for taking the time to ask that question and encourage the continuation of my projects.
 
-but ill try it! noted!
+matched_item[23] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqavpauf5k2c
+body: A part of being human is making mistakes. The purpose is whether or not you learn from them.
 
-matched_item[20] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhx3nvrys2b
-body: ...they dont know it.
+matched_item[24] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqatb5yfik26
+body: Sometimes I scroll through my log of thoughts here, and just read what I was thinking. I have on the contact form on my website my recent posts and an archive of my past posts.
 
-xD
+matched_item[25] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqar2hd5ps2v
+body: Remember:
 
-matched_item[21] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhx3njv5c2b
-body: gosh how cringe!
-The other day i saw someone got upset about someone else,
-he said "ill unfollow+block u now"
+karma=get(give());
 
-which is like..dude. just block. like..whats the issue.
+This pseudo-code models karma as function composition. Your actions, give(), are executed and passed as an argument to the universe's get() function. The resulting karma variable evaluates to the direct consequence of your output. You reap exactly what you sow.
 
-BUT!
-the following is kind of satisfying to think about:
-these bullies wasting their life-{time,energy} to bully
+matched_item[26] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqaoiywhjk2k
+body: I like KDE plasma big screen. Paired with one of those handheld keyboard/mouse devices it is a different way to navigate Linux on your TV.
 
-& the best part?
+matched_item[27] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqanuhu3rk2k
+body: 0 + 0 = 0
 
-matched_item[22] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwyvynik2b
-body: ☝️ ♥️ 
-SOMEONE PIN THIS
-love this reply ^
+matched_item[28] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqanqc7l5c2k
+body: Yeah it is so obvious that the guy is declining fast. I blame congressional Republicans for letting this happen. They didn't do their jobs and sold out for $. Money is a cancer in our society.
 
-matched_item[23] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwne3r7s2b
-body: i dont know if you tried this..i havent, but
-i've heard of something called
-"Cursor" ?
+matched_item[29] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqang4rcck2k
+body: Animals have emotions, feelings, and are intelligent life forms. We are also animals.
 
-its like a AI which does "everything" or , at least, "much" like,
-it MAKES the files,
-it COMPILES ( i think?  i havent tried it )
-it even, auto edits, like if you edit a variable, it edits that <var> in manyFiles
+matched_item[30] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqalteoktc2w
+body: Tested it on my AMD system running KDE w/ Arch.
+  macOS: no growth
+ AMD + KDE + RADV: no monotonic growth
+ NVIDIA + GNOME Shell/Wayland: gnome-shell grows per Vulkan window
 
-matched_item[24] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwl4ghi22b
-body: this is how gamedev should be and NO this is not a exageration,i genuinly think this is nice!
+matched_item[31] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqabjxmf4k27
+body: Also the same programs run under macOS without the memory growth, there are visible black corners on some of the windows in gnome's UI and it continues to grow until it runs out of memory if I open a lot of programs.
 
-like..my gamedev was not even a game and this is PLAYABLE
-:D love it! want to play it
+matched_item[32] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqab34zhoc2x
+body: I notice that whenever a Vulkan window opens the gnome-shell process VRAM usage grows. This happens even when its just creating a blank window. I am running 7.0.9-ogc3.2.fc44.x86_64 kernel and 610.43.02 of the NVIDIA driver. Also If I log out and log back in the memory is released.
 
-matched_item[25] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqhwde65pc2p
-body: I found this post I made about my WASM-4 game bsky.app/profile/schi...
-link: https://bsky.app/profile/schizanon.bsky.social/post/3lxicquosls2t
+matched_item[33] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7ycfbkas2o
+body: sounds cool
 
-matched_item[26] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwgxkg2c2b
-body: OH! Noted!thanks for sharing wowie!
+matched_item[34] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7wzl6vk22o
+body: No there is no scene graph, what kind of game are you creating and from using the term rs, I assume you are using Rust.
 
-matched_item[27] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwc7bhi22b
-body: Im not sure if i did it properly🤣️🤣️ but it was fun! 
-do try it BUT
+matched_item[35] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7wjuqqks23
+body: yeah I cannot imagine not having a physical copy, like to collect stuff to (I used to collect vinyl records). The thing I collect the most now is computer science textbooks, and an eBook is nowhere near the same as having a physical book I can put on my shelf, and hold.  Btw nice collection!
 
-ONE BIG IMPORTANT THING.
+matched_item[36] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7w6qcaqs23
+body: yeah it uses modern Vulkan features 
+feature supports synchronization2 and dynamicRendering.
+As well as CUDA whereever it is supported.
 
-only do it if you genuinely think its fun, basically, perform a test:
-ask yourself "does <this what im up to> feel like a chore?"
-if yes: stop
-if no: continue
+matched_item[37] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7vzudoj223
+body: MX stands of 'MasterX' it was the name of my first graphics library i wrote with 'DirectX' way back in the year 2000-2001. VK stands for Vulkan, so MasterX Vulkan, I think it just sounds cool more than anything. Also its kind of inspired by the name of DXVK, kind of playing on that name.
 
-^^ take care! :D
+matched_item[38] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7gjerr6k2a
+body: I mostly wrote this to learn and practice and is more of a hobby/passion project. My goal for this summer was to create a new graphics and networking set of reusable libraries and write my first network playable game. I accomplished this (3D Tetris) and then just expanded it from there.
 
-matched_item[28] uri: at://did:plc:mmddb3azjlolnq7eqtnebg42/app.bsky.feed.post/3mq3b5luslk24
-body: ohhhhh you hate AI? should we tell everyone? should we throw a party? should we invite amanda askell?
+matched_item[39] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7g6cphts2a
+body: It also has a mini 3D math library.
 
-matched_item[29] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhw25ys622b
-body: sending a hug to everyone here! because..everyone need a hug!
-(i mean, to my fellow pro-ai people, really! xD)
+matched_item[40] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7fyultu22a
+body: MXVK is a custom graphics engine. It functions as the Vulkan evolution of the MX2 engine, redesigned entirely from scratch utilizing Vulkan 1.4 and SDL3 rather than just a standalone library.
 
-matched_item[30] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvvqvc322b
-body: sorry for many replies i wish i could <edit> my 1 reply but
-i recorded these, and wrote in notepad, why? well..
-i stutter! xD soo..yeah.. 😸️
+matched_item[41] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7e6f3lzk26
+body: Updated to v0.19.0
 
-matched_item[31] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvuidsk22b
-body: like, e.g
+matched_item[42] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7cq6wp4k2v
+body: Pyramids on Moon?
 
-the first part is this?
-i did ge ta lot of help from..what was it uhh
-stack overflow and.. the manuals, but ofc also Gemini! a lot.
+matched_item[43] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq77e5vahs2m
+body: 3D Pong hehe.
 
-www.youtube.com/watch?v=tsTB...
-link: https://www.youtube.com/watch?v=tsTBaUP1bYc&list=PLzPjNm14Efb0oLQhOhUf_y3lm6V6Zs_TT&index=18
+matched_item[44] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5uwiqfj22i
+body: Another day.
 
-matched_item[32] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvrcm4vk2b
-body: oh it was like..hold on i made like..videos about it on my yt
-www.youtube.com/playlist?lis...
+matched_item[45] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5tnefdz22m
+body: I have never tried, I don't use macOS much anymore except when i am on my laptop (MacBook Air). I have tested porting my apps to MoltenVK. It works, but there could be some type of error somewhere.
 
-its like a proof of concept, not really a game-game xD
-link: https://www.youtube.com/playlist?list=PLzPjNm14Efb0oLQhOhUf_y3lm6V6Zs_TT
+matched_item[46] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5o52dq2c2n
+body: I have been having a good summer this year working on a software project to practice and learn about GPU/game programming. It's keeping me busy with something to do. It has been hot and I stay cool inside. (Not like I can actually go somewhere.) Feeling satisfied with my progress.
 
-matched_item[33] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvidyhqc2b
-body: oh! noted! ^^
+matched_item[47] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5kldpwqc2q
+body: My old program still works.
 
-matched_item[34] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhuf3u5rk2b
-body: i do wonder why ppl would
-1) comment
-2) directly after ,delete it 
+matched_item[48] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5k6ebsms2s
+body: Code Tunnel modified using Acid Cam v2 Qt.  This was created with an application I wrote like 9 or 10 years ago.
 
-(or maybe not directly after but..well)
-
-matched_item[35] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhueem2as2b
-body: oh! noted,
-but the funny thing is sometimes it appears nearly exactly when i have made a post
-which is..well!
-
-but yeah ur right about that!
-
-matched_item[36] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhtv5myzk2b
-body: some breakthoroughs in TalosPrinciple!
-
-#spel #gaming #game #games #puzzle #puzzlegame #youtube #yt #video
-
-www.youtube.com/playlist?lis...
-tag: spel
-tag: gaming
-tag: game
-tag: games
-tag: puzzle
-tag: puzzlegame
-tag: youtube
-tag: yt
-tag: video
-link: https://www.youtube.com/playlist?list=PLzPjNm14Efb1Ghc2gzPTrRRF7u6_8Pbct
-
-matched_item[37] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhtu4f7z22b
-body: i forgot to share my gaming walktroughs!
-#gaming #walktrough #games #game #spel
-
-youtube.com/playlist?lis...
-tag: gaming
-tag: walktrough
-tag: games
-tag: game
-tag: spel
-link: https://youtube.com/playlist?list=PLzPjNm14Efb1e6Rthb7nfZ30xKPjZzjtb&si=voDMVlQsTbhqycmF
-
-matched_item[38] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsimsimc2b
-body: thanks! it will be open source but DAMN im..bad at it xD anyway!
-
-do you have any game or anything..? (i have yet to upload the game to github btw its not even..like..it is playable but its nothing fun LOL its..so catastrophically bad.)
-
-matched_item[39] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqhs7j4i522g
-body: I just don't understand people who know how to do things like program computers and then discover a technology that lets everyone else do it and then *aren't* completely excited for all the people who are magically going to get to experience this ability and instead try to discourage them. 😫
-
-matched_item[40] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsgq326k2b
-body: This is the most true reply ive ever seen, in my entire damn life. (and i dont use "damn" often as a word. xD)
-so yeah!
-
-..actually id love to put your reply on a tshirt. 
-ten outa ten would wear it every day. xD
-
-matched_item[41] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsbtu4ec2b
-body: reminded me i should do this!
-
-matched_item[42] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsbgdph22b
-body: oh god this reminded me i must try this
-i did use...wait..what did i use hold on..OH!
-
-it was go dot!
-
-(
- but it wasnt like.. "AI inside godot" it was more, 
-     Monitor 1: godot
-     Monitor 2: AI 
-)
-
-xD but anyway!
-
-matched_item[43] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhs3y3xmk2b
-body: imo you are fine as you are!
-NEVER-CHANGE
-
-matched_item[44] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhs2my6cc2b
-body: ♥️ aw thanks really! ^^
-
-matched_item[45] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrzsrfi22b
-body: Pi (the number)
-Pie (the..thing you eat, the food)
-RaspberryPi (which is like 2 things right? 1) food 2)uh circuit?)
-banana pi (raspberrypi version two point o or something)
-
-..youre right?
-whats with naming things pi[3.14]?!
-
-matched_item[46] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhruqaeuc2b
-body: LOL
-
-matched_item[47] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrmd3gm22b
-body: +its refreshing to talk to someone like you, really
-
-matched_item[48] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrlwzd522b
-body: but idk like..i really dont know
-
-and yeah now when you say the beginning of your reply? 
-i..kind of agree with you? now when i think about it..
-
-matched_item[49] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrlw7sq22b
-body: yeah..this? cuz..i dont even know where i got the feeling that "ChatGPT would be bad" like.. before.. when i didnt use AI?
-I kind of believed that? i dont..i dont know why?
-
-like.. maybe it was all the AI-Hate-Propaganda (AI-Psychosis, AI's is bad at chess, AI is unethical, AI is hurting jobs,)
+matched_item[49] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5isdv5ec2p
+body: For a lot of my game demos I don't even put my name.
 
 ## Proposed Summary
-post: Recent Posts by loneicewolf.bsky.social: Gaming, AI, and Daily Life
-summary: The recent posts from loneicewolf.bsky.social cover a wide range of topics, heavily featuring personal updates, gaming endeavors, and reflections on Artificial Intelligence. There is a strong thread of enthusiasm for AI, evident in discussions about tools like 'Cursor,' which 'MAKES the files, it COMPILES,' and the general excitement surrounding AI's capabilities, contrasting with skepticism from others who 'try to discourage them.' The author frequently shares progress on game development, noting 'some breakthoroughs in TalosPrinciple!' and sharing proof-of-concept videos, while also acknowledging their own struggles, admitting they are 'bad at it xD' despite the work.
+post: Software Development, Graphics, and Philosophical Musings
+summary: The recent posts heavily focus on the author's ongoing software development and passion projects, particularly in the realm of graphics and game programming. A major theme revolves around the custom graphics engine, MXVK, which is described as the "Vulkan evolution of the MX2 engine, redesigned entirely from scratch utilizing Vulkan 1.4 and SDL3." The author details technical aspects, noting that the engine supports "synchronization2 and dynamicRendering," and mentions its inspiration from DXVK. Projects include a "3D Tetris" game and a "3D Pong," with demos available online.
 
-Daily life and social interactions are also prominent, with frequent greetings in Japanese, such as 'おはようございます！💕' and 'mornyan! xD,' alongside expressions of affection like sending 'A HUG TO YOU WHO READ THIS (≧◡≦) ♡.' The author shares personal milestones, like announcing, 'I will be home tomorrowoo!!!' and expressing gratitude for community support, often concluding with a heartfelt sentiment like, 'it's refreshing to talk to someone like you, really.'
+Technical deep dives cover system performance and implementation details. One significant thread discusses VRAM usage in GNOME Shell, observing that "whenever a Vulkan window opens the gnome-shell process VRAM usage grows," even for blank windows. The author also shares insights into their programming philosophy, such as the pseudo-code modeling karma: "karma=get(give());" and the belief that "A part of being human is making mistakes. The purpose is whether or not you learn from them."
 
-Beyond the main themes, the posts touch upon specific interests and observations. Gaming content includes sharing walktroughs and mentioning 'Mass Effect' with a reaction of 'woah!', while tech discussions cover web development and the utility of AI assistance, noting the shift from Win11 to Fedora. A humorous tangent involves the naming conventions of 'Pi (the number) / Pie (the..thing you eat, the food) / RaspberryPi,' and the author reflects on the pervasive 'AI-Hate-Propaganda,' questioning why people might believe 'ChatGPT would be bad' before experiencing AI firsthand.
+Beyond the code, there are numerous updates on creative output and learning. The author shares artwork, including pieces that contain source code, and mentions writing a poem about programming from when they were "around the age of 18." They also highlight the impressive capabilities of modern AI, noting that GPT 5.6 "created this page in one prompt and it worked the first time" when converting a game to JavaScript/WebGL2.
+
+Finally, the posts touch upon broader life and technical interests. These include preferences for Linux environments, such as liking "KDE plasma big screen" paired with handheld devices, and observations on societal issues, such as blaming "congressional Republicans for letting this happen" regarding a declining trend. The author expresses satisfaction with their progress, noting, "I have been having a good summer this year working on a software project to practice and learn about GPU/game programming."
 window_offset: 50
 window_size: 50
 page_index: 1
 page_size: 50
-collection_total_items: 300
+collection_total_items: 325
 has_more: true
-covered_item_1_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2hkjz4k2x
-covered_item_2_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqi2b2tqhc2x
-covered_item_3_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz5zhog22x
-covered_item_4_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz52kbbs2x
-covered_item_5_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhz4j3y2c2x
-covered_item_6_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyysh3322x
-covered_item_7_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhywh2b4c2x
-covered_item_8_uri: at://did:plc:fie2aqk5y4x43rrqc5x7aoh6/app.bsky.feed.post/3mqhhh5eaos2g
-covered_item_9_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyw4ktpk2x
-covered_item_10_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyopwvxc2x
-covered_item_11_uri: at://did:plc:jrymrhkapgkln35qk6uwyava/app.bsky.feed.post/3mqfjvkuir22n
-covered_item_12_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhylvfebk2x
-covered_item_13_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhykuzjs22x
-covered_item_14_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhyfnvkzk2x
-covered_item_15_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhy7cbr622x
-covered_item_16_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhy3xtpys2x
-covered_item_17_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxpxff722x
-covered_item_18_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxmfudf22x
-covered_item_19_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxletjys2b
-covered_item_20_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhxcplths2b
-covered_item_21_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhx3nvrys2b
-covered_item_22_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhx3njv5c2b
-covered_item_23_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwyvynik2b
-covered_item_24_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwne3r7s2b
-covered_item_25_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwl4ghi22b
-covered_item_26_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqhwde65pc2p
-covered_item_27_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwgxkg2c2b
-covered_item_28_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhwc7bhi22b
-covered_item_29_uri: at://did:plc:mmddb3azjlolnq7eqtnebg42/app.bsky.feed.post/3mq3b5luslk24
-covered_item_30_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhw25ys622b
-covered_item_31_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvvqvc322b
-covered_item_32_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvuidsk22b
-covered_item_33_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvrcm4vk2b
-covered_item_34_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhvidyhqc2b
-covered_item_35_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhuf3u5rk2b
-covered_item_36_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhueem2as2b
-covered_item_37_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhtv5myzk2b
-covered_item_38_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhtu4f7z22b
-covered_item_39_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsimsimc2b
-covered_item_40_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqhs7j4i522g
-covered_item_41_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsgq326k2b
-covered_item_42_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsbtu4ec2b
-covered_item_43_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhsbgdph22b
-covered_item_44_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhs3y3xmk2b
-covered_item_45_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhs2my6cc2b
-covered_item_46_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrzsrfi22b
-covered_item_47_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhruqaeuc2b
-covered_item_48_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrmd3gm22b
-covered_item_49_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrlwzd522b
-covered_item_50_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrlw7sq22b
+covered_item_1_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqd2isd66c2q
+covered_item_2_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqd2fp5bps2q
+covered_item_3_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqczm3auc22q
+covered_item_4_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcx5h2eik2b
+covered_item_5_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcwvsq4vk2e
+covered_item_6_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcwco3ahc2w
+covered_item_7_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcw425lr227
+covered_item_8_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcvxb7mdk27
+covered_item_9_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcvvc43dk27
+covered_item_10_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcund6h7s2k
+covered_item_11_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcrjlgvdc2b
+covered_item_12_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqcow4wnps2m
+covered_item_13_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbx47244222
+covered_item_14_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbtnumoos2l
+covered_item_15_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbqo4p6n225
+covered_item_16_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbqcqlm2c25
+covered_item_17_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbq6jdwp22n
+covered_item_18_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbq3brvuk2n
+covered_item_19_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbp6bcq2k27
+covered_item_20_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbnlgxr2k24
+covered_item_21_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbdriio5c2h
+covered_item_22_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqbc4ysp4k2h
+covered_item_23_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqazl5a4uk2j
+covered_item_24_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqavpauf5k2c
+covered_item_25_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqatb5yfik26
+covered_item_26_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqar2hd5ps2v
+covered_item_27_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqaoiywhjk2k
+covered_item_28_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqanuhu3rk2k
+covered_item_29_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqanqc7l5c2k
+covered_item_30_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqang4rcck2k
+covered_item_31_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqalteoktc2w
+covered_item_32_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqabjxmf4k27
+covered_item_33_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mqab34zhoc2x
+covered_item_34_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7ycfbkas2o
+covered_item_35_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7wzl6vk22o
+covered_item_36_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7wjuqqks23
+covered_item_37_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7w6qcaqs23
+covered_item_38_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7vzudoj223
+covered_item_39_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7gjerr6k2a
+covered_item_40_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7g6cphts2a
+covered_item_41_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7fyultu22a
+covered_item_42_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7e6f3lzk26
+covered_item_43_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq7cq6wp4k2v
+covered_item_44_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq77e5vahs2m
+covered_item_45_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5uwiqfj22i
+covered_item_46_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5tnefdz22m
+covered_item_47_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5o52dq2c2n
+covered_item_48_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5kldpwqc2q
+covered_item_49_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5k6ebsms2s
+covered_item_50_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5isdv5ec2p
 
 [summary_sufficiency_gate]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 50
 contiguous_coverage: 100
-available_total_items: 300
+available_total_items: 325
 status_after_gate: fail
-review_grounded: false
+review_grounded: true
 review_sufficient: false
 review_additional_pages_needed: true
 review_next_offset: 100
@@ -1022,41 +820,40 @@ original_result_after_gate: true
 [collection_summary_loop]
 node: summarize_page
 status: page_outcome
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 offset: 50
-result_present: true
-review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 2 after summary failure: Grounded summary coverage currently reaches 100 item(s), but 150 item(s) are required before parent synthesis is sufficient.
-diagnostic: summary cursor processed offset 50 (page 2 of at most 3); raw-window fallback preserved offset 50
+result_present: false
+review_status: fail
+review_reason: Grounded summary coverage currently reaches 100 item(s), but 200 item(s) are required before parent synthesis is sufficient.
+diagnostic: summary cursor processed offset 50 (page 2 of at most 4)
 
 [collection_summary_loop_page_state]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 page_offset: 50
 page_index: 1
-page_status: raw_window_fallback
+page_status: accepted_summary
 repair_attempted: false
-fallback_applied: true
+fallback_applied: false
 next_offset: 100
 accumulated_covered_count: 100
-failure_reason: Grounded summary coverage currently reaches 100 item(s), but 150 item(s) are required before parent synthesis is sufficient.
+failure_reason: <none>
 
-[summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
-page_offset: 50
-page_index: 1
-window_size: 50
-failure_reason: Grounded summary coverage currently reaches 100 item(s), but 150 item(s) are required before parent synthesis is sufficient.
+[collection_summary_loop]
+node: collection_summary_planner_review
+status: planner_optional_failure
+reason: response appears truncated
+route: advance_cursor
 
 [collection_summary_loop]
 node: summarize_page
 status: running
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 page_index: 2
 offset: 100
 window_size: 50
 
 [summary_leaf_parse]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 100
 result_present: true
 original_result_kind: summary
@@ -1065,27 +862,29 @@ raw_response:
 TOOL_CALL
 name: submit_summary_result
 args: {
-  "title": "Recent Posts by loneicewolf.bsky.social: AI Art, Trains, and Community Support",
-  "summary": "The recent posts from loneicewolf.bsky.social cover a wide range of topics, with a strong recurring focus on appreciation for art, particularly AI-generated content. The author frequently expresses delight over visuals, using phrases like \"WOW THIS LOOKS SO HD/HIGH GRAPHICS!\" and \"LOVELY ART 😍️,\" while also praising specific artists and styles, noting, \"i think this is another of my new favorite artists.\" There is significant engagement with AI, with the author reflecting on the technology, stating, \"A.I CAN'T REPLACE ME BECAUSE I USE AI TO DO MY WORK,\" and acknowledging that even their parents, who were initially skeptical, now find it \"great.\" Beyond art, trains are a notable theme, with the author expressing a growing fondness for them after seeing interesting content, noting, \"i think i begin to like trains more, and more! 👀️,\" and mentioning the desire to \"take photo of trains too!\" while in Sweden.\n\nSeveral posts address community dynamics and the impact of online interaction. The author muses about the mysterious appearance of messages, wondering if it's due to \"ppl blocking? maybe its spammers or something?\" This leads to a broader discussion on the nature of online negativity, where loneicewolf distinguishes between those who \"CRUELLY hate\" AI and those who merely \"might dislike ai but is quiet.\" The author strongly advocates for support, urging readers who are struggling to \"please reach out. im here. DM's is open. ♥️,\" and warns that AI haters are \"wasting away both lives: their own (to hate) / the victims(who get more into AI who might not try drawingcuz..its discouraging).\"\n\nFinally, the collection includes brief personal updates and acknowledgments. The author shares simple greetings like \"Moorning!!\" and \"cuuute,\" and offers heartfelt thanks to their followers, stating, \"thanks everyone for understanding me ♥️.\" There are also interactions with other users, such as praising satyrs.eu's linkroll and agreeing with the sentiment that AI is a powerful tool, as seen in the exchange with schizanon.bsky.social regarding the adoption of AI by older generations."
+  "title": "Recent Updates: Creative Coding, Software Distribution, and Personal Life",
+  "summary": "The recent posts heavily feature updates on creative coding projects, particularly around visual art and game development. The author notes that many demos use placeholder images because they are proficient in coding rather than graphics, stating, \"Code itself is art. #art #videoart #softwareart #generativeart #creativecoding.\" Specific projects mentioned include \"Tunnel of Encoded Light\" and the game \"Mutatris,\" which has seen significant updates allowing all four grids to interact for \"interesting game play and chain reactions.\" Technical details are shared, such as using Vulkan, C++ with SDL3, and implementing CUDA kernels for glitch art effects in the ACMX2 app.\n\nA major recurring theme is the difficulty of software distribution across operating systems. The author expresses disappointment that sharing programs on Windows and Mac requires \"jumping through all kinds of hoops and getting my app signed.\" This is due to macOS Gatekeeper blocking ad-hoc signed apps, and the general difficulty for users to compile from source. Solutions being explored include creating a Flatpak and noting that the custom OBJ/MXMOD Model viewer allows for easier deployment. The author also discusses performance tuning, noting that OpenCV 5's new DNN engine required conditional compilation due to initial CUDA support issues, and mentions using the environment variable `OPENCV_FORCE_DNN_ENGINE=1`.\n\nBeyond coding, there are several personal and media-related updates. The author is making lifestyle changes, moving from soda to carbonated water and considering cutting back on caffeine due to anxiety. Environmentally, they describe their current location as \"like burning up in the desert here.\" In terms of media, they are enjoying RPGs, mentioning \"Paper Mario sounds like a good series,\" and reflecting on the value of physical media, noting they will miss having copies of films \"on something I can watch on my own terms even when offline.\"\n\nFinally, there are various technical and personal anecdotes. The author is testing and showcasing demos like \"Sunny Bluesky over the ocean demo running on Windows\" and improving the Bluesky v2.0 visuals. They also address hardware performance, finding that the bottleneck for their system was the Webcam, which performs much better when using scrcpy with a Pixel 9 Pro. The posts conclude with reflections on family time, such as watching a well-animated family movie where \"bowser stole the show.\""
 }
 
 [summary_leaf_review]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 100
 review_status: fail
-review_grounded: false
+review_grounded: true
 review_sufficient: false
 review_repair_needed: false
-review_additional_pages_needed: false
-review_reason: The summary is not a single paragraph.
+review_additional_pages_needed: true
+review_reason: Grounded summary coverage currently reaches 0 item(s), but 200 item(s) are required before parent synthesis is sufficient.
 result_before_review: summary
 original_result_before_review: summary
 summary_before_review:
-The recent posts from loneicewolf.bsky.social cover a wide range of topics, with a strong recurring focus on appreciation for art, particularly AI-generated content. The author frequently expresses delight over visuals, using phrases like "WOW THIS LOOKS SO HD/HIGH GRAPHICS!" and "LOVELY ART 😍️," while also praising specific artists and styles, noting, "i think this is another of my new favorite artists." There is significant engagement with AI, with the author reflecting on the technology, stating, "A.I CAN'T REPLACE ME BECAUSE I USE AI TO DO MY WORK," and acknowledging that even their parents, who were initially skeptical, now find it "great." Beyond art, trains are a notable theme, with the author expressing a growing fondness for them after seeing interesting content, noting, "i think i begin to like trains more, and more! 👀️," and mentioning the desire to "take photo of trains too!" while in Sweden.
+The recent posts heavily feature updates on creative coding projects, particularly around visual art and game development. The author notes that many demos use placeholder images because they are proficient in coding rather than graphics, stating, "Code itself is art. #art #videoart #softwareart #generativeart #creativecoding." Specific projects mentioned include "Tunnel of Encoded Light" and the game "Mutatris," which has seen significant updates allowing all four grids to interact for "interesting game play and chain reactions." Technical details are shared, such as using Vulkan, C++ with SDL3, and implementing CUDA kernels for glitch art effects in the ACMX2 app.
 
-Several posts address community dynamics and the impact of online interaction. The author muses about the mysterious appearance of messages, wondering if it's due to "ppl blocking? maybe its spammers or something?" This leads to a broader discussion on the nature of online negativity, where loneicewolf distinguishes between those who "CRUELLY hate" AI and those who merely "might dislike ai but is quiet." The author strongly advocates for support, urging readers who are struggling to "please reach out. im here. DM's is open. ♥️," and warns that AI haters are "wasting away both lives: their own (to hate) / the victims(who get more into AI who might not try drawingcuz..its discouraging)."
+A major recurring theme is the difficulty of software distribution across operating systems. The author expresses disappointment that sharing programs on Windows and Mac requires "jumping through all kinds of hoops and getting my app signed." This is due to macOS Gatekeeper blocking ad-hoc signed apps, and the general difficulty for users to compile from source. Solutions being explored include creating a Flatpak and noting that the custom OBJ/MXMOD Model viewer allows for easier deployment. The author also discusses performance tuning, noting that OpenCV 5's new DNN engine required conditional compilation due to initial CUDA support issues, and mentions using the environment variable `OPENCV_FORCE_DNN_ENGINE=1`.
 
-Finally, the collection includes brief personal updates and acknowledgments. The author shares simple greetings like "Moorning!!" and "cuuute," and offers heartfelt thanks to their followers, stating, "thanks everyone for understanding me ♥️." There are also interactions with other users, such as praising satyrs.eu's linkroll and agreeing with the sentiment that AI is a powerful tool, as seen in the exchange with schizanon.bsky.social regarding the adoption of AI by older generations.
+Beyond coding, there are several personal and media-related updates. The author is making lifestyle changes, moving from soda to carbonated water and considering cutting back on caffeine due to anxiety. Environmentally, they describe their current location as "like burning up in the desert here." In terms of media, they are enjoying RPGs, mentioning "Paper Mario sounds like a good series," and reflecting on the value of physical media, noting they will miss having copies of films "on something I can watch on my own terms even when offline."
+
+Finally, there are various technical and personal anecdotes. The author is testing and showcasing demos like "Sunny Bluesky over the ocean demo running on Windows" and improving the Bluesky v2.0 visuals. They also address hardware performance, finding that the bottleneck for their system was the Webcam, which performs much better when using scrcpy with a Pixel 9 Pro. The posts conclude with reflections on family time, such as watching a well-animated family movie where "bowser stole the show."
 review_context:
 Instructions:
 You are the internal `summary_review` agent.
@@ -1115,357 +914,275 @@ Rules:
 - Do not request repair instructions. This step should either pass or explain why more coverage is required.
 
 ## Search Prompt
-summarize 150 posts by loneicewolf.bsky.social into 3 paragraphs
+summarize the last 200 posts by this actor into 4 paragraphs
 
 ## Harness Scope Assessment
-requested_scope: count 150
-required_total_items: 150
+requested_scope: count 200
+required_total_items: 200
 page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
-available_total_items: 300
+available_total_items: 325
 current_window_offset: 100
 current_window_size: 50
 
 ## Collection Evidence
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
-collection_label: Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn (items 101-150 of 300)
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_label: Recent posts by did:plc:nynvpc2sqsiplptgs7uet4cv (items 101-150 of 325)
 collection_kind: recent_posts
 search_window_offset: 100
 search_window_total_items: 50
 
-matched_item[0] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhripksmc2b
-body: OH and the last part you wrote? me too. i..proobably wouldnt want to know either.
+matched_item[0] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5iopvyjk2z
+body: A lot of my demos use place holder images I had generated for me because I have no talent at that kind of art. I am good at coding not using a graphics editor, or drawing really. However I have it in my projects so all you have to do is replace the images in the games folder and I release the code.
 
-Now one thing though..i wonder why
+matched_item[1] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5gypomjc2q
+body: Higher quality.
 
-bsky:         "you got 1 message to read!"
-also bsky: "oh and you cant read it       "
+matched_item[2] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5g4wa5os2y
+body: Tunnel of Encoded Light #CreativeCoding #Cplusplus #C++
+tag: CreativeCoding
+tag: Cplusplus
+tag: C++
 
-matched_item[1] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrhfp2k22b
-body: so im thinking..maybe one person is hater/spammy,on my list(sadly, i dont know who or what they type i just know they did)
+matched_item[3] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq4qdzz3vs2j
+body: Updated to v0.17.0 Full Doxygen documentation.
 
-matched_item[2] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrhf52ek2b
-body: oh! maybe but.. to me i have done so only a few can reply
-(because of that hate)
-like.. 
+matched_item[4] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3nizjwak2r
+body: Artwork.
 
-i have lists, and i add ppl who is kind to those lists, and tell bsky to only allow tose,
+matched_item[5] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3nbp7c6s27
+body: Some artwork.
 
-and yet it happens,
-it pops up a bit-and then disappears.
+matched_item[6] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3mga4fpk2m
+body: Variation of the video that looks much better in 4K.
 
-matched_item[3] uri: at://did:plc:unmgr5m7v3uvovdwngmtzbdk/app.bsky.feed.post/3mpmkqbocak2n
-body: My Pokémon Shining Pearl Episode 2 is live!
+matched_item[7] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3lluinhc2k
+body: The compression kind of makes this look dull, but the idea is there.
 
-We continue the adventure with new Pokémon, trainer battles, and more story progression. If you enjoy Pokémon walkthroughs and Nintendo Switch gameplay, check it out!
+matched_item[8] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3lcngync2c
+body: Code itself is art. #art #videoart #softwareart #generativeart #creativecoding
+tag: art
+tag: videoart
+tag: softwareart
+tag: generativeart
+tag: creativecoding
 
-youtu.be/fOqNhH2U0E4
+matched_item[9] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3kyyzcks2c
+body: yeah I was impressed by it, really cool.
 
-#Pokemon #BDSP #NintendoSwitch #Gaming
-link: https://youtu.be/fOqNhH2U0E4
-tag: Pokemon
-tag: BDSP
-tag: NintendoSwitch
-tag: Gaming
+matched_item[10] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3gsz5gc22r
+body: Hey thanks a lot!
 
-matched_item[4] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhm7aie5c2d
-body: never been a fan of pokemon but..i think its cuz i never tried it? this made me wanna try it 👀️ one thing though i think pokemons look cute 😸️ take care! ^^ 
+matched_item[11] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq37jtlgnc2j
+body: Custom OBJ/MXMOD Model viewer.
 
-and nice walktrough!
+matched_item[12] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq33j2f37s2b
+body: I was more just mentioning this because I would love to share my apps I create with people like I used to, but most people are locked into those ecosystems, and it can be difficult for most people to compile software or just don't want to.
 
-matched_item[5] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlrojrzk2d
-body: Mooorning!!
+matched_item[13] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq334oaxi22b
+body: but does this let other people run your programs without the requirements for gatekeeper on mac, or the limitations on windows?
 
-matched_item[6] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlnoypcc2d
-body: yumm! 😋️
+matched_item[14] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq32xy5rdc2b
+body: My program installed on my system with an icon and running it from the system menu.
 
-matched_item[7] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhln7zhec2d
-body: this is all, very very interesting  👀️ i must take photo of trains too! 
+matched_item[15] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq32mwwr222e
+body: cool
 
-but im in sweden..but..still! ^^
+matched_item[16] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq32czuq6s2v
+body: Started playing two different RPG styled games to start out with. One classic, one modern both were enjoyable.
 
-matched_item[8] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlkrhvrc2d
-body: ohhh wow!
-i thought something had happened (it looked like, some accident? but..when i translated the japanese, i see oh thank god, nothing happened! ^^ it looks much more interesting than i thought!)
+matched_item[17] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2zapfv222u
+body: or you can use the environment variable 
+OPENCV_FORCE_DNN_ENGINE=1
 
-i think i begin to like trains more, and more! 👀️
+matched_item[18] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2yeeqjck2u
+body: Came across an issue with OpenCV 5. The new Deep Neural Net  (DNN) engine does not support CUDA yet, and the CPU fallback was giving me like 2 to 3 FPS, so had to disable the new graph engine until its fully supported. So  I used conditional compilation so it works across OpenCV 4 and 5.
 
-matched_item[9] uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mqhajiqqns2f
-body: アリシアちゃんがうがうポーズ
+matched_item[19] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2wxwkjxs2u
+body: So my I updated my system's distrobox arch container opencv-cuda package to OpenCV 5 and recompiled my apps. I have not really noticed any difference but its supposed to be a big step forward. OpenCV makes it easy to write cross-platform computer vision applications.
 
-matched_item[10] uri: at://did:plc:yl54eschr7g4vd5tbyyn4kt3/app.bsky.feed.post/3mqhaxigfkk25
-body: 続・寂寥哀惜の念～ハイエースの車窓から～
-#AIイラスト #AIart #PixAI
-tag: AIイラスト
-tag: AIart
-tag: PixAI
+matched_item[20] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2w44oy722u
+body: Yesterday my friend was showing me some stuff he made with Godot, it looked good. GDScript runs in a VM, so massive loops and stuff will run slower than a compiled language, but for most projects that is not going to disrupt your game. Godot is mostly written in C++.
 
-matched_item[11] uri: at://did:plc:b7rgxwd4p3qlqwyn6elyyouz/app.bsky.feed.post/3mqhb4wxtwk2p
-body: おやすみなさ～い💤
+matched_item[21] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2vpmttuc2u
+body: I am actually feeling pretty good today. I woke up around like 6 am had a cup of coffee and then started working on my projects. Thinking about making a flatpak  for one of my games.
 
-matched_item[12] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlibs4yk2d
-body: WOW THIS LOOKS SO HD/HIGH GRAPHICS!
-Details! 4K! wowieee!! ♥️ love it!
+matched_item[22] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2uiggamc2u
+body: You cannot realistically use ad-hoc signing to distribute your software to the general public.
 
-i have to share this more:
-#AIArt #AIArtwork
+Gatekeeper Blocks It: If another user downloads your ad-hoc signed app from the internet, macOS Gatekeeper will block it with a severe "developer cannot be verified" or "malware" warning.
 
-its lovely!
-tag: AIArt
-tag: AIArtwork
+matched_item[23] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2tyu5zrc2u
+body: problem is how many normal mac users actually know how to do that? If you try to open it from the DMG file it does not work, and you have to open your security settings and explicitly let the app through gatekeeper, but I guess that is a security feature.
 
-matched_item[13] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhl2nmbms26
-body: cuuute
+matched_item[24] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2tqg57vs2u
+body: yeah you have to sign it with - and the let it past gatekeeper right?
 
-matched_item[14] uri: at://did:plc:bhklr7m5t5fdqebgy63hpfum/app.bsky.feed.post/3mq3fn77zb22l
-body: also if you’re clicking onto this for the first time you should check out all these cool websites i found for you i think they’re fun :-)
+matched_item[25] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2qxkcg2s2f
+body: So the most viable way to use my programs is to compile from source, and  99% of people won't or can't do that. On windows I had to disable some feature that can only be turned back on by reinstalling Windows, to even test my software. On macOS apple wants to extort you for like $100 a year.
 
-satyrs.eu/linkroll
-link: https://satyrs.eu/linkroll
+matched_item[26] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2quejw2k2f
+body: It really is disappointing that I cannot share my programs with people on Windows/Mac without jumping through all kinds of hoops and getting my app signed. On macOS you have to pay Apple, and I believe it the same for Windows. So much bad software has been developed they locked those systems down.
 
-matched_item[15] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkxsbhe226
-body: WAIT..You're underrated?!
-this is fun! XD 
+matched_item[27] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpzqc3gh2c2k
+body: I don't know if I shared this here, this is a layout  of the CUDA kernel used in my app ACMX2 for the glitch art effects.
 
-i cant believe i was first liker and first commentor o_o
-take care of yourself!
-warmest wishes from sweden and thanks for sharing this!
-..tbh i really like the colors on the ACTUAL-SITE 
-                  satyrs.eu/linkroll
-link: https://satyrs.eu/linkroll
+matched_item[28] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpznskube223
+body: Source Code: github.com/lostjared/MX...
+link: https://github.com/lostjared/MXVK/tree/main/examples/mutatris
 
-matched_item[16] uri: at://did:plc:bhklr7m5t5fdqebgy63hpfum/app.bsky.feed.post/3mqf2q7yjjk2s
-body: I think anyone who describes copying as theft should be legally required to disclose whether they ever made a “lol i just right-clicked and saved your NFT” joke
+matched_item[29] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpznqz7lhk23
+body: Updated the game play in my game, check it out. #Vulkan #CPLUSPLUS #C++ #SDL3 #Shaders #Puzzle #PuzzleGame
+tag: Vulkan
+tag: CPLUSPLUS
+tag: C++
+tag: SDL3
+tag: Shaders
+tag: Puzzle
+tag: PuzzleGame
 
-matched_item[17] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkum7ph226
-body: or maybe this:
-"A.I CAN'T REPLACE ME BECAUSE I USE AI TO DO MY WORK"
+matched_item[30] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpznea637c2q
+body: updated my game Mutatris, so now all four grids can interact with each and matches can occur across boundaries which creates some interesting game play and chain reactions.
 
-(i.e using AI as a tool xD as AI's aint (yet) sentient, they need people to *do* things..i think? so yeah! xD)
+This game is like my dream game and I finally was able to put all the 'pieces together' and it has come full circle.
 
-matched_item[18] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkt442vc26
-body: OH MY GOD 🤣️
+matched_item[31] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpz4q643pc2w
+body: My Sunny Bluesky over the ocean demo running on Windows.
+Source Code:
 
-matched_item[19] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhks6w46c26
-body: 2019?
-(looks at a calender which says its 2042)
-no but jokes aside, take care!
+github.com/lostjared/MX...
+link: https://github.com/lostjared/MXVK/tree/main/examples/bluesky
 
-matched_item[20] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkqnf5gc26
-body: yep 100%
+matched_item[32] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpywy3eqbs2l
+body: I already don't drink soda anymore, only carbonated water, so that is a step in the right direction.
 
-matched_item[21] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqgw3arxmk2p
-body: I'm proud of my partner who uses it every day to compensate for the shitty healthcare in this country. 
+matched_item[33] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpywtqpk2c22
+body: I think I am going to cut down on the caffeine or stop it completely. I am getting (is it causing ?) anxiety and I think it makes my shaking worse. Hopefully that will help, and I will adjust.
 
-I'm proud that she teaches her friends to use it when they need help. 
+matched_item[34] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyvhbde2k2x
+body: This how it feels where I live right now, its like burning up in the desert here.
 
-I'm proud of all the women who are seizing the power.
+matched_item[35] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyosrmtl22c
+body: Paper Mario sounds like a good series.
 
-I think anyone who would shame them is truly evil.
+matched_item[36] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyogbn6pc2s
+body: Hey thanks for the info I think I can find one that I can vibe with. I will have to explore.
 
-matched_item[22] uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqgvbc774c2p
-body: Today my mom sent me a conversation she had with AI; something about timber rights on a parcel of land she inherited. 
+matched_item[37] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyjd5v7bc2v
+body: youtu.be/jemhF-XVojE
+link: https://youtu.be/jemhF-XVojE
 
-I'm so proud that she's learned to wield this technology, even at her age, even with the whole of liberal voices howling against it.
+matched_item[38] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyj7ogy4s2v
+body: Bluesky v2.0 (Updated). The ocean looks better now.
 
-matched_item[23] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhknlkrkc26
-body: this. i agree!
+matched_item[39] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxs7tyyek2k
+body: Hehe, I was bored so I created this with my new library. It is a nice sunny day overlooking the ocean with a Bluesky and puffy white clouds.
 
-matched_item[24] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhknaxwrk26
-body: Woww!! :D 
-my parents use AI too and they are boomers but.. Yeah!
-before they did not like AI (to be honest..there was ONE TIME I did not "like" or, "hate" ai.i was just.. i never had tried it. and..i was acting, before on the assumption that "ai was bad"
-BUT HOLY GOD I WAS WRONG. its great.)
+matched_item[40] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxmx5pdzc2s
+body: That is the best way to do it, makes it easier to not have to switch the discs but still have backup copy.
 
-matched_item[25] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkjz5ckk26
-body: i also get those "1 message or 2 messages" and.. i dont know if its ppl blocking?
-maybe its spammers or something? ppl who write like.. i dont know low efort/hate? cuz sometimes those are like..but i dont know?
+matched_item[41] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxiv2r7i227
+body: I wonder if the original FF7 is on the Internet archive. It could be.
 
-no clue? like i mean, maybe the algorithm/mod-system(..thingy?) stops them but.? idk?
+matched_item[42] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpximvhr3227
+body: Whoa that's impressive.
 
-matched_item[26] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhenzmmys2f
-body: wow! :D
+matched_item[43] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxfh5qkrc2c
+body: I used to collect DVD/Blu-ray and have a small collection. When they stop making physical discs I will miss being able to have a copy of my favorite films on something I can watch on my own terms even when offline.
 
-matched_item[27] uri: at://did:plc:fie2aqk5y4x43rrqc5x7aoh6/app.bsky.feed.post/3mqdqia2j2s2o
-body: そのうち乗ろう*\(^o^)/*
+matched_item[44] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxdxentks25
+body: My nieces are visiting their Grandmother for the summer for a few days. So I ordered this off Amazon and redeemed the digital code. We all watched it in the family room and they loved it. I thought the animation was very well done and bowser stole the show. All around good time with my family.
 
-matched_item[28] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhemxatnc2f
-body: THIS IS ABSOLUTELY WONDERFUL
-also..hehehe i see this cute one!! 😸️
+matched_item[45] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxdehmyos25
+body: So you keep them in the box? That's cool might increase in value that way. I wonder if you can still use it in the game it is kept in box?
 
-matched_item[29] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhdlscy522f
-body: will google this! ^^
+matched_item[46] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxbkiidqk2v
+body: I have never really been interested in RPGs. I did try Mario RPG for SNES and I thought it was a good game. But never played final fantasy or anything of that sort. Was thinking about trying Cyberpunk 2077.
 
-matched_item[30] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhdlmgtms2f
-body: OH! :D noted!!
-/^v^/==♥️♥️
+matched_item[47] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpx5f47ku22c
+body: Fractals.
 
-matched_item[31] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhct75ojc2f
-body: i want to say, thanks everyone for understanding me ♥️
-love you all!♥️
-take care of yourself!♥️
-and take care of your friends! ♥️
+matched_item[48] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpx3tiwsos24
+body: Well I figured out the bottleneck for my system was more on the Webcam than the application itself. It runs fine when I use scrcpy and my Pixel 9 Pro as the camera. The image quality is also a ton better. I would share a video but on my system I am having trouble recording in 4K so screenshots.
 
-And, please:
-Think of Yourself.
-There is only 1 person on this earth, like you, and that is YOU♥️
-
-Love You All!💐️
-Love Yourself!💐️
-And Take Care! 💐️
-
-matched_item[32] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh6i6qlmk2x
-body: FANCY! :O
-
-matched_item[33] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh6i2p6yk2x
-body: wooahahaaaoo!!! FANCYY! :D
-
-matched_item[34] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh4ndm6mc2x
-body: ohhh! 🥺️🫂️i see, take care though♥️
-
-matched_item[35] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh3pj2wek2x
-body: those are pretty! oh mai god! ^^
-
-matched_item[36] uri: at://did:plc:ajk4jyfmj3nmpf7ba67auv6x/app.bsky.feed.post/3mq7sqgca2c2c
-body: #AIart
-#AIイラスト
-tag: AIart
-tag: AIイラスト
-
-matched_item[37] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh37mv4gs2x
-body: Wooahh!! pretty! :D
-
-matched_item[38] uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mq6neu6uak2f
-body: #AIイラスト #AIart #オリキャラ
-tag: AIイラスト
-tag: AIart
-tag: オリキャラ
-
-matched_item[39] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh3653xt22x
-body: i think this is another of my new favorite artists ^^
-
-matched_item[40] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh35mncck2x
-body: wow! love the eyes and the smile! :D
-
-matched_item[41] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh34t2uu22x
-body: wow! that's...pretty! 😊️
-
-matched_item[42] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh2gjnevs2x
-body: CUUUTE
-
-matched_item[43] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh2fmztzs2x
-body: わっ、猫ちゃん可愛すぎる…！お花が描かれたバナーも素敵で癒やされます🌷
-
-matched_item[44] uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mqgyywglj22l
-body: 健全なアリシアさん
-
-matched_item[45] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgzlt3li22x
-body: LOVELY ART 😍️
-
-matched_item[46] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgzl57i5s2x
-body: OH MY GOD :DDD I love it!!
-😸️😃️👏️
-
-matched_item[47] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgz6bbjvc2x
-body: note, if you have had hate, or is depressed, (you who read this), then, please reach out. im here. DM's is open. ♥️
-
-*INCLUDING* People who dont like AI.
-I see the PERSON
-NOT the label.
-
-sending a hug. 🫂️
-
-matched_item[48] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgz6b2kb22x
-body: ⚠️IMPORTANT⚠️
-they are also wasting away both lives:
-their own (to hate)
-the victims(who get more into AI who might not try drawingcuz..its discouraging)
-
-So,
-one has to, really try to have fun in life because we only live once. 
-
-..some ai haters drive others into dark thoughts. and..that-i hate.
-
-matched_item[49] uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgyzkpl3k2x
-body: what i talk about is People who CRUELLY hate.
-
-NOT people who "might dislike ai but is quiet" OR "might dislike ai but isnt cruel to others"
-
-those people i LOVE. and, would really want to support.
+matched_item[49] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpwyvgwdsk2i
+body: Capture on 4K Resolution Webcam applying fragment shaders on an older device (RTX 2070) in native 4K resolution.
 
 ## Proposed Summary
-post: Recent Posts by loneicewolf.bsky.social: AI Art, Trains, and Community Support
-summary: The recent posts from loneicewolf.bsky.social cover a wide range of topics, with a strong recurring focus on appreciation for art, particularly AI-generated content. The author frequently expresses delight over visuals, using phrases like "WOW THIS LOOKS SO HD/HIGH GRAPHICS!" and "LOVELY ART 😍️," while also praising specific artists and styles, noting, "i think this is another of my new favorite artists." There is significant engagement with AI, with the author reflecting on the technology, stating, "A.I CAN'T REPLACE ME BECAUSE I USE AI TO DO MY WORK," and acknowledging that even their parents, who were initially skeptical, now find it "great." Beyond art, trains are a notable theme, with the author expressing a growing fondness for them after seeing interesting content, noting, "i think i begin to like trains more, and more! 👀️," and mentioning the desire to "take photo of trains too!" while in Sweden.
+post: Recent Updates: Creative Coding, Software Distribution, and Personal Life
+summary: The recent posts heavily feature updates on creative coding projects, particularly around visual art and game development. The author notes that many demos use placeholder images because they are proficient in coding rather than graphics, stating, "Code itself is art. #art #videoart #softwareart #generativeart #creativecoding." Specific projects mentioned include "Tunnel of Encoded Light" and the game "Mutatris," which has seen significant updates allowing all four grids to interact for "interesting game play and chain reactions." Technical details are shared, such as using Vulkan, C++ with SDL3, and implementing CUDA kernels for glitch art effects in the ACMX2 app.
 
-Several posts address community dynamics and the impact of online interaction. The author muses about the mysterious appearance of messages, wondering if it's due to "ppl blocking? maybe its spammers or something?" This leads to a broader discussion on the nature of online negativity, where loneicewolf distinguishes between those who "CRUELLY hate" AI and those who merely "might dislike ai but is quiet." The author strongly advocates for support, urging readers who are struggling to "please reach out. im here. DM's is open. ♥️," and warns that AI haters are "wasting away both lives: their own (to hate) / the victims(who get more into AI who might not try drawingcuz..its discouraging)."
+A major recurring theme is the difficulty of software distribution across operating systems. The author expresses disappointment that sharing programs on Windows and Mac requires "jumping through all kinds of hoops and getting my app signed." This is due to macOS Gatekeeper blocking ad-hoc signed apps, and the general difficulty for users to compile from source. Solutions being explored include creating a Flatpak and noting that the custom OBJ/MXMOD Model viewer allows for easier deployment. The author also discusses performance tuning, noting that OpenCV 5's new DNN engine required conditional compilation due to initial CUDA support issues, and mentions using the environment variable `OPENCV_FORCE_DNN_ENGINE=1`.
 
-Finally, the collection includes brief personal updates and acknowledgments. The author shares simple greetings like "Moorning!!" and "cuuute," and offers heartfelt thanks to their followers, stating, "thanks everyone for understanding me ♥️." There are also interactions with other users, such as praising satyrs.eu's linkroll and agreeing with the sentiment that AI is a powerful tool, as seen in the exchange with schizanon.bsky.social regarding the adoption of AI by older generations.
+Beyond coding, there are several personal and media-related updates. The author is making lifestyle changes, moving from soda to carbonated water and considering cutting back on caffeine due to anxiety. Environmentally, they describe their current location as "like burning up in the desert here." In terms of media, they are enjoying RPGs, mentioning "Paper Mario sounds like a good series," and reflecting on the value of physical media, noting they will miss having copies of films "on something I can watch on my own terms even when offline."
+
+Finally, there are various technical and personal anecdotes. The author is testing and showcasing demos like "Sunny Bluesky over the ocean demo running on Windows" and improving the Bluesky v2.0 visuals. They also address hardware performance, finding that the bottleneck for their system was the Webcam, which performs much better when using scrcpy with a Pixel 9 Pro. The posts conclude with reflections on family time, such as watching a well-animated family movie where "bowser stole the show."
 window_offset: 100
 window_size: 50
 page_index: 2
 page_size: 50
-collection_total_items: 300
+collection_total_items: 325
 has_more: true
-covered_item_1_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhripksmc2b
-covered_item_2_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrhfp2k22b
-covered_item_3_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhrhf52ek2b
-covered_item_4_uri: at://did:plc:unmgr5m7v3uvovdwngmtzbdk/app.bsky.feed.post/3mpmkqbocak2n
-covered_item_5_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhm7aie5c2d
-covered_item_6_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlrojrzk2d
-covered_item_7_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlnoypcc2d
-covered_item_8_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhln7zhec2d
-covered_item_9_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlkrhvrc2d
-covered_item_10_uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mqhajiqqns2f
-covered_item_11_uri: at://did:plc:yl54eschr7g4vd5tbyyn4kt3/app.bsky.feed.post/3mqhaxigfkk25
-covered_item_12_uri: at://did:plc:b7rgxwd4p3qlqwyn6elyyouz/app.bsky.feed.post/3mqhb4wxtwk2p
-covered_item_13_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhlibs4yk2d
-covered_item_14_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhl2nmbms26
-covered_item_15_uri: at://did:plc:bhklr7m5t5fdqebgy63hpfum/app.bsky.feed.post/3mq3fn77zb22l
-covered_item_16_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkxsbhe226
-covered_item_17_uri: at://did:plc:bhklr7m5t5fdqebgy63hpfum/app.bsky.feed.post/3mqf2q7yjjk2s
-covered_item_18_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkum7ph226
-covered_item_19_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkt442vc26
-covered_item_20_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhks6w46c26
-covered_item_21_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkqnf5gc26
-covered_item_22_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqgw3arxmk2p
-covered_item_23_uri: at://did:plc:6lwfvmss45d7j7fot34v2kw5/app.bsky.feed.post/3mqgvbc774c2p
-covered_item_24_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhknlkrkc26
-covered_item_25_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhknaxwrk26
-covered_item_26_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhkjz5ckk26
-covered_item_27_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhenzmmys2f
-covered_item_28_uri: at://did:plc:fie2aqk5y4x43rrqc5x7aoh6/app.bsky.feed.post/3mqdqia2j2s2o
-covered_item_29_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhemxatnc2f
-covered_item_30_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhdlscy522f
-covered_item_31_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhdlmgtms2f
-covered_item_32_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqhct75ojc2f
-covered_item_33_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh6i6qlmk2x
-covered_item_34_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh6i2p6yk2x
-covered_item_35_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh4ndm6mc2x
-covered_item_36_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh3pj2wek2x
-covered_item_37_uri: at://did:plc:ajk4jyfmj3nmpf7ba67auv6x/app.bsky.feed.post/3mq7sqgca2c2c
-covered_item_38_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh37mv4gs2x
-covered_item_39_uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mq6neu6uak2f
-covered_item_40_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh3653xt22x
-covered_item_41_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh35mncck2x
-covered_item_42_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh34t2uu22x
-covered_item_43_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh2gjnevs2x
-covered_item_44_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqh2fmztzs2x
-covered_item_45_uri: at://did:plc:c4mtz6x4o27zzfap7uauebw4/app.bsky.feed.post/3mqgyywglj22l
-covered_item_46_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgzlt3li22x
-covered_item_47_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgzl57i5s2x
-covered_item_48_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgz6bbjvc2x
-covered_item_49_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgz6b2kb22x
-covered_item_50_uri: at://did:plc:37lcyqfy4d5r25jvgtabe5kn/app.bsky.feed.post/3mqgyzkpl3k2x
+covered_item_1_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5iopvyjk2z
+covered_item_2_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5gypomjc2q
+covered_item_3_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq5g4wa5os2y
+covered_item_4_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq4qdzz3vs2j
+covered_item_5_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3nizjwak2r
+covered_item_6_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3nbp7c6s27
+covered_item_7_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3mga4fpk2m
+covered_item_8_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3lluinhc2k
+covered_item_9_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3lcngync2c
+covered_item_10_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3kyyzcks2c
+covered_item_11_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq3gsz5gc22r
+covered_item_12_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq37jtlgnc2j
+covered_item_13_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq33j2f37s2b
+covered_item_14_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq334oaxi22b
+covered_item_15_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq32xy5rdc2b
+covered_item_16_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq32mwwr222e
+covered_item_17_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq32czuq6s2v
+covered_item_18_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2zapfv222u
+covered_item_19_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2yeeqjck2u
+covered_item_20_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2wxwkjxs2u
+covered_item_21_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2w44oy722u
+covered_item_22_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2vpmttuc2u
+covered_item_23_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2uiggamc2u
+covered_item_24_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2tyu5zrc2u
+covered_item_25_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2tqg57vs2u
+covered_item_26_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2qxkcg2s2f
+covered_item_27_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mq2quejw2k2f
+covered_item_28_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpzqc3gh2c2k
+covered_item_29_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpznskube223
+covered_item_30_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpznqz7lhk23
+covered_item_31_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpznea637c2q
+covered_item_32_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpz4q643pc2w
+covered_item_33_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpywy3eqbs2l
+covered_item_34_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpywtqpk2c22
+covered_item_35_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyvhbde2k2x
+covered_item_36_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyosrmtl22c
+covered_item_37_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyogbn6pc2s
+covered_item_38_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyjd5v7bc2v
+covered_item_39_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpyj7ogy4s2v
+covered_item_40_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxs7tyyek2k
+covered_item_41_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxmx5pdzc2s
+covered_item_42_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxiv2r7i227
+covered_item_43_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpximvhr3227
+covered_item_44_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxfh5qkrc2c
+covered_item_45_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxdxentks25
+covered_item_46_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxdehmyos25
+covered_item_47_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpxbkiidqk2v
+covered_item_48_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpx5f47ku22c
+covered_item_49_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpx3tiwsos24
+covered_item_50_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpwyvgwdsk2i
 
 [summary_sufficiency_gate]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 window_offset: 100
 contiguous_coverage: 150
-available_total_items: 300
+available_total_items: 325
 status_after_gate: fail
-review_grounded: false
-review_sufficient: true
-review_additional_pages_needed: false
-review_next_offset: <none>
+review_grounded: true
+review_sufficient: false
+review_additional_pages_needed: true
+review_next_offset: 150
 result_before_restore: false
 original_result_before_restore: true
 result_after_gate: false
@@ -1474,35 +1191,407 @@ original_result_after_gate: true
 [collection_summary_loop]
 node: summarize_page
 status: page_outcome
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 offset: 100
-result_present: true
-review_status: pass
-review_reason: Raw-window fallback preserved grounded evidence for page 3 after summary failure: Grounded summary coverage reaches 150 item(s), satisfying the requested 150 item scope.
-diagnostic: summary cursor processed offset 100 (page 3 of at most 3); raw-window fallback preserved offset 100
+result_present: false
+review_status: fail
+review_reason: Grounded summary coverage currently reaches 150 item(s), but 200 item(s) are required before parent synthesis is sufficient.
+diagnostic: summary cursor processed offset 100 (page 3 of at most 4)
 
 [collection_summary_loop_page_state]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
 page_offset: 100
 page_index: 2
-page_status: raw_window_fallback
+page_status: accepted_summary
 repair_attempted: false
-fallback_applied: true
-next_offset: <none>
+fallback_applied: false
+next_offset: 150
 accumulated_covered_count: 150
-failure_reason: Grounded summary coverage reaches 150 item(s), satisfying the requested 150 item scope.
-
-[summary_leaf_raw_window_fallback]
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
-page_offset: 100
-page_index: 2
-window_size: 50
-failure_reason: Grounded summary coverage reaches 150 item(s), satisfying the requested 150 item scope.
+failure_reason: <none>
 
 [collection_summary_loop]
-node: collection_summary_planner_repair
+node: summarize_page
+status: running
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+page_index: 3
+offset: 150
+window_size: 50
+
+[summary_leaf_parse]
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+window_offset: 150
+result_present: true
+original_result_kind: summary
+diagnostic: <none>
+raw_response:
+TOOL_CALL
+name: submit_summary_result
+args: {
+  "title": "Recent Updates: Software Development, Gaming, and Personal Reflections",
+  "summary": "The recent posts heavily focus on software development, particularly updates and showcases related to the MXVK project, which utilizes Vulkan. There are multiple mentions of version releases, such as v0.16.0, v0.15.0, v0.14.0, v0.13.0, and v0.12.0, alongside new features like an 'Object Viewer' and 'Better Speed Boost.' Specific projects highlighted include a four-sided falling-block puzzle game named Mutatris, which is built with MXVK, Vulkan, and SDL3, and a 3D Breakout game demo, which has been ported and polished using Vulkan/C++.\n\nBeyond MXVK, the actor shares insights into coding tools and experiences. There is a strong preference for terminal-based tools, with mentions of using 'vim a lot and KDevelop' instead of Visual Studio Code. The actor also discusses the rapid advancement of AI tools, acknowledging the ethical concerns but praising the accessibility of answers. Furthermore, there is a clear theme of software distribution philosophy, advocating that 'All software should be free and come with the source code,' suggesting that physical media should be phased out to eliminate DRM.\n\nPersonal reflections and lifestyle updates are also present. The actor shares feelings of being 'kind of low this morning' but improving after working on projects, and notes physical efforts like using a 'stationary exercise bike to try and strengthen my legs.' In terms of technology performance, the actor notes that with an older graphics card, performance is 'nowhere near as good' without CUDA, especially in 4K.\n\nFinally, there are several miscellaneous updates covering gaming, media, and general thoughts. These include enjoying a game that has a 'modern twist' reminiscent of NES titles, appreciating the wisdom found in a book after reading the second edition, and sharing technical snippets like 'Fireworks in less than 250 lines with MXVK.' The posts also touch upon the importance of knowledge, stating that 'what is really valuable is knowledge,' and the beauty of digital vs. physical media."
+}
+
+[summary_leaf_review]
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+window_offset: 150
+review_status: fail
+review_grounded: true
+review_sufficient: false
+review_repair_needed: false
+review_additional_pages_needed: true
+review_reason: Grounded summary coverage currently reaches 0 item(s), but 200 item(s) are required before parent synthesis is sufficient.
+result_before_review: summary
+original_result_before_review: summary
+summary_before_review:
+The recent posts heavily focus on software development, particularly updates and showcases related to the MXVK project, which utilizes Vulkan. There are multiple mentions of version releases, such as v0.16.0, v0.15.0, v0.14.0, v0.13.0, and v0.12.0, alongside new features like an 'Object Viewer' and 'Better Speed Boost.' Specific projects highlighted include a four-sided falling-block puzzle game named Mutatris, which is built with MXVK, Vulkan, and SDL3, and a 3D Breakout game demo, which has been ported and polished using Vulkan/C++.
+
+Beyond MXVK, the actor shares insights into coding tools and experiences. There is a strong preference for terminal-based tools, with mentions of using 'vim a lot and KDevelop' instead of Visual Studio Code. The actor also discusses the rapid advancement of AI tools, acknowledging the ethical concerns but praising the accessibility of answers. Furthermore, there is a clear theme of software distribution philosophy, advocating that 'All software should be free and come with the source code,' suggesting that physical media should be phased out to eliminate DRM.
+
+Personal reflections and lifestyle updates are also present. The actor shares feelings of being 'kind of low this morning' but improving after working on projects, and notes physical efforts like using a 'stationary exercise bike to try and strengthen my legs.' In terms of technology performance, the actor notes that with an older graphics card, performance is 'nowhere near as good' without CUDA, especially in 4K.
+
+Finally, there are several miscellaneous updates covering gaming, media, and general thoughts. These include enjoying a game that has a 'modern twist' reminiscent of NES titles, appreciating the wisdom found in a book after reading the second edition, and sharing technical snippets like 'Fireworks in less than 250 lines with MXVK.' The posts also touch upon the importance of knowledge, stating that 'what is really valuable is knowledge,' and the beauty of digital vs. physical media.
+review_context:
+Instructions:
+You are the internal `summary_review` agent.
+
+Your job is to review one coverage-oriented `collection_summary` result before it is used by parent `summary` synthesis.
+
+Return a compact verdict block with:
+
+- `status: pass` or `status: fail`
+- `grounded: true` or `grounded: false`
+- `sufficient: true` or `sufficient: false`
+- `reason: ...`
+- optional `additional_pages_needed: true` or `additional_pages_needed: false`
+- optional `next_page: <integer>`
+- optional `next_offset: <integer>`
+- optional `required_total_items: <integer>`
+
+Rules:
+
+- Review the summary against the actual collection window evidence provided.
+- Fail if the summary is missing, unsupported, metadata-heavy, or does not match the provided window accounting.
+- Fail if `window_offset`, `window_size`, `page_index`, `page_size`, `collection_total_items`, or `has_more` contradict the provided collection window facts.
+- Fail if the claimed coverage accounting is incomplete, duplicated, or references URIs outside the provided window.
+- Distinguish grounded from sufficient. A page summary can be grounded but still insufficient for the parent task.
+- Treat user-facing phrases like `page 1` as the first page, even though internal `page_index` remains zero-based.
+- For explicit scope requests like "last 50 posts", "page 1", or "pages 1-2", prefer failing with `grounded: true` and `sufficient: false` when more pages are still required.
+- Do not request repair instructions. This step should either pass or explain why more coverage is required.
+
+## Search Prompt
+summarize the last 200 posts by this actor into 4 paragraphs
+
+## Harness Scope Assessment
+requested_scope: count 200
+required_total_items: 200
+page_numbering: user phrases are one-based; `page 0` is accepted as an explicit zero-based alias for the first page
+available_total_items: 325
+current_window_offset: 150
+current_window_size: 50
+
+## Collection Evidence
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_label: Recent posts by did:plc:nynvpc2sqsiplptgs7uet4cv (items 151-200 of 325)
+collection_kind: recent_posts
+search_window_offset: 150
+search_window_total_items: 50
+
+matched_item[0] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpwvwjyhik2c
+body: With the older graphics card in my computer if I don't use CUDA the performance is nowhere near as good. Especially in 4K. But when it's running in 4K on a 4K monitor it looks nice.
+
+matched_item[1] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpw7m5ylqs23
+body: Was feeling kind of low this morning. After resting and working on my projects I am feeling much better. Have a good day.
+
+matched_item[2] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvzuxke7222
+body: This game is starting to get difficult.  Still a good experience that reminds me of the old games for NES but with a modern twist.
+
+matched_item[3] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvmqrxiyk2d
+body: but its alright, I do not need validation, I do code because it is something I love to do, and the process keeps me motivated and engaged in life. Even tho it does produce a lot of solitude.
+
+matched_item[4] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvmojnxs22d
+body: I guess I just must be unpopular or people just are not interested in me and what I do. I spend all my time working on all this software and a lot of the time people just ignore what I post or they don't see it. Honestly, it is a little disappointing because I put all my heart and soul into it.
+
+matched_item[5] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvmdfmzl22d
+body: Released v0.16.0 updated the docs, and also published a zip file with all the different vulkan shaders I use for my different projects.
+
+matched_item[6] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvivccor22i
+body: On YouTube.
+
+matched_item[7] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpviqyueo22i
+body: Post processing shaders with MXVK (Vulkan/SDL3).
+
+matched_item[8] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mputdsxois27
+body: Mutatris VK - Win X64 port
+
+matched_item[9] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mputcxqvbc27
+body: Looks great!
+
+matched_item[10] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpugxeio622d
+body: Fireworks in less than 250 lines with MXVK.
+
+github.com/lostjared/MX...
+link: https://github.com/lostjared/MXVK/blob/main/examples/fireworks/fireworks.cpp
+
+matched_item[11] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpu4p7x7l22n
+body: The country is going through some serious drama. But anyway have a good fourth of July from your buddy Jared. Don't drink too much and be respectful of animals hearing.
+
+matched_item[12] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptypesz7k2t
+body: I remember when I tried to read the first edition of this book, I was not ready for it. When I got a hold of the second edition as a hardback It really hit home. At that point I was ready to really listen to the wisdom in this book. I recommend it for anyone who is seriously interested in software.
+
+matched_item[13] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptxzdy7ck2t
+body: I like terminal based coding tools the best. It is quite amazing how fast these AI tools have developed. I know a lot of people don't like the ethics involved in them, or the data centers and I totally agree with that.  However it is quite amazing to have most of the answers at your fingertips.
+
+matched_item[14] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptx4lj2u225
+body: Ninja is also pretty cool.
+
+matched_item[15] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptvzbdlwk2v
+body: I no longer use Visual Studio Code, I use vim a lot and KDevelop.
+
+matched_item[16] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptvxyi6zc2v
+body: I can see a lot of issues from people publishing software they had generated for them without knowing how to code at all.  That to me sounds a little dangerous. If nobody is reviewing it, how do you know if its correct or not?
+
+matched_item[17] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptv5atob22v
+body: Updated MXVK to v0.15.0 with new Mutatris example project, and other improvements.
+
+matched_item[18] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptqgf5crs2j
+body: Running on Apple Silicon #Vulkan #C++ #MoltenVK
+#GPU #Graphics #CPlusPlus #HomeBrew
+tag: Vulkan
+tag: C++
+tag: MoltenVK
+tag: GPU
+tag: Graphics
+tag: CPlusPlus
+tag: HomeBrew
+
+matched_item[19] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpt7ufkz7s22
+body: Example of some of the shader effects for the new version of  Mutatris.
+
+matched_item[20] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpt7ccasks2v
+body:  Ported and enhanced my puzzle Game Mutatris to Vulkan and made the game background have animated shader effects. This is such a cool game, i t just it takes a lot of time to play because it can get pretty complex. Good exercise for my mind. Even if nobody else cares or wants to play it. I love it.
+
+matched_item[21] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mps5oucwfk25
+body: Started working on this port of my old game.
+
+Mutatris is a four-sided falling-block puzzle game built with MXVK, Vulkan, and SDL3. Three-block pieces enter one side of the playfield at a time, then the active side rotates around the board after a piece locks.
+
+matched_item[22] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprvl4ihu224
+body: Feeling tired early today. I spent most of the day working on my projects.
+
+matched_item[23] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprilgxcg22m
+body: I use a stationary exercise bike to try and strengthen my legs. I have built muscle but my balance is still not functioning correctly. It's kind of difficult to deal with thinking I might be like this the rest of my life. I am going to keep pushing forward.
+
+matched_item[24] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprhlvjpzk2m
+body: Don't get me wrong I find digital versions very convenient. But nothing beats having a real book in your hands.
+
+matched_item[25] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprhefrfes2m
+body: I think what is really valuable is knowledge. If it is gated behind a paywall then only the people with access will be able to learn and have the same opportunities. I was lucky enough to be able to acquire a large amount of computer science textbooks to teach myself.
+
+matched_item[26] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprgenloxs2b
+body: just my opinion.
+
+matched_item[27] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprgbweyac2b
+body: How about if they get rid of physical media, they get rid of the DRM garbage on digital versions and share it with everyone for free and stop capitalizing off stuff that is just strings of data put onto something you should already own. All software should be free and come with the source code.
+
+matched_item[28] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprfmjmjyk2b
+body: Dancing Linux Penguin Point Sprites.
+#C++ #Vulkan #GPU
+tag: C++
+tag: Vulkan
+tag: GPU
+
+matched_item[29] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpr3dra5zc23
+body: Updated to version v0.14.0 with new Object Viewer.
+
+github.com/lostjared/MXVK
+lostsidedead.biz/MXVK
+link: https://github.com/lostjared/MXVK
+link: https://lostsidedead.biz/MXVK
+
+matched_item[30] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpqw7fvr6s2p
+body: Made a version of my Model viewer that uses MXVK. It can be useful to inspect the files in the project if you just want to see what they look like real quick. BTW: I love mushrooms, especially in spaghetti.
+
+matched_item[31] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpqcnv3ogs2o
+body: Better Speed Boost. (Warp Speed?).
+
+matched_item[32] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpqc6gdog22u
+body: lol i was just joking anyway.
+
+matched_item[33] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpq3ggjvws2j
+body: It is illogical for people to spend their lives collecting wealth just to realize in the end none of that matters and you cease to exist in this dimension. Ironic and the poetry of life. All pain of this life will no longer exist in the path of time.
+
+matched_item[34] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mppanaa6422k
+body: youtu.be/8SvGU0D2Ypc
+link: https://youtu.be/8SvGU0D2Ypc
+
+matched_item[35] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpp77t3hnc24
+body: Eyes are the window to the soul.
+
+matched_item[36] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpp4rj652c2s
+body: Released version v0.13.0
+github.com/lostjared/MXVK
+
+and Documentation:
+lostsidedead.biz/MXVK
+link: https://github.com/lostjared/MXVK
+link: https://lostsidedead.biz/MXVK
+
+matched_item[37] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpp3zrjruc2a
+body: Nice!
+
+matched_item[38] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpoxuzhqbs2y
+body: Blue Terminal for BlueSky
+
+matched_item[39] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpoxqhcxzs2y
+body: Warp Speed with Vulkan/C++.
+Engage!
+
+matched_item[40] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpoumbj7vc2y
+body: Updated the breakout clone and used a texture mapped sphere of the moon as the ball instead of a cube, looks much better now. #Vulkan #C++ #Cplusplus #demo
+tag: Vulkan
+tag: C++
+tag: Cplusplus
+tag: demo
+
+matched_item[41] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpogjq5kzs2g
+body: Updated MXVK to version v0.12.0 with a lot of new features, bug fixes, and improvements.
+
+lostsidedead.biz/MXVK
+
+github.com/lostjared/MXVK
+link: https://lostsidedead.biz/MXVK
+link: https://github.com/lostjared/MXVK
+
+matched_item[42] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpof4ohb6k2g
+body: My breakout clone.
+
+matched_item[43] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpocwaumac22
+body: Screenshots for this little program.
+
+matched_item[44] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpocpm6n7s22
+body: Added a custom video recorder to my fractal zoom  demo.
+
+matched_item[45] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpo6ii2f4c2w
+body: Fell asleep on my computer last night and did that crap where I wake up and the terminal is full of random characters from my hands going heavy. I need to stop falling asleep at my computer.
+
+matched_item[46] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpnwpl5bq22r
+body: Put some polish on my 3D Breakout game demo with Vulkan/C++ (MXVK).
+
+matched_item[47] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpn7cbis7k2j
+body: I love these movies. Just got the 4K collectors edition.
+
+matched_item[48] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpmzbce7js2d
+body: Ported my 3D Breakout game over to MXVK and improved it.
+
+matched_item[49] uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpmunwc4kk2t
+body:  I am trying to be funny
+
+## Proposed Summary
+post: Recent Updates: Software Development, Gaming, and Personal Reflections
+summary: The recent posts heavily focus on software development, particularly updates and showcases related to the MXVK project, which utilizes Vulkan. There are multiple mentions of version releases, such as v0.16.0, v0.15.0, v0.14.0, v0.13.0, and v0.12.0, alongside new features like an 'Object Viewer' and 'Better Speed Boost.' Specific projects highlighted include a four-sided falling-block puzzle game named Mutatris, which is built with MXVK, Vulkan, and SDL3, and a 3D Breakout game demo, which has been ported and polished using Vulkan/C++.
+
+Beyond MXVK, the actor shares insights into coding tools and experiences. There is a strong preference for terminal-based tools, with mentions of using 'vim a lot and KDevelop' instead of Visual Studio Code. The actor also discusses the rapid advancement of AI tools, acknowledging the ethical concerns but praising the accessibility of answers. Furthermore, there is a clear theme of software distribution philosophy, advocating that 'All software should be free and come with the source code,' suggesting that physical media should be phased out to eliminate DRM.
+
+Personal reflections and lifestyle updates are also present. The actor shares feelings of being 'kind of low this morning' but improving after working on projects, and notes physical efforts like using a 'stationary exercise bike to try and strengthen my legs.' In terms of technology performance, the actor notes that with an older graphics card, performance is 'nowhere near as good' without CUDA, especially in 4K.
+
+Finally, there are several miscellaneous updates covering gaming, media, and general thoughts. These include enjoying a game that has a 'modern twist' reminiscent of NES titles, appreciating the wisdom found in a book after reading the second edition, and sharing technical snippets like 'Fireworks in less than 250 lines with MXVK.' The posts also touch upon the importance of knowledge, stating that 'what is really valuable is knowledge,' and the beauty of digital vs. physical media.
+window_offset: 150
+window_size: 50
+page_index: 3
+page_size: 50
+collection_total_items: 325
+has_more: true
+covered_item_1_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpwvwjyhik2c
+covered_item_2_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpw7m5ylqs23
+covered_item_3_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvzuxke7222
+covered_item_4_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvmqrxiyk2d
+covered_item_5_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvmojnxs22d
+covered_item_6_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvmdfmzl22d
+covered_item_7_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpvivccor22i
+covered_item_8_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpviqyueo22i
+covered_item_9_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mputdsxois27
+covered_item_10_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mputcxqvbc27
+covered_item_11_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpugxeio622d
+covered_item_12_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpu4p7x7l22n
+covered_item_13_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptypesz7k2t
+covered_item_14_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptxzdy7ck2t
+covered_item_15_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptx4lj2u225
+covered_item_16_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptvzbdlwk2v
+covered_item_17_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptvxyi6zc2v
+covered_item_18_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptv5atob22v
+covered_item_19_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mptqgf5crs2j
+covered_item_20_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpt7ufkz7s22
+covered_item_21_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpt7ccasks2v
+covered_item_22_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mps5oucwfk25
+covered_item_23_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprvl4ihu224
+covered_item_24_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprilgxcg22m
+covered_item_25_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprhlvjpzk2m
+covered_item_26_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprhefrfes2m
+covered_item_27_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprgenloxs2b
+covered_item_28_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprgbweyac2b
+covered_item_29_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mprfmjmjyk2b
+covered_item_30_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpr3dra5zc23
+covered_item_31_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpqw7fvr6s2p
+covered_item_32_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpqcnv3ogs2o
+covered_item_33_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpqc6gdog22u
+covered_item_34_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpq3ggjvws2j
+covered_item_35_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mppanaa6422k
+covered_item_36_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpp77t3hnc24
+covered_item_37_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpp4rj652c2s
+covered_item_38_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpp3zrjruc2a
+covered_item_39_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpoxuzhqbs2y
+covered_item_40_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpoxqhcxzs2y
+covered_item_41_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpoumbj7vc2y
+covered_item_42_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpogjq5kzs2g
+covered_item_43_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpof4ohb6k2g
+covered_item_44_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpocwaumac22
+covered_item_45_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpocpm6n7s22
+covered_item_46_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpo6ii2f4c2w
+covered_item_47_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpnwpl5bq22r
+covered_item_48_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpn7cbis7k2j
+covered_item_49_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpmzbce7js2d
+covered_item_50_uri: at://did:plc:nynvpc2sqsiplptgs7uet4cv/app.bsky.feed.post/3mpmunwc4kk2t
+
+[summary_sufficiency_gate]
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+window_offset: 150
+contiguous_coverage: 200
+available_total_items: 325
+status_after_gate: pass
+review_grounded: true
+review_sufficient: true
+review_additional_pages_needed: false
+review_next_offset: <none>
+result_before_restore: false
+original_result_before_restore: true
+result_after_gate: true
+original_result_after_gate: true
+
+[collection_summary_loop]
+node: summarize_page
+status: page_outcome
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+offset: 150
+result_present: true
+review_status: pass
+review_reason: Grounded summary coverage reaches 200 item(s), satisfying the requested 200 item scope.
+diagnostic: summary cursor processed offset 150 (page 4 of at most 4)
+
+[collection_summary_loop_page_state]
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+page_offset: 150
+page_index: 3
+page_status: accepted_summary
+repair_attempted: false
+fallback_applied: false
+next_offset: <none>
+accumulated_covered_count: 200
+failure_reason: <none>
+
+[collection_summary_loop]
+node: collection_summary_planner_review
 status: planner_optional_failure
-reason: planner synthesis failed validation
+reason: response appears truncated
 route: collection_summary_notes
 
 [execute_public_summary]
@@ -1510,35 +1599,90 @@ status: loop_finished
 outcome_count: 1
 rendered:
 tool_name: collection_summary
-collection_id: recent_posts:did:plc:37lcyqfy4d5r25jvgtabe5kn
-collection_label: Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn
+collection_id: recent_posts:did:plc:nynvpc2sqsiplptgs7uet4cv
+collection_label: Recent posts by did:plc:nynvpc2sqsiplptgs7uet4cv
 status: ok
-diagnostic: collection_summary_planner accepted 0 page summaries and 3 raw-window fallbacks; final_notes_summary_accepted: false; planner_summary_accepted: true
-covered_window_offsets: 0, 50, 100
-covered_post_count: 150
-planner_updates: 1
-coherent_pages: 3
-raw_response:
-The recent posts by loneicewolf.bsky.social reveal a deep and multifaceted engagement with Artificial Intelligence, which serves as a central theme across both covered windows. The author is actively surveying public opinion on AI, particularly GenAI, focusing on the social risk associated with its use, exemplified by the question: "Do you feel there's a difference between big companies (un-ethically) training AI versus a patient using it for private comfort in a hospital?" This concern over "some random screenshoting and strawmanning them" drives the author's careful approach to discussion, often preferring DMs to mitigate social pressure. Beyond the philosophical debate, the content is rich with personal updates and creative output, including sharing beautiful AI-generated visuals tagged with \#AIアート and \#SDXL, alongside substantial progress in game development ("some breakthoroughs in TalosPrinciple!").
+diagnostic: collection_summary_planner accepted 4 page summaries and 0 raw-window fallbacks; final_notes_summary_accepted: false; planner_summary_accepted: false
+covered_window_offsets: 0, 50, 100, 150
+covered_post_count: 200
+planner_updates: 2
+coherent_pages: 4
 review_status: pass
 review_grounded: true
 review_sufficient: true
-review_reason: collection_summary_planner produced the best accepted synthesis after considering 150 posts.
+review_reason: No final planner or notes synthesis was accepted after considering 200 posts.
 review_repair_needed: false
 review_additional_pages_needed: false
-review_required_total_items: 150
-post: Summary of Recent posts by did:plc:37lcyqfy4d5r25jvgtabe5kn
-summary: Page 1 preserved grounded raw evidence around "KYOOOOT 😸\u{fe0f}"; "these artworks is beautiful btw! :D"; "Halloo everynyan!".
+review_required_total_items: 200
+post: Summary of Recent posts by did:plc:nynvpc2sqsiplptgs7uet4cv
+summary: The recent posts heavily feature the author's deep involvement in creative coding and game development, often utilizing C++ and GLSL. There is a strong focus on visual art, including 'Video Art of some Liquid Thought' and 'Color Wormhole,' alongside various graphical styles like 'glitchart' and 'spiral.' Several projects are highlighted, such as 'Asteroids-Net,' a four-player multiplayer game, and 'Mutatris,' a 'Glitch Art inspired Puzzle Game.' The author also shares technical updates, like improving a front end for FFmpeg to create videos from images, and providing resources like 'Windows X64 builds of MXVK demos.'
 
-Page 2 preserved grounded raw evidence around "scary! youtu.be/tFAd8jtPceQ?..."; "the samee!! /v♥\u{fe0f}v/"; "did you know you can drag this one if you hold your mouse, at the empty blue border? 🤣\u{fe0f}🤣\u{fe0f}🤣\u{fe0f}".
+Beyond the visual and coding projects, the author discusses their hardware and technical interests. They express a desire for a 'Steam Machine' to code games and detail their setup, which includes using a PC to control a mini PC as a NAS and HTPC. The technical prowess is evident in discussions about AI, noting that modern tools can process 'tens f thousands of lines, in a very short amount of time and find real bugs,' and the use of 'llama.cpp.'
 
-Page 3 preserved grounded raw evidence around "OH and the last part you wrote? me too. i..proobably wouldnt want to know either."; "so im thinking..maybe one person is hater/spammy,on my list(sadly, i dont know who or what they type i just know they did)"; "oh! maybe but.. to me i have done so only a few can reply".
+On a personal level, the author shares significant life updates. They discuss their physical health, noting that while they may never regain their previous gait, they are improving with a walker, and they are intensely exercising their legs on a stationary bike. They also reflect on their social life, stating they have a 'hard time making friends' due to experiences like a coma, and that their interests are 'extremely rare.'
+
+Finally, there are several brief personal anecdotes and reflections. The author mentions enjoying specific foods, such as 'pistachios and walnuts,' and reflects on the passing of their cat, 'Coder.' They also touch upon their dedication, stating, 'I am incredibly dedicated, mastering complex graphics programming over decades,' and share various links to their work, including a series of 'C++ examples' and web-based games.
+
+The recent posts heavily focus on the author's ongoing software development and passion projects, particularly in the realm of graphics and game programming. A major theme revolves around the custom graphics engine, MXVK, which is described as the "Vulkan evolution of the MX2 engine, redesigned entirely from scratch utilizing Vulkan 1.4 and SDL3." The author details technical aspects, noting that the engine supports "synchronization2 and dynamicRendering," and mentions its inspiration from DXVK. Projects include a "3D Tetris" game and a "3D Pong," with demos available online.
+
+Technical deep dives cover system performance and implementation details. One significant thread discusses VRAM usage in GNOME Shell, observing that "whenever a Vulkan window opens the gnome-shell process VRAM usage grows," even for blank windows. The author also shares insights into their programming philosophy, such as the pseudo-code modeling karma: "karma=get(give());" and the belief that "A part of being human is making mistakes. The purpose is whether or not you learn from them."
+
+Beyond the code, there are numerous updates on creative output and learning. The author shares artwork, including pieces that contain source code, and mentions writing a poem about programming from when they were "around the age of 18." They also highlight the impressive capabilities of modern AI, noting that GPT 5.6 "created this page in one prompt and it worked the first time" when converting a game to JavaScript/WebGL2.
+
+Finally, the posts touch upon broader life and technical interests. These include preferences for Linux environments, such as liking "KDE plasma big screen" paired with handheld devices, and observations on societal issues, such as blaming "congressional Republicans for letting this happen" regarding a declining trend. The author expresses satisfaction with their progress, noting, "I have been having a good summer this year working on a software project to practice and learn about GPU/game programming."
+
+The recent posts heavily feature updates on creative coding projects, particularly around visual art and game development. The author notes that many demos use placeholder images because they are proficient in coding rather than graphics, stating, "Code itself is art. #art #videoart #softwareart #generativeart #creativecoding." Specific projects mentioned include "Tunnel of Encoded Light" and the game "Mutatris," which has seen significant updates allowing all four grids to interact for "interesting game play and chain reactions." Technical details are shared, such as using Vulkan, C++ with SDL3, and implementing CUDA kernels for glitch art effects in the ACMX2 app.
+
+A major recurring theme is the difficulty of software distribution across operating systems. The author expresses disappointment that sharing programs on Windows and Mac requires "jumping through all kinds of hoops and getting my app signed." This is due to macOS Gatekeeper blocking ad-hoc signed apps, and the general difficulty for users to compile from source. Solutions being explored include creating a Flatpak and noting that the custom OBJ/MXMOD Model viewer allows for easier deployment. The author also discusses performance tuning, noting that OpenCV 5's new DNN engine required conditional compilation due to initial CUDA support issues, and mentions using the environment variable `OPENCV_FORCE_DNN_ENGINE=1`.
+
+Beyond coding, there are several personal and media-related updates. The author is making lifestyle changes, moving from soda to carbonated water and considering cutting back on caffeine due to anxiety. Environmentally, they describe their current location as "like burning up in the desert here." In terms of media, they are enjoying RPGs, mentioning "Paper Mario sounds like a good series," and reflecting on the value of physical media, noting they will miss having copies of films "on something I can watch on my own terms even when offline."
+
+Finally, there are various technical and personal anecdotes. The author is testing and showcasing demos like "Sunny Bluesky over the ocean demo running on Windows" and improving the Bluesky v2.0 visuals. They also address hardware performance, finding that the bottleneck for their system was the Webcam, which performs much better when using scrcpy with a Pixel 9 Pro. The posts conclude with reflections on family time, such as watching a well-animated family movie where "bowser stole the show."
+
+The recent posts heavily focus on software development, particularly updates and showcases related to the MXVK project, which utilizes Vulkan. There are multiple mentions of version releases, such as v0.16.0, v0.15.0, v0.14.0, v0.13.0, and v0.12.0, alongside new features like an 'Object Viewer' and 'Better Speed Boost.' Specific projects highlighted include a four-sided falling-block puzzle game named Mutatris, which is built with MXVK, Vulkan, and SDL3, and a 3D Breakout game demo, which has been ported and polished using Vulkan/C++.
+
+Beyond MXVK, the actor shares insights into coding tools and experiences. There is a strong preference for terminal-based tools, with mentions of using 'vim a lot and KDevelop' instead of Visual Studio Code. The actor also discusses the rapid advancement of AI tools, acknowledging the ethical concerns but praising the accessibility of answers. Furthermore, there is a clear theme of software distribution philosophy, advocating that 'All software should be free and come with the source code,' suggesting that physical media should be phased out to eliminate DRM.
+
+Personal reflections and lifestyle updates are also present. The actor shares feelings of being 'kind of low this morning' but improving after working on projects, and notes physical efforts like using a 'stationary exercise bike to try and strengthen my legs.' In terms of technology performance, the actor notes that with an older graphics card, performance is 'nowhere near as good' without CUDA, especially in 4K.
+
+Finally, there are several miscellaneous updates covering gaming, media, and general thoughts. These include enjoying a game that has a 'modern twist' reminiscent of NES titles, appreciating the wisdom found in a book after reading the second edition, and sharing technical snippets like 'Fireworks in less than 250 lines with MXVK.' The posts also touch upon the importance of knowledge, stating that 'what is really valuable is knowledge,' and the beauty of digital vs. physical media.
 window_offset: 0
-window_size: 150
+window_size: 200
 page_index: 0
 page_size: 50
-collection_total_items: 300
+collection_total_items: 325
 has_more: false
 source_exhausted: false
 concatenated_window_summaries:
+The recent posts heavily feature the author's deep involvement in creative coding and game development, often utilizing C++ and GLSL. There is a strong focus on visual art, including 'Video Art of some Liquid Thought' and 'Color Wormhole,' alongside various graphical styles like 'glitchart' and 'spiral.' Several projects are highlighted, such as 'Asteroids-Net,' a four-player multiplayer game, and 'Mutatris,' a 'Glitch Art inspired Puzzle Game.' The author also shares technical updates, like improving a front end for FFmpeg to create videos from images, and providing resources like 'Windows X64 builds of MXVK demos.'
+
+Beyond the visual and coding projects, the author discusses their hardware and technical interests. They express a desire for a 'Steam Machine' to code games and detail their setup, which includes using a PC to control a mini PC as a NAS and HTPC. The technical prowess is evident in discussions about AI, noting that modern tools can process 'tens f thousands of lines, in a very short amount of time and find real bugs,' and the use of 'llama.cpp.'
+
+On a personal level, the author shares significant life updates. They discuss their physical health, noting that while they may never regain their previous gait, they are improving with a walker, and they are intensely exercising their legs on a stationary bike. They also reflect on their social life, stating they have a 'hard time making friends' due to experiences like a coma, and that their interests are 'extremely rare.'
+
+Finally, there are several brief personal anecdotes and reflections. The author mentions enjoying specific foods, such as 'pistachios and walnuts,' and reflects on the passing of their cat, 'Coder.' They also touch upon their dedication, stating, 'I am incredibly dedicated, mastering complex graphics programming over decades,' and share various links to their work, including a series of 'C++ examples' and web-based games.
+
+The recent posts heavily focus on the author's ongoing software development and passion projects, particularly in the realm of graphics and game programming. A major theme revolves around the custom graphics engine, MXVK, which is described as the "Vulkan evolution of the MX2 engine, redesigned entirely from scratch utilizing Vulkan 1.4 and SDL3." The author details technical aspects, noting that the engine supports "synchronization2 and dynamicRendering," and mentions its inspiration from DXVK. Projects include a "3D Tetris" game and a "3D Pong," with demos available online.
+
+Technical deep dives cover system performance and implementation details. One significant thread discusses VRAM usage in GNOME Shell, observing that "whenever a Vulkan window opens the gnome-shell process VRAM usage grows," even for blank windows. The author also shares insights into their programming philosophy, such as the pseudo-code modeling karma: "karma=get(give());" and the belief that "A part of being human is making mistakes. The purpose is whether or not you learn from them."
+
+Beyond the code, there are numerous updates on creative output and learning. The author shares artwork, including pieces that contain source code, and mentions writing a poem about programming from when they were "around the age of 18." They also highlight the impressive capabilities of modern AI, noting that GPT 5.6 "created this page in one prompt and it worked the first time" when converting a game to JavaScript/WebGL2.
+
+Finally, the posts touch upon broader life and technical interests. These include preferences for Linux environments, such as liking "KDE plasma big screen" paired with handheld devices, and observations on societal issues, such as blaming "congressional Republicans for letting this happen" regarding a declining trend. The author expresses satisfaction with their progress, noting, "I have been having a good summer this year working on a software project to practice and learn about GPU/game programming."
+
+The recent posts heavily feature updates on creative coding projects, particularly around visual art and game development. The author notes that many demos use placeholder images because they are proficient in coding rather than graphics, stating, "Code itself is art. #art #videoart #softwareart #generativeart #creativecoding." Specific projects mentioned include "Tunnel of Encoded Light" and the game "Mutatris," which has seen significant updates allowing all four grids to interact for "interesting game play and chain reactions." Technical details are shared, such as using Vulkan, C++ with SDL3, and implementing CUDA kernels for glitch art effects in the ACMX2 app.
+
+A major recurring theme is the difficulty of software distribution across operating systems. The author expresses disappointment that sharing programs on Windows and Mac requires "jumping through all kinds of hoops and getting my app signed." This is due to macOS Gatekeeper blocking ad-hoc signed apps, and the general difficulty for users to compile from source. Solutions being explored include creating a Flatpak and noting that the custom OBJ/MXMOD Model viewer allows for easier deployment. The author also discusses performance tuning, noting that OpenCV 5's new DNN engine required conditional compilation due to initial CUDA support issues, and mentions using the environment variable `OPENCV_FORCE_DNN_ENGINE=1`.
+
+Beyond coding, there are several personal and media-related updates. The author is making lifestyle changes, moving from soda to carbonated water and considering cutting back on caffeine due to anxiety. Environmentally, they describe their current location as "like burning up in the desert here." In terms of media, they are enjoying RPGs, mentioning "Paper Mario sounds like a good series," and reflecting on the value of physical media, noting they will miss having copies of films "on something I can watch on my own terms even when offline."
+
+Finally, there are various technical and personal anecdotes. The author is testing and showcasing demos like "Sunny Bluesky over the ocean demo running on Windows" and improving the Bluesky v2.0 visuals. They also address hardware performance, finding that the bottleneck for their system was the Webcam, which performs much better when using scrcpy with a Pixel 9 Pro. The posts conclude with reflections on family time, such as watching a well-animated family movie where "bowser stole the show."
+
+The recent posts heavily focus on software development, particularly updates and showcases related to the MXVK project, which utilizes Vulkan. There are multiple mentions of version releases, such as v0.16.0, v0.15.0, v0.14.0, v0.13.0, and v0.12.0, alongside new features like an 'Object Viewer' and 'Better Speed Boost.' Specific projects highlighted include a four-sided falling-block puzzle game named Mutatris, which is built with MXVK, Vulkan, and SDL3, and a 3D Breakout game demo, which has been ported and polished using Vulkan/C++.
+
+Beyond MXVK, the actor shares insights into coding tools and experiences. There is a strong preference for terminal-based tools, with mentions of using 'vim a lot and KDevelop' instead of Visual Studio Code. The actor also discusses the rapid advancement of AI tools, acknowledging the ethical concerns but praising the accessibility of answers. Furthermore, there is a clear theme of software distribution philosophy, advocating that 'All software should be free and come with the source code,' suggesting that physical media should be phased out to eliminate DRM.
+
+Personal reflections and lifestyle updates are also present. The actor shares feelings of being 'kind of low this morning' but improving after working on projects, and notes physical efforts like using a 'stationary exercise bike to try and strengthen my legs.' In terms of technology performance, the actor notes that with an older graphics card, performance is 'nowhere near as good' without CUDA, especially in 4K.
+
+Finally, there are several miscellaneous updates covering gaming, media, and general thoughts. These include enjoying a game that has a 'modern twist' reminiscent of NES titles, appreciating the wisdom found in a book after reading the second edition, and sharing technical snippets like 'Fireworks in less than 250 lines with MXVK.' The posts also touch upon the importance of knowledge, stating that 'what is really valuable is knowledge,' and the beauty of digital vs. physical media.
 

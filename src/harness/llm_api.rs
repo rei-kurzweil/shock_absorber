@@ -13,8 +13,9 @@ use std::{
 use tokio::time::sleep;
 
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 90;
-const TRANSIENT_RETRY_DELAY_SECS: u64 = 5;
-const MAX_TRANSIENT_ATTEMPTS: usize = 2;
+// Attempts at 0, 4, 8, 12, and 16 seconds span a typical local-server restart.
+const TRANSIENT_RETRY_DELAY_SECS: u64 = 4;
+const MAX_TRANSIENT_ATTEMPTS: usize = 5;
 
 #[derive(Clone, Debug)]
 pub struct OpenAiRestConfig {
@@ -247,6 +248,20 @@ impl LlmApiClient {
         max_tokens: usize,
         response_format: Option<ChatCompletionResponseFormat>,
     ) -> Result<String, Box<dyn std::error::Error>> {
+        self.complete_chat_with_retry_observer(messages, max_tokens, response_format, |_, _, _| {})
+            .await
+    }
+
+    pub async fn complete_chat_with_retry_observer<F>(
+        &self,
+        messages: Vec<ChatMessage>,
+        max_tokens: usize,
+        response_format: Option<ChatCompletionResponseFormat>,
+        mut on_retry: F,
+    ) -> Result<String, Box<dyn std::error::Error>>
+    where
+        F: FnMut(usize, usize, u64),
+    {
         #[cfg(test)]
         if let Some(scripted) = self.scripted_responses.as_ref() {
             let mut queued = scripted.lock().expect("lock scripted llm responses");
@@ -279,6 +294,10 @@ impl LlmApiClient {
                     let should_retry = err.is_retryable() && attempt < MAX_TRANSIENT_ATTEMPTS;
                     last_error = Some(err);
                     if should_retry {
+                        on_retry(attempt, MAX_TRANSIENT_ATTEMPTS, TRANSIENT_RETRY_DELAY_SECS);
+                        eprintln!(
+                            "local LLM unavailable (attempt {attempt}/{MAX_TRANSIENT_ATTEMPTS}); retrying in {TRANSIENT_RETRY_DELAY_SECS}s"
+                        );
                         sleep(Duration::from_secs(TRANSIENT_RETRY_DELAY_SECS)).await;
                         continue;
                     }
@@ -287,11 +306,12 @@ impl LlmApiClient {
             }
         }
 
-        Err(last_error
-            .unwrap_or_else(|| {
-                LlmApiError::message("llm request failed without a captured transport error")
-            })
-            .into())
+        let last_error = last_error.unwrap_or_else(|| {
+            LlmApiError::message("llm request failed without a captured transport error")
+        });
+        Err(LlmApiError::message(format!(
+            "llm request failed after {MAX_TRANSIENT_ATTEMPTS} attempt(s) across the local backend recovery window: {last_error}"
+        )).into())
     }
 
     async fn try_complete_chat(
@@ -484,7 +504,10 @@ fn truncate_body(body: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CapabilitiesResponse, LlmApiError, ModelsResponse, truncate_body};
+    use super::{
+        CapabilitiesResponse, LlmApiError, MAX_TRANSIENT_ATTEMPTS, ModelsResponse,
+        TRANSIENT_RETRY_DELAY_SECS, truncate_body,
+    };
     use reqwest::StatusCode;
 
     #[test]
@@ -505,6 +528,14 @@ mod tests {
 
         assert!(retryable.is_retryable());
         assert!(!non_retryable.is_retryable());
+    }
+
+    #[test]
+    fn transient_retry_window_spans_expected_local_restart() {
+        let final_attempt_after_seconds =
+            TRANSIENT_RETRY_DELAY_SECS * (MAX_TRANSIENT_ATTEMPTS.saturating_sub(1) as u64);
+        assert!(final_attempt_after_seconds >= 13);
+        assert!(final_attempt_after_seconds <= 20);
     }
 
     #[test]

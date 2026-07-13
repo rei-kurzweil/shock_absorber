@@ -2701,8 +2701,8 @@ impl BlueskyTools {
         );
         let review_window =
             build_context_window_report(&review_context, &llm_client.context_limits());
-        let review_response = llm_client
-            .complete_chat(
+        let review_response = match llm_client
+            .complete_chat_with_retry_observer(
                 vec![
                     ChatMessage {
                         role: "system".to_string(),
@@ -2714,9 +2714,33 @@ impl BlueskyTools {
                     },
                 ],
                 384,
+                None,
+                |attempt, max_attempts, delay_secs| {
+                    if let Some(observer) = observer.as_ref() {
+                        let _ = observer.send(ToolProgressEvent::AgentUpdate {
+                            label: "summary_review_backend".to_string(),
+                            depth: 3,
+                            content: format!(
+                                "collection_id: {}\nstatus: retrying\nattempt: {attempt}/{max_attempts}\nretry_in_seconds: {delay_secs}",
+                                collection.id
+                            ),
+                        });
+                    }
+                },
             )
             .await
-            .ok();
+        {
+            Ok(response) => Some(response),
+            Err(err) => {
+                if tool_kind == CollectionLeafToolKind::Summary {
+                    append_summary_trace(format!(
+                        "[summary_leaf_review_backend]\ncollection_id: {}\nstatus: unavailable\nerror: {err}",
+                        collection.id
+                    ));
+                }
+                None
+            }
+        };
 
         let heuristic =
             heuristic_collection_review(tool_kind, collection, requested_summary_scope, &execution);
@@ -2727,6 +2751,12 @@ impl BlueskyTools {
 
         if verdict.status == CollectionReviewStatus::Pass
             && heuristic.status == CollectionReviewStatus::Fail
+        {
+            verdict = heuristic.clone();
+        }
+        if tool_kind.is_coverage_oriented()
+            && heuristic.grounded
+            && verdict.reason.to_ascii_lowercase().contains("paragraph")
         {
             verdict = heuristic.clone();
         }
@@ -4256,7 +4286,7 @@ fn heuristic_collection_review(
         };
     }
 
-    if summary.contains("\n\n") {
+    if summary.contains("\n\n") && !tool_kind.is_coverage_oriented() {
         return CollectionReviewVerdict {
             status: CollectionReviewStatus::Fail,
             grounded: false,
@@ -8856,7 +8886,7 @@ mod tests {
             .collect::<Vec<_>>();
         let result = LlmSummaryResult {
             title: "window".to_string(),
-            summary: "The first 25 posts form a grounded page summary, with repeated short updates like \"topic 0,\" \"topic 12,\" and \"topic 24\" showing the full opening window."
+            summary: "The first 25 posts form a grounded page summary, with repeated short updates like \"topic 0,\" and \"topic 12\" showing the opening window.\n\nA second requested paragraph closes on \"topic 24\" while remaining grounded in the same page."
                 .to_string(),
             covered_item_uris,
             omitted_item_uris: Vec::new(),
