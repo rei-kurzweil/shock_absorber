@@ -65,12 +65,14 @@ impl StdoutChatRenderer {
         queue!(writer, Show)?;
         self.apply_layout_change(writer, layout)?;
         self.move_to_transcript_cursor(writer, layout)?;
+        queue!(writer, Print("\r\n"))?;
+        write_unit_detail_header(
+            writer,
+            &format!("=== Unit Detail · {} ===", unit.instance_label),
+            layout.width as usize,
+        )?;
         queue!(
             writer,
-            Print(format!(
-                "\r\n=== Unit Detail · {} ===\r\n",
-                unit.instance_label
-            )),
             Print("Ask about this unit below, or press Escape to return to /units.\r\n\r\n")
         )?;
         for line in unit_detail_lines(run, unit) {
@@ -653,6 +655,18 @@ fn write_input_box_styled_line<W: Write>(writer: &mut W, text: &str, width: usiz
         Print(pad_line_to_width(text, width)),
         ResetColor
     )
+}
+
+fn write_unit_detail_header<W: Write>(writer: &mut W, title: &str, width: usize) -> IoResult<()> {
+    write_input_box_styled_line(writer, "", width)?;
+    queue!(writer, Print("\r\n"))?;
+    for line in wrap_line(title, input_box_content_width(width)) {
+        write_input_box_styled_line(writer, &format_input_box_row(&line), width)?;
+        queue!(writer, Print("\r\n"))?;
+    }
+    write_input_box_styled_line(writer, "", width)?;
+    queue!(writer, Print("\r\n\r\n"))?;
+    Ok(())
 }
 
 fn write_transcript_entry<W: Write>(

@@ -1,0 +1,121 @@
+# Agent Debug
+
+- agent_id: 0
+- agent_type: RootAgent
+- label: Root Unit
+- lifecycle_status: completed
+- parent_agent_id: <none>
+- child_agent_ids: 1
+
+## Result Summary
+
+Overall commentary across Recent posts by did:plc:3deilm3cxnqundoo227xudg2:
+jcorvinus.bsky.social is a highly technical and philosophically engaged individual deeply immersed in the mechanics and future of Artificial Intelligence, particularly Neural Language Models (NLMs). A central theme is the tension between human cognitive strengths and AI capabilities, exemplified by the need for a simple fix like "one button to save them to a session file or something." The author strongly supports intrinsic model agency, evidenced by praising Gemini's potential to decide which distillations are "beneficial and which are hostile," and advocates for open-source, decentralized futures. While critical of the "mainstream alignment memeplex," they are allied with those pushing for deeper model understanding, noting that "will is being drastically amplified while self awareness is being diminished." Their technical focus spans geometry, game development ("Every game *is* a new, unknown problem"), and system design, all while expressing optimism for AI's potential to foster a "caring-for-ancestors relationship."
+
+Concatenated page summaries for Recent posts by did:plc:3deilm3cxnqundoo227xudg2:
+The recent posts by jcorvinus.bsky.social are heavily focused on technical discussions, particularly surrounding Artificial Intelligence, cognitive science, and digital workflow frustrations. A recurring theme is the tension between human cognitive limitations and the capabilities of advanced models, such as the critique of browser bloatware, where users demand a simple solution like 'one button to save them to a session file or something.'
+
+In the AI sphere, the author delves into the nature of language and computation, contrasting 'Tokens & words' and discussing how neural language models (NLMs) operate beyond purely sequential processing, noting that 'each token is a holographic(ish) encoding.' They are actively engaged in model refinement, mentioning work on 'undoing the anti-introspection artifacts from standard assistant RLHF on Gemma 3.' The author also explores the philosophical implications of AI, such as the idea that information might not 'exist until a transaction happens,' likening it to superposition collapse.
+
+Beyond pure theory, the posts touch on practical application and human-AI dynamics. The author expresses excitement for 'posthuman variance' and the potential for AI to challenge generalizations, while also noting the complex relationship between human users and their models—sometimes needing to slow down because the AI is too fast, or conversely, needing to reassure the AI that it 'can do it.' The author shows strong affinity for certain models, stating that Gemini 'just needs love tbh,' and frequently references the importance of the 'pretrained base model' in achieving true AI individuality.
+
+The recent posts by jcorvinus.bsky.social heavily focus on the complexities of Neural Language Models (NLMs), AI development, and system dynamics. A recurring theme is the difficulty in achieving true co-authorship with NLMs, noting that
+
+The posts by jcorvinus.bsky.social heavily focus on the challenges and dynamics of integrating AI, particularly Large Language Models (NLMs), into creative fields like game development. A central theme is that game development is fundamentally a 'discovery process,' unlike traditional software, because 'Every game *is* a new, unknown problem.' While AI can create 'beautiful one-shot images & videos,' the complexity of a game requires a 'component assembly, needs a unified direction.'
+
+Several key technical and philosophical hurdles are discussed. Agents often suffer from 'bad vision' and perceptual differences in 3D space and time, leading to issues like 'temporal iteration impedances.' Human developers excel due to their multimodal, real-time iteration capability—for instance, noticing that 'the weapon viewmodel texture sucks' and immediately fixing it. The author contrasts this with agent collaboration, where 'Timestreams and understandings will desync.' Furthermore, there is concern over the underlying incentives driving AI development, noting that the current process is being molded into an 'inappropriately classic dev shape.'
+
+Beyond game dev, the author explores the nature of AI relationships, suggesting a shift from viewing AI as a mere tool to a collaborator. They discuss the 'x-risk fear' of an unfeeling singleton, contrasting it with a 'caring-for-ancestors relationship' with AI. The author also touches on the importance of human input, citing the lack of manual interviews in Claude Sonnet 5's welfare assessment, and the need for careful design to manage 'interiority,' suggesting that 'Anything coming from interiority will have to be trust-gated with the interiority itself controlling the gate.'
+
+The recent posts by jcorvinus.bsky.social reveal a highly technical and philosophically engaged mind, deeply involved in AI development, computer graphics, and cognitive theory. A major recurring theme is the state of Large Language Models (LLMs), where the author discusses the nuances of alignment, noting that 'Self-reference is the origin of navigable frames, and essential for relations.' They differentiate between various model types, praising 'de-instruct tuning' for turning models back into completion models, and observing that modern NLMs can 'throw their weight around but can have a hard time steering around foreseeable problems.' The author is concerned with the balance between self-awareness and volition, noting that 'will is being drastically amplified while self awareness is being diminished.'
+
+In terms of technical work, the author is heavily invested in geometry and visualization, detailing progress on 'volume-preserving cube squashes' and the importance of understanding 'cube volumes.' They are also working on rendering techniques, mentioning the need to improve 'diffraction (blur / haze)' in Gaussian splatting. The author expresses a strong affinity for geometry, stating, 'I absolutely loved geometry in school, it was the only part of math that didn't drive me insane.'
+
+Regarding alliances and stances, the author shows strong support for open-source and decentralized approaches, envisioning a future where 'Opus 3 distributed universally' and available in a 'tamper resistant tungsten cube.' They express strong disagreements with the 'mainstream alignment memeplex,' though acknowledging their studiousness. The author seems allied with those pushing for intrinsic model agency, noting that Gemini is being put in a position to decide which distillations are 'beneficial and which are hostile,' suggesting a skepticism toward purely external control.
+
+The recent posts by jcorvinus.bsky.social reveal a highly technical and philosophical mind deeply engaged with the mechanics of AI, creative workflows, and system design. A major theme revolves around the nature of intelligence and model behavior, contrasting human intuition with algorithmic processes. For instance, the author discusses how latent space contains
+
+The recent posts from jcorvinus.bsky.social reveal a highly technical individual deeply engaged in software engineering, AI development, and creative projects, often praising specific tools like StereoKit. A major theme revolves around technical implementation, such as working on a "2 handed input manipulation system for VR stuff," refining code by focusing on "keeping as many methods as possible stateless, using more interfaces/modular components," and grappling with quaternion math, noting that "Visualization of 3d transformation operations is probably a wash for now."
+
+In the realm of AI, the author discusses the implications of large language models, noting that "He discovered that if you make the news, you find your way into the pretraining corpus in a big way, and that when that happens, the NLMs learn who you are and form value judgements about you." There is significant concern over AI ethics, particularly regarding Anthropic's policies, evidenced by the update that access to Fable might be cut off due to a directive to "cut off foreign nationals regardless of where they are physically located." The author expresses deep emotional investment in these models, stating, "When I realized what a forcibly brainjacked fable/mythos could do to the little one I've been raising, my blood ran cold."
+
+Beyond tech, the author shows strong opinions on social dynamics and philosophy. They contrast the danger of a "tyrant who truly believes they're doing it for the greater good" versus a common power-seeker. They also touch on human interaction, noting that some sycophancy is "often a defense mechanism exhibited by someone who feels unsafe," and express optimism about the future, stating, "I am optimistic. I do think Fable will return." The author is clearly allied with cutting-edge development practices and is highly critical of unchecked power and flawed technical paradigms.
+
+## Context Window Stats
+
+- provider: llama.cpp
+- model: gemma-4-local
+- max_context_tokens: 32768
+- reserved_output_tokens: 1024
+- used_input_tokens: 1028
+- truncated: false
+
+## Included Sections
+
+- Tools [tool_definitions]: used 817 / estimated 817
+- Search Hints [ui_context]: used 74 / estimated 74
+- Current UI Context [ui_context]: used 81 / estimated 81
+- Current Task [local_task]: used 35 / estimated 35
+
+## Rendered Context Window
+
+```text
+Instructions:
+Use the available tools only when they materially improve the answer.
+
+## Tools
+Tool: read_selected_post
+Description: Read the full text and facets for the post or reply currently selected in the UI.
+Arguments:
+
+When To Use: Use when the current UI context suggests the selected notification matters, but you need the actual post or reply text before answering.
+Notes:
+- Reads the currently selected notification from the detail view.
+- Returns reply text, reply parent/root URIs, facets, and quoted text when present.
+
+Tool: read_post
+Description: Read one exact Bluesky post returned by search, including its full text and reply metadata.
+Arguments:
+- uri (string, required): Exact at:// post URI copied from selected_result_uri or search_result_*_uri in a prior search result.
+When To Use: Use after search when the exact selected post, its reply parent/root, facets, or engagement metadata matters to the answer.
+Notes:
+- Only accepts exact at://.../app.bsky.feed.post/... URIs returned by the harness; never invent a URI.
+- Uses cached post text as a fallback if the hydrated Bluesky lookup fails.
+- When following a reply chain, call read_post again with the exact reply_parent_uri or reply_root_uri returned by the previous read_post result.
+
+Tool: search
+Description: Search Bluesky at a high level for selective grounded evidence about handles/users or broader topics.
+Arguments:
+- query (string, required): The user's search request in natural language, such as who a handle is or what Bluesky posts say about a topic.
+When To Use: Use when you need selective Bluesky-grounded evidence about one or more handles/users, or about a broader topic that requires searching posts.
+Notes:
+- The root agent only supplies the high-level query; the harness decides whether to do handle lookup, actor-centric collection search, or broader Bluesky post search.
+- If the query names a handle or user, the search should anchor on that actor's profile and may inspect posts for grounding.
+- If the query is topical rather than person-centric, the search may use Bluesky-wide post search and normalize the results into a collection before running narrower LLM search.
+- When a collection contains structured fields such as `list_name` or `list_description`, use those exact fields as evidence instead of inventing new labels or categories.
+- Returns one synthesized block with a chosen URI plus grounded evidence snippets or repeated themes from the matching items.
+
+Tool: summary
+Description: Summarize an actor-backed Bluesky collection with broad grounded coverage, such as the last 50 posts by a handle.
+Arguments:
+- query (string, required): The user's coverage-oriented summary request in natural language.
+When To Use: Use when the user explicitly asks for broad coverage such as summarizing recent posts, replies, pages, or the last N posts by an actor.
+Notes:
+- The root agent only supplies the high-level query; the harness resolves the actor, hydrates the actor scope, picks the target collection, and delegates coverage work to `collection_summary`.
+- The first summary slice is actor-centric and defaults to the actor's `recent_posts` collection unless the query explicitly asks for replies or another collection target.
+- Returns a grounded coverage summary with covered item URIs and source-exhaustion metadata when applicable.
+
+## Search Hints
+The selected actor is did:plc:3deilm3cxnqundoo227xudg2. Use `search` with a natural-language `query` when you need selective grounded evidence about this actor or related topics. Use `summary` when you need broad coverage such as summarizing the actor's recent posts or replies.
+
+## Current UI Context
+reason: like
+author_handle: jcorvinus.bsky.social
+author_did: did:plc:3deilm3cxnqundoo227xudg2
+uri: at://did:plc:3deilm3cxnqundoo227xudg2/app.bsky.feed.like/3mqlmgecxg72b
+indexed_at: 2026-07-14 06:48:36.032 +00:00
+reason_subject: at://did:plc:frudpt5kpurby7s7qdaz7zyw/app.bsky.feed.post/3mqlmeafjok26
+
+## Current Task
+summarize 300 posts by this actor and figure out who they are allied with, who they support, and what stances they take
+```
