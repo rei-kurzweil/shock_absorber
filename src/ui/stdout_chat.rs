@@ -2,6 +2,8 @@ use crate::app::App;
 use crate::harness::runtime::{
     RootRunState, TranscriptEntry, TranscriptEntryKind, compact_transcript_entries,
 };
+use crate::harness::units::UnitInstanceState;
+use crate::ui::units_renderer::unit_detail_lines;
 use crossterm::Command;
 use crossterm::cursor::{MoveTo, Show};
 use crossterm::queue;
@@ -49,6 +51,61 @@ impl StdoutChatRenderer {
     pub fn enter<W: Write>(&mut self, writer: &mut W, app: &App) -> IoResult<()> {
         queue!(writer, Show)?;
         self.render(writer, app, true)
+    }
+
+    pub fn enter_unit_detail<W: Write>(
+        &mut self,
+        writer: &mut W,
+        app: &App,
+        run: &RootRunState,
+        unit: &UnitInstanceState,
+    ) -> IoResult<()> {
+        let layout = TerminalLayout::capture();
+        let footer_view = render_footer(app, layout.width as usize, layout.fallback);
+        queue!(writer, Show)?;
+        self.apply_layout_change(writer, layout)?;
+        self.move_to_transcript_cursor(writer, layout)?;
+        queue!(
+            writer,
+            Print(format!(
+                "\r\n=== Unit Detail · {} ===\r\n",
+                unit.instance_label
+            )),
+            Print("Ask about this unit below, or press Escape to return to /units.\r\n\r\n")
+        )?;
+        for line in unit_detail_lines(run, unit) {
+            let text = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>();
+            queue!(writer, Print(text), Print("\r\n"))?;
+        }
+        write_footer_view(writer, layout, &footer_view)?;
+        writer.flush()?;
+        self.rendered_footer_view = Some(footer_view);
+        self.terminal_layout = Some(layout);
+        Ok(())
+    }
+
+    pub fn sync_unit_detail<W: Write>(
+        &mut self,
+        writer: &mut W,
+        app: &App,
+        run: &RootRunState,
+        unit: &UnitInstanceState,
+    ) -> IoResult<()> {
+        let layout = TerminalLayout::capture();
+        if self.terminal_layout != Some(layout) {
+            return self.enter_unit_detail(writer, app, run, unit);
+        }
+        let footer_view = render_footer(app, layout.width as usize, layout.fallback);
+        if self.rendered_footer_view.as_ref() != Some(&footer_view) {
+            write_footer_view(writer, layout, &footer_view)?;
+            writer.flush()?;
+            self.rendered_footer_view = Some(footer_view);
+        }
+        Ok(())
     }
 
     pub fn leave<W: Write>(&mut self, writer: &mut W) -> IoResult<()> {

@@ -84,6 +84,22 @@ impl ToolRegistry {
                 ],
             },
             ToolSpec {
+                name: "read_post".to_string(),
+                description: "Read one exact Bluesky post returned by search, including its full text and reply metadata.".to_string(),
+                arguments: vec![ToolArgumentSpec {
+                    name: "uri".to_string(),
+                    value_type: "string".to_string(),
+                    description: "Exact at:// post URI copied from selected_result_uri or search_result_*_uri in a prior search result.".to_string(),
+                    required: true,
+                }],
+                when_to_use: "Use after search when the exact selected post, its reply parent/root, facets, or engagement metadata matters to the answer.".to_string(),
+                notes: vec![
+                    "Only accepts exact at://.../app.bsky.feed.post/... URIs returned by the harness; never invent a URI.".to_string(),
+                    "Uses cached post text as a fallback if the hydrated Bluesky lookup fails.".to_string(),
+                    "When following a reply chain, call read_post again with the exact reply_parent_uri or reply_root_uri returned by the previous read_post result.".to_string(),
+                ],
+            },
+            ToolSpec {
                 name: "search".to_string(),
                 description: "Search Bluesky at a high level for selective grounded evidence about handles/users or broader topics.".to_string(),
                 arguments: vec![
@@ -1089,6 +1105,53 @@ impl BlueskyTools {
         }
     }
 
+    pub async fn read_post(
+        &self,
+        uri: &str,
+        agent: &BskyAgent,
+        store: &NotificationStore,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        validate_post_uri(uri)?;
+        let cached = store.post_collections().into_iter().find_map(|collection| {
+            collection
+                .posts
+                .iter()
+                .find(|post| post.uri == uri)
+                .map(|post| (collection.id.clone(), post.clone()))
+        });
+
+        match agent
+            .api
+            .app
+            .bsky
+            .feed
+            .get_posts(
+                bsky_sdk::api::app::bsky::feed::get_posts::ParametersData {
+                    uris: vec![uri.to_string()],
+                }
+                .into(),
+            )
+            .await
+        {
+            Ok(output) => output
+                .data
+                .posts
+                .into_iter()
+                .next()
+                .map(|post| {
+                    render_hydrated_post(&post, cached.as_ref().map(|item| item.0.as_str()))
+                })
+                .ok_or_else(|| format!("Bluesky returned no post for `{uri}`").into()),
+            Err(err) => match cached {
+                Some((collection_id, post)) => Ok(format!(
+                    "uri: {}\nsource: cache_fallback\nsource_collection_id: {}\nauthor_handle: {}\nlookup_warning: {}\n\ntext:\n{}",
+                    post.uri, collection_id, post.author_handle, err, post.body
+                )),
+                None => Err(format!("failed to read post `{uri}`: {err}").into()),
+            },
+        }
+    }
+
     pub async fn execute_prompt_tool_call(
         &self,
         tool_call: &PromptToolCall,
@@ -1127,6 +1190,15 @@ impl BlueskyTools {
                 agent_node: None,
                 unit_node: None,
             }),
+            "read_post" => {
+                let uri = require_string_arg(&tool_call.args, "uri")?;
+                Ok(ToolExecutionOutput {
+                    rendered: self.read_post(&uri, agent, store).await?,
+                    context_windows: Vec::new(),
+                    agent_node: None,
+                    unit_node: None,
+                })
+            }
             "search" => {
                 let query = require_string_arg(&tool_call.args, "query")?;
                 if let Some(observer) = observer.as_ref() {
@@ -1303,7 +1375,7 @@ impl BlueskyTools {
             ChatMessage {
                 role: "user".to_string(),
                 content: format!(
-                    "User query:\n{query}\n\nInitial scope hints:\n{initial_scope_hints}\n\nHarness-owned requested summary scope:\n{}\n\nWhen you call `summary`, the harness will own paging for that collection automatically. Do not try to manage summary paging manually.\n\nUse tools when needed, then finish with a direct grounded synthesis.",
+                    "User query:\n{query}\n\nInitial scope hints:\n{initial_scope_hints}\n\nHarness-owned requested summary scope:\n{}\n\nEvery subordinate collection search result includes exact `search_result_*_uri` fields. Keep those exact URIs in your main context and ground the final synthesis in them; never rewrite or invent a URI. The harness will promote one exact subordinate URI to `selected_result_uri` for the root agent.\n\nWhen you call `summary`, the harness will own paging for that collection automatically. Do not try to manage summary paging manually.\n\nUse tools when needed, then finish with a direct grounded synthesis.",
                     requested_summary_scope.render_for_planner()
                 ),
             },
@@ -1612,7 +1684,7 @@ impl BlueskyTools {
                     if round == 5 {
                         "This was the final allowed internal tool round. Finish with a direct grounded synthesis now. Do not emit TOOL_CALL."
                     } else {
-                        "Use this result to continue the search or finish with a direct grounded synthesis."
+                        "Use this result to continue the search or finish with a direct grounded synthesis. Preserve every exact `search_result_*_uri`; never paraphrase or invent a URI."
                     }
                 ),
             });
@@ -6808,7 +6880,7 @@ fn render_combined_search_results_with_summary(
     diagnostics: &[String],
 ) -> String {
     if outcomes.len() == 1 {
-        return match outcomes.first() {
+        let rendered = match outcomes.first() {
             Some(outcome) => match outcome.execution.as_ref() {
                 Ok(execution) => render_collection_outcome_result(
                     outcome.tool_kind,
@@ -6823,6 +6895,9 @@ fn render_combined_search_results_with_summary(
             },
             None => "No matching cached posts.".to_string(),
         };
+        return selected_result_header(outcomes)
+            .map(|header| format!("{header}\n{rendered}"))
+            .unwrap_or(rendered);
     }
 
     let mut lines = vec![
@@ -6838,36 +6913,8 @@ fn render_combined_search_results_with_summary(
         lines.push(format!("summary: {summary}"));
     }
 
-    if let Some((outcome, result)) =
-        outcomes
-            .iter()
-            .find_map(|outcome| match outcome.execution.as_ref() {
-                Ok(execution) if execution.is_usable() => {
-                    execution.result.as_ref().map(|result| (outcome, result))
-                }
-                Err(_) => None,
-                _ => None,
-            })
-    {
-        if let Some(search_result) = result
-            .as_search()
-            .and_then(|result| result.search_results.first())
-        {
-            lines.push(format!("selected_result_uri: {}", search_result.uri));
-            if let Some(source_collection_id) = search_result.source_collection_id.as_deref() {
-                lines.push(format!(
-                    "selected_result_source_collection_id: {source_collection_id}"
-                ));
-            }
-        }
-        lines.push(format!(
-            "selected_result_collection_id: {}",
-            outcome.collection_id
-        ));
-        lines.push(format!(
-            "selected_result_collection_label: {}",
-            outcome.collection_label
-        ));
+    if let Some(header) = selected_result_header(outcomes) {
+        lines.extend(header.lines().map(str::to_owned));
     }
 
     for outcome in outcomes {
@@ -6887,6 +6934,34 @@ fn render_combined_search_results_with_summary(
     }
 
     lines.join("\n")
+}
+
+fn selected_result_header(outcomes: &[CollectionToolOutcome]) -> Option<String> {
+    let (outcome, result) =
+        outcomes
+            .iter()
+            .find_map(|outcome| match outcome.execution.as_ref() {
+                Ok(execution) if execution.is_usable() => {
+                    execution.result.as_ref().map(|result| (outcome, result))
+                }
+                _ => None,
+            })?;
+    let search_result = result.as_search()?.search_results.first()?;
+    let mut lines = vec![format!("selected_result_uri: {}", search_result.uri)];
+    if let Some(source_collection_id) = search_result.source_collection_id.as_deref() {
+        lines.push(format!(
+            "selected_result_source_collection_id: {source_collection_id}"
+        ));
+    }
+    lines.push(format!(
+        "selected_result_collection_id: {}",
+        outcome.collection_id
+    ));
+    lines.push(format!(
+        "selected_result_collection_label: {}",
+        outcome.collection_label
+    ));
+    Some(lines.join("\n"))
 }
 
 fn render_collection_outcome_progress_result(
@@ -7305,6 +7380,62 @@ fn render_selected_post(notification: &Notification) -> String {
     lines.join("\n")
 }
 
+fn validate_post_uri(uri: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let remainder = uri
+        .strip_prefix("at://")
+        .ok_or_else(|| format!("`{uri}` is not an exact at:// post URI"))?;
+    let parts = remainder.split('/').collect::<Vec<_>>();
+    if parts.len() != 3
+        || parts[0].parse::<Did>().is_err()
+        || parts[1] != "app.bsky.feed.post"
+        || parts[2].is_empty()
+    {
+        return Err(
+            format!("`{uri}` is not an exact at://<did>/app.bsky.feed.post/<rkey> URI").into(),
+        );
+    }
+    Ok(())
+}
+
+fn render_hydrated_post(
+    post: &bsky_sdk::api::app::bsky::feed::defs::PostView,
+    source_collection_id: Option<&str>,
+) -> String {
+    let reply = extract_reply_node(&post.record);
+    let details = extract_post_details(&post.record);
+    let cid = serde_json::to_value(&post.cid)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "<unknown>".to_string());
+    let mut lines = vec![
+        format!("uri: {}", post.uri),
+        "source: bluesky_hydrated_post".to_string(),
+        format!("cid: {cid}"),
+        format!("author_handle: {}", post.author.data.handle.as_str()),
+        format!("author_did: {}", post.author.data.did.as_str()),
+        format!("indexed_at: {}", post.indexed_at.as_str()),
+    ];
+    if let Some(source_collection_id) = source_collection_id {
+        lines.push(format!("source_collection_id: {source_collection_id}"));
+    }
+    if let Some(parent_uri) = reply.parent_uri.as_deref() {
+        lines.push(format!("reply_parent_uri: {parent_uri}"));
+    }
+    if let Some(root_uri) = reply.root_uri.as_deref() {
+        lines.push(format!("reply_root_uri: {root_uri}"));
+    }
+    lines.extend([
+        format!("reply_count: {}", post.reply_count.unwrap_or(0)),
+        format!("repost_count: {}", post.repost_count.unwrap_or(0)),
+        format!("like_count: {}", post.like_count.unwrap_or(0)),
+        format!("quote_count: {}", post.quote_count.unwrap_or(0)),
+        format!("bookmark_count: {}", post.bookmark_count.unwrap_or(0)),
+        String::new(),
+        render_post_details(details),
+    ]);
+    lines.join("\n")
+}
+
 fn render_post_details(details: Option<PostDetails>) -> String {
     let Some(details) = details else {
         return "No readable post or reply payload was found on the selected notification."
@@ -7435,11 +7566,13 @@ mod tests {
         parse_internal_tool_repair_response, parse_llm_search_result,
         parse_llm_summary_collection_selection_review, parse_prompt_tool_call,
         parse_requested_summary_scope_args, pick_summary_collection_for_hint,
+        prompt_tool_protocol_instructions,
         reduced_search_collection, render_internal_search_tool_protocol, render_llm_result,
         render_public_summary_outcomes,
+        render_combined_search_results_with_summary,
         render_post_details, review_summary_collection_selection, serialize_collection,
         source_collection_id_from_post, summary_hydration_args_for_hint, validate_collection_id,
-        validate_internal_tool_response,
+        validate_internal_tool_response, validate_post_uri,
     };
     use crate::app::EvilGemmaConfig;
     use crate::harness::context_window::{
@@ -7625,6 +7758,65 @@ mod tests {
         assert!(rendered.contains("summary: quote and context"));
         assert!(rendered.contains("search_result_1_uri: at://one"));
         assert!(rendered.contains("search_result_1_source_collection_id: recent:test"));
+    }
+
+    #[test]
+    fn single_collection_search_promotes_exact_selected_result_uri() {
+        let uri = "at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3test";
+        let outcome = CollectionToolOutcome {
+            tool_kind: CollectionLeafToolKind::Search,
+            collection_id: "recent:test".to_string(),
+            collection_label: "Recent test posts".to_string(),
+            execution: Ok(LlmSearchExecution {
+                result: Some(search_leaf_result(LlmSearchResult {
+                    title: "picked post".to_string(),
+                    summary: "grounded summary".to_string(),
+                    search_results: vec![LlmSearchResultItem {
+                        uri: uri.to_string(),
+                        source_collection_id: Some("recent:test".to_string()),
+                    }],
+                })),
+                original_result: None,
+                context_window: empty_test_window(),
+                diagnostic: None,
+                raw_response: None,
+                review_verdict: None,
+                review_context_window: None,
+                repair_diagnostic: None,
+            }),
+        };
+
+        let rendered = render_combined_search_results_with_summary(&[outcome], None, &[]);
+        assert!(rendered.starts_with(&format!("selected_result_uri: {uri}\n")));
+        assert!(rendered.contains(&format!("search_result_1_uri: {uri}")));
+    }
+
+    #[test]
+    fn read_post_requires_an_exact_post_at_uri() {
+        assert!(
+            validate_post_uri("at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3test")
+                .is_ok()
+        );
+        assert!(validate_post_uri("https://bsky.app/profile/example/post/3test").is_err());
+        assert!(
+            validate_post_uri("at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.actor.profile/self")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn root_tool_inventory_exposes_read_post_exact_uri_contract() {
+        let rendered = ToolRegistry::harness_defaults().render_for_prompt();
+        assert!(rendered.contains("Tool: read_post"));
+        assert!(rendered.contains("Exact at:// post URI"));
+    }
+
+    #[test]
+    fn root_prompt_requires_fresh_parent_and_root_post_lookups() {
+        let prompt = prompt_tool_protocol_instructions();
+        assert!(prompt.contains("`read_post` is mandatory"));
+        assert!(prompt.contains("copy the exact `reply_parent_uri` or `reply_root_uri`"));
+        assert!(prompt.contains("Never relabel the child's text or metadata"));
     }
 
     #[test]

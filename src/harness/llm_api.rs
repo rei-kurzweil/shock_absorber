@@ -295,9 +295,6 @@ impl LlmApiClient {
                     last_error = Some(err);
                     if should_retry {
                         on_retry(attempt, MAX_TRANSIENT_ATTEMPTS, TRANSIENT_RETRY_DELAY_SECS);
-                        eprintln!(
-                            "local LLM unavailable (attempt {attempt}/{MAX_TRANSIENT_ATTEMPTS}); retrying in {TRANSIENT_RETRY_DELAY_SECS}s"
-                        );
                         sleep(Duration::from_secs(TRANSIENT_RETRY_DELAY_SECS)).await;
                         continue;
                     }

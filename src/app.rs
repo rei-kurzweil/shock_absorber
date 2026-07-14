@@ -47,6 +47,7 @@ const DEFAULT_EVIL_GEMMA_BASE_URL: &str = "http://127.0.0.1:5000";
 const DEFAULT_EVIL_GEMMA_MODEL: &str = "qwen-3.5-local";
 const DEFAULT_SYSTEM_PROMPT_PATH: &str = "system_prompt.md";
 const DEFAULT_APP_CONFIG_PATH: &str = "shock_absorber.config.json";
+const MAX_UNIT_RUN_HISTORY: usize = 20;
 
 #[derive(Clone)]
 pub enum DetailView {
@@ -55,6 +56,7 @@ pub enum DetailView {
     Command { title: String, lines: Vec<String> },
     ContextVisualization(ContextVisualizationData),
     Units,
+    UnitDetail,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +66,7 @@ enum AppActivity {
     CommandOverlay,
     ContextVisualization,
     Units,
+    UnitDetail,
     AiChat,
 }
 
@@ -71,6 +74,7 @@ enum AppActivity {
 pub enum PresentationMode {
     Tui,
     StdoutChat,
+    StdoutUnitDetail,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +97,7 @@ pub struct App {
     detail: DetailView,
     root_conversation: Vec<ConversationTurn>,
     root_run: Option<RootRunState>,
+    completed_unit_runs: Vec<RootRunState>,
     active_root_run: Option<ActiveRootRunTask>,
     deferred_detail: Option<DetailView>,
     last_non_chat_detail: Option<DetailView>,
@@ -190,6 +195,7 @@ impl App {
             },
             root_conversation: Vec::new(),
             root_run: None,
+            completed_unit_runs: Vec::new(),
             active_root_run: None,
             deferred_detail: None,
             last_non_chat_detail: None,
@@ -294,6 +300,7 @@ impl App {
             DetailView::Command { title, .. } => title.clone(),
             DetailView::ContextVisualization(data) => data.title.clone(),
             DetailView::Units => "Execution Units".to_string(),
+            DetailView::UnitDetail => "Unit Detail".to_string(),
         }
     }
 
@@ -307,6 +314,7 @@ impl App {
             DetailView::Command { .. } => AppActivity::CommandOverlay,
             DetailView::ContextVisualization(_) => AppActivity::ContextVisualization,
             DetailView::Units => AppActivity::Units,
+            DetailView::UnitDetail => AppActivity::UnitDetail,
         }
     }
 
@@ -320,7 +328,10 @@ impl App {
     fn is_fullscreen_overlay(&self) -> bool {
         matches!(
             self.detail,
-            DetailView::Command { .. } | DetailView::ContextVisualization(_) | DetailView::Units
+            DetailView::Command { .. }
+                | DetailView::ContextVisualization(_)
+                | DetailView::Units
+                | DetailView::UnitDetail
         )
     }
 
@@ -331,6 +342,7 @@ impl App {
             DetailView::Command { lines, .. } => ratatui::text::Text::from(lines.join("\n")),
             DetailView::ContextVisualization(_) => ratatui::text::Text::from(""),
             DetailView::Units => ratatui::text::Text::from(""),
+            DetailView::UnitDetail => ratatui::text::Text::from(""),
         }
     }
 
@@ -631,7 +643,7 @@ impl App {
         let verb = parts.next().unwrap_or_default();
 
         if !is_local_command(verb) {
-            self.start_root_run(agent.clone(), evil_gemma.clone(), command)?;
+            self.start_root_run(agent.clone(), evil_gemma.clone(), command, None)?;
             return Ok(());
         }
 
@@ -844,8 +856,14 @@ impl App {
         };
     }
 
-    fn dismiss_command_output(&mut self) {
+    fn dismiss_fullscreen_overlay(&mut self) {
         self.detail_scroll = 0;
+        if matches!(self.detail, DetailView::UnitDetail) {
+            self.detail = DetailView::Units;
+            self.presentation_mode = PresentationMode::Tui;
+            self.status = "returned to units view".to_string();
+            return;
+        }
         if let Some(detail) = self.deferred_detail.take() {
             self.detail = detail;
         } else {
@@ -859,11 +877,17 @@ impl App {
             AppActivity::AiChat => {
                 self.detail_scroll = 0;
                 if let Some(detail) = self.last_non_chat_detail.clone() {
+                    let is_unit_detail = matches!(detail, DetailView::UnitDetail);
                     self.detail = detail;
+                    self.presentation_mode = if is_unit_detail {
+                        PresentationMode::StdoutUnitDetail
+                    } else {
+                        PresentationMode::Tui
+                    };
                 } else {
                     self.detail = DetailView::Notification;
+                    self.presentation_mode = PresentationMode::Tui;
                 }
-                self.presentation_mode = PresentationMode::Tui;
                 self.status = "returned to previous view".to_string();
             }
             _ => {
@@ -910,18 +934,6 @@ impl App {
         lines
     }
 
-    fn units_lines(&self) -> Vec<String> {
-        let Some(run) = self.root_run.as_ref() else {
-            return vec![
-                "No unit run available yet.".to_string(),
-                "Run a query, then use `/units` to inspect the unit graph.".to_string(),
-            ];
-        };
-        let mut lines = Vec::new();
-        render_unit_lines(run.root_unit(), 0, &mut lines);
-        lines
-    }
-
     fn build_context_visualization(
         &self,
         evil_gemma: &EvilGemmaConfig,
@@ -958,6 +970,7 @@ impl App {
         agent: Arc<BskyAgent>,
         evil_gemma: Arc<EvilGemmaConfig>,
         query: String,
+        inspection_context: Option<String>,
     ) -> Result<(), Box<dyn Error>> {
         if self.active_root_run.is_some() {
             self.status = "a root run is already active; use /stop first".to_string();
@@ -980,12 +993,13 @@ impl App {
         let selected_notification = self.opened_notification().cloned();
         let store = self.store.clone();
 
-        let root_run = self.build_root_run_state(
+        let root_run = self.build_root_run_state_with_context(
             evil_gemma.as_ref(),
             query.as_str(),
             selected_actor_did.as_ref(),
             selected_actor_summary,
             &root_conversation,
+            inspection_context.as_deref(),
         );
         self.root_run = Some(root_run.clone());
         self.chat_title = Some(format!("evil_gemma: {query}"));
@@ -1023,6 +1037,7 @@ impl App {
         Ok(())
     }
 
+    #[cfg(test)]
     fn build_root_run_state(
         &self,
         evil_gemma: &EvilGemmaConfig,
@@ -1030,6 +1045,25 @@ impl App {
         selected_actor_did: Option<&bsky_sdk::api::types::string::Did>,
         selected_actor_summary: Option<String>,
         root_conversation: &[ConversationTurn],
+    ) -> RootRunState {
+        self.build_root_run_state_with_context(
+            evil_gemma,
+            query,
+            selected_actor_did,
+            selected_actor_summary,
+            root_conversation,
+            None,
+        )
+    }
+
+    fn build_root_run_state_with_context(
+        &self,
+        evil_gemma: &EvilGemmaConfig,
+        query: &str,
+        selected_actor_did: Option<&bsky_sdk::api::types::string::Did>,
+        selected_actor_summary: Option<String>,
+        root_conversation: &[ConversationTurn],
+        inspection_context: Option<&str>,
     ) -> RootRunState {
         let root_context_window = {
             let tools = BlueskyTools::new();
@@ -1042,7 +1076,11 @@ impl App {
                 &evil_gemma.client,
             )
         };
-        let initial_context = root_context_window.rendered.clone();
+        let mut initial_context = root_context_window.rendered.clone();
+        if let Some(inspection_context) = inspection_context {
+            initial_context.push_str("\n\n# Inspected Execution Unit\n");
+            initial_context.push_str(inspection_context);
+        }
         let messages = vec![
             ContextMessage {
                 kind: ContextMessageKind::InitialSystem,
@@ -1141,7 +1179,7 @@ impl App {
                 .unwrap_or(false);
             match event {
                 RootRunEvent::Progress(root_run) => {
-                    let keep_units = matches!(self.detail, DetailView::Units);
+                    let keep_units = matches!(self.detail, DetailView::Units | DetailView::UnitDetail);
                     let query = root_run.query().to_string();
                     self.root_run = Some(root_run.clone());
                     self.chat_title = Some(format!("evil_gemma: {query}"));
@@ -1150,19 +1188,22 @@ impl App {
                     self.status = format!("evil_gemma running: {}", root_run.status().as_str());
                 }
                 RootRunEvent::ToolProgress(event) => {
-                    let keep_units = matches!(self.detail, DetailView::Units);
+                    let keep_units = matches!(self.detail, DetailView::Units | DetailView::UnitDetail);
                     if let Some(root_run) = self.root_run.as_mut() {
                         match event {
                             ToolProgressEvent::AgentUpdate {
                                 label,
                                 depth,
                                 content,
-                            } => root_run.push_agent_entry(
-                                TranscriptEntryKind::AgentEvent,
-                                label,
-                                depth,
-                                content,
-                            ),
+                            } => {
+                                root_run.apply_agent_progress_unit(&label, depth, &content);
+                                root_run.push_agent_entry(
+                                    TranscriptEntryKind::AgentEvent,
+                                    label,
+                                    depth,
+                                    content,
+                                );
+                            }
                         }
                         let query = root_run.query().to_string();
                         self.chat_title = Some(format!("evil_gemma: {query}"));
@@ -1176,6 +1217,12 @@ impl App {
                     response,
                 } => {
                     let query = root_run.query().to_string();
+                    self.completed_unit_runs
+                        .retain(|run| run.run_id() != root_run.run_id());
+                    self.completed_unit_runs.push(root_run.clone());
+                    if self.completed_unit_runs.len() > MAX_UNIT_RUN_HISTORY {
+                        self.completed_unit_runs.remove(0);
+                    }
                     self.store = store;
                     self.root_conversation.push(ConversationTurn {
                         user: query.clone(),
@@ -1229,6 +1276,7 @@ impl App {
     fn move_selection_up(&mut self) {
         if matches!(self.detail, DetailView::Units) {
             self.selected_unit = self.selected_unit.saturating_sub(1);
+            self.detail_scroll = 0;
             return;
         }
         match self.current_split_view() {
@@ -1248,8 +1296,15 @@ impl App {
 
     fn move_selection_down(&mut self) {
         if matches!(self.detail, DetailView::Units) {
-            let count = self.root_run.as_ref().map(|run| count_units(run.root_unit())).unwrap_or(0);
-            if self.selected_unit + 1 < count { self.selected_unit += 1; }
+            let count = self
+                .unit_runs_for_view()
+                .iter()
+                .map(|run| count_units(run.root_unit()))
+                .sum::<usize>();
+            if self.selected_unit + 1 < count {
+                self.selected_unit += 1;
+                self.detail_scroll = 0;
+            }
             return;
         }
         match self.current_split_view() {
@@ -1269,6 +1324,18 @@ impl App {
     }
 
     fn activate_selected_item(&mut self) {
+        if matches!(self.detail, DetailView::Units) {
+            if self.selected_unit_for_view().is_some() {
+                self.detail_scroll = 0;
+                self.detail = DetailView::UnitDetail;
+                self.presentation_mode = PresentationMode::StdoutUnitDetail;
+                self.status = "unit detail opened".to_string();
+            }
+            return;
+        }
+        if matches!(self.detail, DetailView::UnitDetail) {
+            return;
+        }
         match self.current_split_view() {
             SplitView::Notifications => self.open_selected_notification(),
             SplitView::Agents => {}
@@ -1277,6 +1344,60 @@ impl App {
 
     pub fn presentation_mode(&self) -> PresentationMode {
         self.presentation_mode
+    }
+
+    fn unit_runs_for_view(&self) -> Vec<&RootRunState> {
+        let current_run_id = self.root_run.as_ref().map(RootRunState::run_id);
+        self.root_run
+            .iter()
+            .chain(
+                self.completed_unit_runs
+                    .iter()
+                    .rev()
+                    .filter(|run| Some(run.run_id()) != current_run_id),
+            )
+            .collect()
+    }
+
+    fn selected_unit_for_view(&self) -> Option<(&RootRunState, &UnitInstanceState)> {
+        let mut remaining = self.selected_unit;
+        for run in self.unit_runs_for_view() {
+            if let Some(unit) = nth_unit(run.root_unit(), &mut remaining) {
+                return Some((run, unit));
+            }
+        }
+        None
+    }
+
+    fn selected_unit_inspection_context(&self) -> Option<String> {
+        let (run, unit) = self.selected_unit_for_view()?;
+        let details = ui::units_renderer::unit_detail_lines(run, unit)
+            .into_iter()
+            .map(line_to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(format!(
+            "The user submitted this question while inspecting the execution unit below. Use this state as context and distinguish it from the newly started root run.\n\n{details}"
+        ))
+    }
+
+    async fn execute_unit_detail_input(
+        &mut self,
+        agent: &Arc<BskyAgent>,
+        evil_gemma: &Arc<EvilGemmaConfig>,
+        command: String,
+    ) -> Result<(), Box<dyn Error>> {
+        let verb = command.split_whitespace().next().unwrap_or_default();
+        if is_local_command(verb) {
+            return self.execute_input(agent, evil_gemma, command).await;
+        }
+        let inspection_context = self.selected_unit_inspection_context();
+        self.start_root_run(
+            agent.clone(),
+            evil_gemma.clone(),
+            command,
+            inspection_context,
+        )
     }
 
     pub fn chat_editor(&self) -> &ChatEditor {
@@ -1342,6 +1463,12 @@ pub async fn run_app(
                     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
                     stdout_chat.enter(terminal.backend_mut(), &app)?;
                 }
+                PresentationMode::StdoutUnitDetail => {
+                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                    if let Some((run, unit)) = app.selected_unit_for_view() {
+                        stdout_chat.enter_unit_detail(terminal.backend_mut(), &app, run, unit)?;
+                    }
+                }
                 PresentationMode::Tui => {
                     stdout_chat.leave(terminal.backend_mut())?;
                     execute!(terminal.backend_mut(), EnterAlternateScreen)?;
@@ -1358,6 +1485,11 @@ pub async fn run_app(
             }
             PresentationMode::StdoutChat => {
                 stdout_chat.sync(terminal.backend_mut(), &app)?;
+            }
+            PresentationMode::StdoutUnitDetail => {
+                if let Some((run, unit)) = app.selected_unit_for_view() {
+                    stdout_chat.sync_unit_detail(terminal.backend_mut(), &app, run, unit)?;
+                }
             }
         }
 
@@ -1379,11 +1511,11 @@ pub async fn run_app(
                         KeyCode::Down => app.move_selection_down(),
                         KeyCode::Left if matches!(app.detail, DetailView::Units) => {
                             if key.modifiers.contains(KeyModifiers::SHIFT) { app.units_horizontal_scroll = app.units_horizontal_scroll.saturating_sub(4); }
-                            else { app.selected_unit = app.selected_unit.saturating_sub(1); }
+                            else { app.move_selection_up(); }
                         }
                         KeyCode::Right if matches!(app.detail, DetailView::Units) => {
                             if key.modifiers.contains(KeyModifiers::SHIFT) { app.units_horizontal_scroll = app.units_horizontal_scroll.saturating_add(4); }
-                            else { app.selected_unit = app.selected_unit.saturating_add(1); }
+                            else { app.move_selection_down(); }
                         }
                         KeyCode::PageUp => {
                             app.detail_scroll = app.detail_scroll.saturating_sub(4);
@@ -1398,7 +1530,7 @@ pub async fn run_app(
                             if !app.input.is_empty() {
                                 app.input.clear();
                             } else if app.is_fullscreen_overlay() {
-                                app.dismiss_command_output();
+                                app.dismiss_fullscreen_overlay();
                             }
                         }
                         KeyCode::Backspace => {
@@ -1462,6 +1594,57 @@ pub async fn run_app(
                                 let command = app.chat_editor_mut().take_text();
                                 if let Err(err) =
                                     app.execute_input(&agent, &evil_gemma, command).await
+                                {
+                                    app.status = format!("command failed: {err}");
+                                    app.set_command_output(
+                                        "error",
+                                        vec![
+                                            format!("command failed: {err}"),
+                                            "try `/help` for supported commands".to_string(),
+                                        ],
+                                    );
+                                } else {
+                                    db.save_store(&app.store)?;
+                                }
+                            }
+                        }
+                        KeyCode::Char(ch)
+                            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                && !key.modifiers.contains(KeyModifiers::ALT) =>
+                        {
+                            app.chat_editor_mut().insert_char(ch);
+                        }
+                        _ => {}
+                    },
+                    PresentationMode::StdoutUnitDetail => match key.code {
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.should_quit = true;
+                        }
+                        KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            app.chat_editor_mut().insert_newline();
+                        }
+                        KeyCode::Left => app.chat_editor_mut().move_left(),
+                        KeyCode::Right => app.chat_editor_mut().move_right(),
+                        KeyCode::Up => app.chat_editor_mut().move_up(),
+                        KeyCode::Down => app.chat_editor_mut().move_down(),
+                        KeyCode::Backspace => app.chat_editor_mut().backspace(),
+                        KeyCode::Tab => app.toggle_ai_chat_view(),
+                        KeyCode::Esc => {
+                            if !app.chat_editor().is_empty() {
+                                app.chat_editor_mut().clear();
+                            } else {
+                                app.dismiss_fullscreen_overlay();
+                            }
+                        }
+                        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                            app.chat_editor_mut().insert_newline();
+                        }
+                        KeyCode::Enter => {
+                            if !app.chat_editor().trimmed_text().is_empty() {
+                                let command = app.chat_editor_mut().take_text();
+                                if let Err(err) = app
+                                    .execute_unit_detail_input(&agent, &evil_gemma, command)
+                                    .await
                                 {
                                     app.status = format!("command failed: {err}");
                                     app.set_command_output(
@@ -1658,44 +1841,24 @@ fn build_post_nodes(replies: Vec<CachedThreadReply>) -> Vec<PostNode> {
         .collect()
 }
 
-fn render_unit_lines(
-    unit: &UnitInstanceState,
-    depth: usize,
-    lines: &mut Vec<String>,
-) {
-    let indent = "  ".repeat(depth);
-    lines.push(format!(
-        "{indent}- {} [{}] status={} active_node={}",
-        unit.instance_label,
-        unit.kind.as_str(),
-        unit.status.as_str(),
-        unit.active_node.as_deref().unwrap_or("<none>")
-    ));
-    if let Some(collection_id) = unit.collection_id.as_deref() {
-        lines.push(format!("{indent}  collection_id: {collection_id}"));
-    }
-    if let Some(blocked_on_child) = unit.blocked_on_child.as_deref() {
-        lines.push(format!("{indent}  blocked_on_child: {blocked_on_child}"));
-    }
-    if let Some(local_state) = unit.local_state.compact_summary() {
-        lines.push(format!("{indent}  local_state:"));
-        for line in local_state.lines() {
-            lines.push(format!("{indent}    {line}"));
-        }
-    }
-    if let Some(summary) = unit.result_summary.as_deref() {
-        let summary = summary.trim();
-        if !summary.is_empty() {
-            lines.push(format!("{indent}  result: {}", summary.lines().next().unwrap_or("")));
-        }
-    }
-    for child in &unit.children {
-        render_unit_lines(child, depth + 1, lines);
-    }
-}
-
 fn count_units(unit: &UnitInstanceState) -> usize {
     1 + unit.children.iter().map(count_units).sum::<usize>()
+}
+
+fn nth_unit<'a>(
+    unit: &'a UnitInstanceState,
+    remaining: &mut usize,
+) -> Option<&'a UnitInstanceState> {
+    if *remaining == 0 {
+        return Some(unit);
+    }
+    *remaining -= 1;
+    for child in &unit.children {
+        if let Some(found) = nth_unit(child, remaining) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn help_lines() -> Vec<String> {
@@ -1834,9 +1997,20 @@ fn draw_ui(frame: &mut Frame, app: &App) {
                 );
             }
             DetailView::Units => ui::units_renderer::render(
-                frame, chunks[0], app.root_run.as_ref().map(|run| run.root_unit()),
+                frame, chunks[0], &app.unit_runs_for_view(),
                 app.selected_unit, app.detail_scroll, app.units_horizontal_scroll,
             ),
+            DetailView::UnitDetail => {
+                if let Some((run, unit)) = app.selected_unit_for_view() {
+                    ui::units_renderer::render_detail(
+                        frame,
+                        chunks[0],
+                        run,
+                        unit,
+                        app.detail_scroll,
+                    );
+                }
+            }
             DetailView::Notification | DetailView::Agents => {}
         }
     } else {
@@ -1935,6 +2109,52 @@ mod tests {
     }
 
     #[test]
+    fn unit_detail_opens_from_units_and_escape_returns_to_units() {
+        let mut app = App::new("tester".to_string());
+        let evil_gemma = test_evil_gemma_config();
+        app.root_run = Some(app.build_root_run_state(
+            &evil_gemma,
+            "inspect the units",
+            None,
+            None,
+            &[],
+        ));
+        app.detail = DetailView::Units;
+
+        app.activate_selected_item();
+
+        assert!(matches!(app.detail, DetailView::UnitDetail));
+        assert_eq!(
+            app.presentation_mode(),
+            PresentationMode::StdoutUnitDetail
+        );
+        app.detail_scroll = 12;
+
+        app.dismiss_fullscreen_overlay();
+
+        assert!(matches!(app.detail, DetailView::Units));
+        assert_eq!(app.detail_scroll, 0);
+    }
+
+    #[test]
+    fn inspected_unit_context_is_added_without_changing_the_visible_query() {
+        let app = App::new("tester".to_string());
+        let evil_gemma = test_evil_gemma_config();
+        let run = app.build_root_run_state_with_context(
+            &evil_gemma,
+            "why did this unit fail?",
+            None,
+            None,
+            &[],
+            Some("instance_id: unit-7\nstatus: failed"),
+        );
+
+        assert_eq!(run.query(), "why did this unit fail?");
+        assert!(run.messages()[1].message.content.contains("# Inspected Execution Unit"));
+        assert!(run.messages()[1].message.content.contains("instance_id: unit-7"));
+    }
+
+    #[test]
     fn app_config_round_trips_model_choice() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1981,5 +2201,33 @@ mod tests {
                 "expected no echoed transcript entry for {command}"
             );
         }
+    }
+
+    #[test]
+    fn unit_view_keeps_completed_run_history_after_a_follow_up() {
+        let mut app = App::new("tester".to_string());
+        let evil_gemma = test_evil_gemma_config();
+        let mut tool_run =
+            app.build_root_run_state(&evil_gemma, "use a tool", None, None, &[]);
+        tool_run.root_unit_mut().push_child(UnitInstanceState::new(UnitDefinition {
+            id: "child".to_string(),
+            label: "Child Unit".to_string(),
+            kind: UnitKind::PublicToolOrchestration,
+            graph: None,
+            local_state_schema: UnitLocalStateSchema::None,
+        }));
+        let tool_run_id = tool_run.run_id();
+        app.completed_unit_runs.push(tool_run);
+
+        let follow_up =
+            app.build_root_run_state(&evil_gemma, "follow up", None, None, &[]);
+        let follow_up_id = follow_up.run_id();
+        app.root_run = Some(follow_up);
+
+        let runs = app.unit_runs_for_view();
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].run_id(), follow_up_id);
+        assert_eq!(runs[1].run_id(), tool_run_id);
+        assert_eq!(runs[1].root_unit().children.len(), 1);
     }
 }

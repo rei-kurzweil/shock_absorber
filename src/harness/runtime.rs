@@ -2,7 +2,10 @@ use crate::harness::agents::AgentGraph;
 use crate::harness::context_window::BuiltContextWindow;
 use crate::harness::llm_api::ChatMessage;
 use crate::harness::tools::PromptToolCall;
-use crate::harness::units::{UnitInstanceState, agent_graph_from_root_unit};
+use crate::harness::units::{
+    UnitDefinition, UnitInstanceState, UnitInstanceStatus, UnitKind, UnitLocalStateSchema,
+    agent_graph_from_root_unit,
+};
 use crate::visualization::context::ContextVisualizationData;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
@@ -227,6 +230,14 @@ impl RootRunState {
             agent_label: Some(agent_label.into()),
             depth,
         });
+    }
+
+    pub fn apply_agent_progress_unit(&mut self, label: &str, depth: usize, content: &str) {
+        if depth == 0 {
+            return;
+        }
+        apply_progress_at_depth(&mut self.root_unit, label, depth, content);
+        self.refresh_agent_graph_from_units();
     }
 
     pub fn tool_call_history(&self) -> &[RootToolCallRecord] {
@@ -479,6 +490,91 @@ impl RootRunState {
     }
 }
 
+fn apply_progress_at_depth(
+    parent: &mut UnitInstanceState,
+    label: &str,
+    depth: usize,
+    content: &str,
+) {
+    if depth > 1 {
+        if let Some(child) = parent.children.last_mut() {
+            apply_progress_at_depth(child, label, depth - 1, content);
+        }
+        return;
+    }
+
+    let child_index = parent
+        .children
+        .iter()
+        .position(|child| child.instance_label == label)
+        .unwrap_or_else(|| {
+            let kind = progress_unit_kind(label);
+            let mut child = UnitInstanceState::new(UnitDefinition {
+                id: format!("progress.{}", normalize_progress_id(label)),
+                label: label.to_string(),
+                kind,
+                graph: None,
+                local_state_schema: UnitLocalStateSchema::None,
+            });
+            if label.ends_with(" tool agent") {
+                child.tool_name = label.split_whitespace().next().map(str::to_string);
+            }
+            parent.children.push(child);
+            parent.children.len() - 1
+        });
+    let child = &mut parent.children[child_index];
+    child.status = progress_status(content);
+    child.result_summary = Some(content.to_string());
+    if let Some(node) = progress_field(content, "node") {
+        child.active_node = Some(node.to_string());
+    }
+    if let Some(collection_id) = progress_field(content, "collection_id") {
+        child.collection_id = Some(collection_id.to_string());
+    }
+}
+
+fn progress_unit_kind(label: &str) -> UnitKind {
+    if label.ends_with(" tool agent") {
+        UnitKind::PublicToolOrchestration
+    } else if label.contains("review") {
+        UnitKind::SummaryReview
+    } else {
+        UnitKind::DeterministicOrchestration
+    }
+}
+
+fn progress_status(content: &str) -> UnitInstanceStatus {
+    match progress_field(content, "status").unwrap_or("running") {
+        "completed" | "accepted" | "resolved" | "selected" => UnitInstanceStatus::Completed,
+        "warning" | "completed_with_warnings" => UnitInstanceStatus::CompletedWithWarnings,
+        "failed" | "rejected" => UnitInstanceStatus::Failed,
+        "blocked" | "blocked_on_child" => UnitInstanceStatus::BlockedOnChild,
+        _ => UnitInstanceStatus::Running,
+    }
+}
+
+fn progress_field<'a>(content: &'a str, field: &str) -> Option<&'a str> {
+    content.lines().find_map(|line| {
+        let (key, value) = line.trim().split_once(':')?;
+        (key == field)
+            .then(|| value.trim())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn normalize_progress_id(label: &str) -> String {
+    label
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 fn render_panel_entry(
     agent_label: Option<&str>,
     depth: usize,
@@ -588,6 +684,45 @@ fn canonicalize_json_value(value: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_root_unit() -> UnitInstanceState {
+        UnitInstanceState::new(UnitDefinition {
+            id: "root".to_string(),
+            label: "root unit".to_string(),
+            kind: UnitKind::Root,
+            graph: None,
+            local_state_schema: UnitLocalStateSchema::None,
+        })
+    }
+
+    #[test]
+    fn agent_progress_builds_and_updates_a_live_unit_tree() {
+        let mut root = test_root_unit();
+        apply_progress_at_depth(
+            &mut root,
+            "summary tool agent",
+            1,
+            "query: summarize 100 posts\nstatus: running",
+        );
+        apply_progress_at_depth(&mut root, "summary_scope_resolution", 2, "status: running");
+        apply_progress_at_depth(
+            &mut root,
+            "summary_scope_resolution",
+            2,
+            "status: resolved\ncollection_id: recent_posts:did:plc:test",
+        );
+
+        assert_eq!(root.children.len(), 1);
+        let summary = &root.children[0];
+        assert_eq!(summary.tool_name.as_deref(), Some("summary"));
+        assert_eq!(summary.status, UnitInstanceStatus::Running);
+        assert_eq!(summary.children.len(), 1);
+        assert_eq!(summary.children[0].status, UnitInstanceStatus::Completed);
+        assert_eq!(
+            summary.children[0].collection_id.as_deref(),
+            Some("recent_posts:did:plc:test")
+        );
+    }
 
     #[test]
     fn compacts_consecutive_agent_updates_to_latest_status() {

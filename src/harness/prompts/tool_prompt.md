@@ -32,6 +32,12 @@ args: {"query":"summarize the last 50 posts by mara.x0f.nl"}`
 
 Use `read_selected_post` when you need the selected post or reply body and facets.
 
+After `search`, use `read_post` with an exact `selected_result_uri` or `search_result_*_uri` when you need the selected post's full text, reply parent/root, facets, or engagement metadata. Copy the URI exactly; never invent one.
+
+`read_post` is mandatory when the user asks to read, open, inspect, or look up an exact `at://.../app.bsky.feed.post/...` URI. Do not answer such a request from Recent Chat or from an earlier assistant paraphrase.
+
+When the user asks to read the parent or root post after a prior `read_post` result, copy the exact `reply_parent_uri` or `reply_root_uri` from that result and call `read_post` again with that URI. The previous result describes the child post, not the parent/root post. Never relabel the child's text or metadata as its parent/root.
+
 For actor reputation, sentiment, faction, or moderation-list questions, prefer `search` directly instead of manually walking collections.
 
 Use `search` for selective grounded Bluesky evidence.

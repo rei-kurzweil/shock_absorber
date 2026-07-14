@@ -3,6 +3,7 @@ use crate::harness::context_window_logger::{
     log_agent_graph, log_chat_transcript, log_current_task, log_root_prompt_snapshot,
     log_unit_graph,
 };
+use crate::harness::llm_api::LlmApiClient;
 use crate::harness::root_context::build_live_context_visualization;
 use crate::harness::runtime::{
     ContextMessage, ContextMessageKind, RootRunState, RootRunStatus, SuccessfulRootToolRun,
@@ -30,6 +31,31 @@ use tokio::time::timeout;
 const MAX_TOOL_CALL_ROUNDS: usize = 3;
 const MAX_TOOL_PREP_ATTEMPTS: usize = 2;
 const INITIAL_COLLECTION_REFRESH_TIMEOUT: StdDuration = StdDuration::from_secs(30);
+
+async fn complete_root_chat(
+    llm_client: &LlmApiClient,
+    root_run: &mut RootRunState,
+    sender: &UnboundedSender<RootRunEvent>,
+    max_tokens: usize,
+) -> Result<String, Box<dyn Error>> {
+    let messages = root_run.llm_messages();
+    llm_client
+        .complete_chat_with_retry_observer(
+            messages,
+            max_tokens,
+            None,
+            |attempt, max_attempts, delay_secs| {
+                root_run.push_transcript_entry(
+                    TranscriptEntryKind::Notice,
+                    format!(
+                        "Runtime Notice\nlocal LLM unavailable (attempt {attempt}/{max_attempts}); retrying in {delay_secs}s"
+                    ),
+                );
+                let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
+            },
+        )
+        .await
+}
 
 pub enum RootRunEvent {
     Progress(RootRunState),
@@ -61,10 +87,7 @@ pub async fn run_root_query_task(
         let _ = sender.send(RootRunEvent::Progress(root_run.clone()));
 
         for round in 0..MAX_TOOL_CALL_ROUNDS {
-            response = evil_gemma
-                .client
-                .complete_chat(root_run.llm_messages(), 1024)
-                .await?;
+            response = complete_root_chat(&evil_gemma.client, &mut root_run, &sender, 1024).await?;
 
             let Some(tool_call) = parse_prompt_tool_call(&response) else {
                 root_run.record_round(round + 1, response.clone(), None, false, None);
@@ -328,9 +351,7 @@ pub async fn run_root_query_task(
                 "user",
                 "You have already used the maximum number of tool rounds. Answer the original query directly using the tool results already provided. Do not emit TOOL_CALL.",
             );
-            response = evil_gemma
-                .client
-                .complete_chat(root_run.llm_messages(), 1024)
+            response = complete_root_chat(&evil_gemma.client, &mut root_run, &sender, 1024)
                 .await
                 .unwrap_or_else(|_| {
                     "Tool loop stopped after the configured maximum number of tool rounds without a final answer.".to_string()
@@ -355,9 +376,7 @@ pub async fn run_root_query_task(
                 "user",
                 "Your previous answer appears cut off. Finish the answer directly in at most one short paragraph plus up to 3 bullets. Start with a bottom-line conclusion sentence. Do not emit TOOL_CALL.",
             );
-            response = evil_gemma
-                .client
-                .complete_chat(root_run.llm_messages(), 320)
+            response = complete_root_chat(&evil_gemma.client, &mut root_run, &sender, 320)
                 .await
                 .unwrap_or(response);
             let live_visualization = build_live_context_visualization(
